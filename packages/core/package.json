@@ -20,7 +20,7 @@
     "@glif/filecoin-address": "^2.0.43",
     "@glif/filecoin-message": "2.0.44",
     "@magiceden-oss/open_creator_protocol": "^0.3.2",
-    "@metaplex-foundation/mpl-token-metadata": "^2.7.0",
+    "@metaplex-foundation/mpl-token-metadata": "^3.0.0",
     "@mymonero/mymonero-app-bridge": "^3.0.0",
     "@mymonero/mymonero-keyimage-cache": "^3.0.0",
     "@noble/secp256k1": "1.7.1",
