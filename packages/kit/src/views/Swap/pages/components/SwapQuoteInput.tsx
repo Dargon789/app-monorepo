@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect } from 'react';
 
+import BigNumber from 'bignumber.js';
 import { InputAccessoryView } from 'react-native';
 
 import { IconButton, SizableText, Stack, YStack } from '@onekeyhq/components';
@@ -8,6 +9,7 @@ import {
   useSwapFromTokenAmountAtom,
   useSwapLimitPriceFromAmountAtom,
   useSwapLimitPriceToAmountAtom,
+  useSwapNativeTokenReserveGasAtom,
   useSwapQuoteCurrentSelectAtom,
   useSwapSelectFromTokenAtom,
   useSwapSelectToTokenAtom,
@@ -15,22 +17,26 @@ import {
   useSwapSelectedFromTokenBalanceAtom,
   useSwapSelectedToTokenBalanceAtom,
   useSwapToTokenAmountAtom,
+  useSwapTypeSwitchAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/swap';
+import { validateAmountInput } from '@onekeyhq/kit/src/utils/validateAmountInput';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import {
-  EProtocolOfExchange,
+  checkWrappedTokenPair,
+  equalTokenNoCaseSensitive,
+} from '@onekeyhq/shared/src/utils/tokenUtils';
+import {
   ESwapDirectionType,
+  ESwapTabSwitchType,
   SwapAmountInputAccessoryViewID,
 } from '@onekeyhq/shared/types/swap/types';
 
 import { useSwapFromAccountNetworkSync } from '../../hooks/useSwapAccount';
-import { useSwapApproving } from '../../hooks/useSwapApproving';
 import { useSwapQuote } from '../../hooks/useSwapQuote';
 import {
   useSwapQuoteEventFetching,
   useSwapQuoteLoading,
 } from '../../hooks/useSwapState';
-import { validateAmountInput } from '../../utils/utils';
 
 import SwapInputContainer from './SwapInputContainer';
 
@@ -58,23 +64,23 @@ const SwapQuoteInput = ({
   const [toTokenBalance] = useSwapSelectedToTokenBalanceAtom();
   const [swapLimitPriceFromAmount] = useSwapLimitPriceFromAmountAtom();
   const [swapLimitPriceToAmount] = useSwapLimitPriceToAmountAtom();
+  const [swapTypeSwitchValue] = useSwapTypeSwitchAtom();
+  const [swapNativeTokenReserveGas] = useSwapNativeTokenReserveGasAtom();
   useSwapQuote();
   useSwapFromAccountNetworkSync();
-  useSwapApproving();
 
   const getTransform = useCallback(() => {
     if (!platformEnv.isNative) {
       return { transform: 'translate(-50%, -50%)' };
     }
     return {
-      transform: [{ translateX: -24 }, { translateY: -24 }],
+      transform: [{ translateX: -13 }, { translateY: -13 }], // size small
     };
   }, []);
 
   useEffect(() => {
     if (
-      swapQuoteCurrentSelect?.protocol === EProtocolOfExchange.LIMIT &&
-      !swapQuoteCurrentSelect?.isWrapped &&
+      swapTypeSwitchValue === ESwapTabSwitchType.LIMIT &&
       swapLimitPriceFromAmount
     ) {
       setFromInputAmount({
@@ -82,17 +88,11 @@ const SwapQuoteInput = ({
         isInput: false,
       });
     }
-  }, [
-    setFromInputAmount,
-    swapLimitPriceFromAmount,
-    swapQuoteCurrentSelect?.isWrapped,
-    swapQuoteCurrentSelect?.protocol,
-  ]);
+  }, [setFromInputAmount, swapLimitPriceFromAmount, swapTypeSwitchValue]);
 
   useEffect(() => {
     if (
-      swapQuoteCurrentSelect?.protocol === EProtocolOfExchange.LIMIT &&
-      !swapQuoteCurrentSelect?.isWrapped &&
+      swapTypeSwitchValue === ESwapTabSwitchType.LIMIT &&
       swapLimitPriceToAmount
     ) {
       setToInputAmount({
@@ -100,24 +100,55 @@ const SwapQuoteInput = ({
         isInput: false,
       });
     }
-  }, [
-    setToInputAmount,
-    swapLimitPriceToAmount,
-    swapQuoteCurrentSelect?.isWrapped,
-    swapQuoteCurrentSelect?.protocol,
-  ]);
+  }, [setToInputAmount, swapLimitPriceToAmount, swapTypeSwitchValue]);
 
   useEffect(() => {
     if (
-      swapQuoteCurrentSelect?.protocol !== EProtocolOfExchange.LIMIT ||
-      swapQuoteCurrentSelect?.isWrapped
+      swapTypeSwitchValue !== ESwapTabSwitchType.LIMIT ||
+      checkWrappedTokenPair({
+        fromToken,
+        toToken,
+      })
     ) {
+      let toAmount = '';
+      if (
+        equalTokenNoCaseSensitive({
+          token1: fromToken,
+          token2: swapQuoteCurrentSelect?.fromTokenInfo,
+        }) &&
+        equalTokenNoCaseSensitive({
+          token1: toToken,
+          token2: swapQuoteCurrentSelect?.toTokenInfo,
+        })
+      ) {
+        toAmount = swapQuoteCurrentSelect?.toAmount ?? '';
+      }
+      if (
+        checkWrappedTokenPair({
+          fromToken,
+          toToken,
+        })
+      ) {
+        toAmount = swapQuoteCurrentSelect?.isWrapped
+          ? swapQuoteCurrentSelect?.toAmount ?? ''
+          : '';
+      }
       setToInputAmount({
-        value: swapQuoteCurrentSelect?.toAmount ?? '',
+        value: toAmount,
         isInput: false,
       });
     }
-  }, [swapQuoteCurrentSelect, setToInputAmount, setFromInputAmount]);
+  }, [
+    swapQuoteCurrentSelect?.toAmount,
+    swapQuoteCurrentSelect?.fromTokenInfo,
+    swapQuoteCurrentSelect?.toTokenInfo,
+    swapQuoteCurrentSelect?.isWrapped,
+    setToInputAmount,
+    setFromInputAmount,
+    swapTypeSwitchValue,
+    fromToken,
+    toToken,
+  ]);
 
   return (
     <YStack gap="$2">
@@ -137,9 +168,20 @@ const SwapQuoteInput = ({
         onSelectPercentageStage={onSelectPercentageStage}
         amountValue={fromInputAmount.value}
         onBalanceMaxPress={() => {
-          const maxAmount = fromTokenBalance;
+          let maxAmount = new BigNumber(fromTokenBalance ?? 0);
+          if (fromToken?.isNative) {
+            const reserveGas = swapNativeTokenReserveGas.find(
+              (item) => item.networkId === fromToken.networkId,
+            )?.reserveGas;
+            if (reserveGas) {
+              maxAmount = BigNumber.max(
+                0,
+                maxAmount.minus(new BigNumber(reserveGas)),
+              );
+            }
+          }
           setFromInputAmount({
-            value: maxAmount,
+            value: maxAmount.toFixed(),
             isInput: true,
           });
         }}
@@ -147,7 +189,6 @@ const SwapQuoteInput = ({
         balance={fromTokenBalance}
       />
       <Stack
-        bg="$bgApp"
         borderRadius="$full"
         style={{
           position: 'absolute',
@@ -159,20 +200,20 @@ const SwapQuoteInput = ({
       >
         <IconButton
           alignSelf="center"
-          bg="$bgSubdued"
-          icon="SwitchVerOutline"
-          size="medium"
+          bg="$bgApp"
+          variant="tertiary"
+          icon="SwapVerOutline"
+          iconProps={{
+            color: '$icon',
+          }}
+          size="small"
           disabled={swapTokenDetailLoading.from || swapTokenDetailLoading.to}
           onPress={alternationToken}
-          hoverStyle={{
-            bg: '$bgStrongHover',
-          }}
-          pressStyle={{
-            bg: '$bgStrongActive',
-          }}
-          borderRadius="$full"
-          borderWidth="$1.5"
-          borderColor="$bgApp"
+          borderWidth="$1"
+          cursor="pointer"
+          hoverStyle={{}}
+          pressStyle={{}}
+          opacity={1}
         />
       </Stack>
       <SwapInputContainer

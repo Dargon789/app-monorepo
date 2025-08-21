@@ -21,7 +21,7 @@ const maxRecentCallsSize = 2000;
 const resetThreshold = 3000;
 
 const defaultSettings: IOneKeyDBPerfMonitorSettings = {
-  toastWarningEnabled: true,
+  toastWarningEnabled: false, // Default to false, controlled by dev settings
   toastWarningSize: 70,
   consoleLogEnabled: false,
   debuggerEnabled: false,
@@ -32,6 +32,7 @@ const shouldDbTxCreatedDebuggerRule: Record<string, boolean> = {
   'OneKeyStorage_readwrite': false,
   'OneKeyV5_readonly': false,
   'OneKeyV5_readwrite': false,
+  'OneKeyV5-account_readonly': false,
 };
 
 const shouldLocalDbDebuggerRule: Record<string, number> = {
@@ -49,11 +50,19 @@ const shouldLocalDbDebuggerRule: Record<string, number> = {
   'appStorage.setItem__g_states_v5:notificationsAtom': 999,
 };
 
-const IS_ENABLED =
-  platformEnv.isDev ||
-  Boolean(
-    syncStorage?.getBoolean(EAppSyncStorageKeys.onekey_developer_mode_enabled),
-  );
+let IS_ENABLED = false;
+
+function updateIsEnabled() {
+  IS_ENABLED =
+    platformEnv.isDev ||
+    Boolean(
+      syncStorage?.getBoolean(
+        EAppSyncStorageKeys.onekey_developer_mode_enabled,
+      ),
+    );
+}
+
+updateIsEnabled();
 
 let settings: IOneKeyDBPerfMonitorSettings | undefined = (() => {
   if (!IS_ENABLED) {
@@ -205,7 +214,7 @@ function logResult({ autoReset, isWarning, muteLog }: ILogResultParams = {}) {
         logData,
       );
 
-      console.groupCollapsed('\t', logName, 'Details');
+      console.groupCollapsed('\t', logName, 'Details ⬇️⬇️⬇️⬇️');
       console.log({
         globalStats: logDataAll,
         globalRecentCalls,
@@ -272,7 +281,7 @@ function toastWarningAndReset(key: string) {
         item?.[1]?.startsWith('appStorage.getItem__g_states_v5:'),
       );
       if (
-        key === 'OneKeyStorage_readonly' &&
+        key === 'OneKeyStorage-simpleDB_readonly' &&
         atomInitCalls &&
         atomInitCalls?.length >= 30
       ) {
@@ -282,6 +291,7 @@ function toastWarningAndReset(key: string) {
     }
 
     if (shouldShowToast) {
+      updateIsEnabled();
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-call
       appGlobals?.$Toast?.error({
         title: 'IndexedDB is being accessed too frequently',
@@ -417,7 +427,7 @@ function logIndexedDBCreateTx() {
       globalThis.IDBDatabase.prototype.transaction = function (
         storeNames: string | string[],
         mode?: IDBTransactionMode,
-        options?: IDBTransactionOptions,
+        _options?: IDBTransactionOptions,
       ) {
         clearTimeout(resetTimer);
 

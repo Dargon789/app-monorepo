@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useMemo } from 'react';
 
 import BigNumber from 'bignumber.js';
+import { debounce } from 'lodash';
 
 import {
+  useSwapActions,
   useSwapLimitPriceMarketPriceAtom,
   useSwapLimitPriceRateReverseAtom,
   useSwapLimitPriceUseRateAtom,
+  useSwapSelectFromTokenAtom,
+  useSwapSelectToTokenAtom,
+  useSwapTypeSwitchAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/swap';
-import { equalTokenNoCaseSensitive } from '@onekeyhq/shared/src/utils/tokenUtils';
+import { validateAmountInput } from '@onekeyhq/kit/src/utils/validateAmountInput';
+import { useInAppNotificationAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  checkWrappedTokenPair,
+  equalTokenNoCaseSensitive,
+} from '@onekeyhq/shared/src/utils/tokenUtils';
 import { LimitMarketUpPercentages } from '@onekeyhq/shared/types/swap/types';
-
-import { validateAmountInput } from '../utils/utils';
 
 export const useSwapLimitRate = () => {
   const [limitPriceUseRate, setLimitPriceUseRate] =
@@ -18,7 +26,14 @@ export const useSwapLimitRate = () => {
   const [limitPriceSetReverse, setLimitPriceSetReverse] =
     useSwapLimitPriceRateReverseAtom();
   const [limitPriceMarketPrice] = useSwapLimitPriceMarketPriceAtom();
-
+  const [swapTypeSwitchValue] = useSwapTypeSwitchAtom();
+  const [fromSelectToken] = useSwapSelectFromTokenAtom();
+  const [toSelectToken] = useSwapSelectToTokenAtom();
+  const [, setInAppNotification] = useInAppNotificationAtom();
+  const {
+    limitOrderMarketPriceIntervalAction,
+    cleanLimitOrderMarketPriceInterval,
+  } = useSwapActions().current;
   const onLimitRateChange = useCallback(
     (text: string) => {
       const isValidate = validateAmountInput(
@@ -30,12 +45,12 @@ export const useSwapLimitRate = () => {
       if (isValidate) {
         const inputRate = new BigNumber(text);
         if (text === '' || inputRate.isNaN() || inputRate.isZero()) {
-          setLimitPriceUseRate({
-            ...limitPriceUseRate,
+          setLimitPriceUseRate((v) => ({
+            ...v,
             rate: '0',
             reverseRate: '0',
             inputRate: text,
-          });
+          }));
         } else {
           const inputBN = new BigNumber(inputRate);
           const newRate = limitPriceSetReverse
@@ -56,12 +71,12 @@ export const useSwapLimitRate = () => {
               BigNumber.ROUND_HALF_UP,
             )
             .toFixed();
-          setLimitPriceUseRate({
-            ...limitPriceUseRate,
+          setLimitPriceUseRate((v) => ({
+            ...v,
             rate: newRateValue,
             reverseRate: newReverseRateValue,
             inputRate: text,
-          });
+          }));
         }
       }
     },
@@ -69,10 +84,26 @@ export const useSwapLimitRate = () => {
       limitPriceMarketPrice.fromToken?.decimals,
       limitPriceMarketPrice.toToken?.decimals,
       limitPriceSetReverse,
-      limitPriceUseRate,
       setLimitPriceUseRate,
     ],
   );
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const limitOrderMarketPriceIntervalDeb = useCallback(
+    debounce(() => {
+      void limitOrderMarketPriceIntervalAction();
+    }, 300),
+    [],
+  );
+
+  useEffect(() => {
+    void limitOrderMarketPriceIntervalDeb();
+  }, [
+    swapTypeSwitchValue,
+    fromSelectToken,
+    toSelectToken,
+    limitOrderMarketPriceIntervalDeb,
+  ]);
 
   const limitPriceMarketRate = useMemo(
     () =>
@@ -129,14 +160,14 @@ export const useSwapLimitRate = () => {
         limitPriceMarketPrice.fromToken?.decimals ?? 0,
         BigNumber.ROUND_HALF_UP,
       );
-      setLimitPriceUseRate({
-        ...limitPriceMarketPrice,
+      setLimitPriceUseRate((v) => ({
+        ...v,
         rate: formatRate.toFixed(),
         reverseRate: formatReverseRate.toFixed(),
         inputRate: limitPriceSetReverse
           ? formatReverseRate.toFixed()
           : formatRate.toFixed(),
-      });
+      }));
     },
     [setLimitPriceUseRate, limitPriceMarketPrice, limitPriceSetReverse],
   );
@@ -144,24 +175,24 @@ export const useSwapLimitRate = () => {
   const onChangeReverse = useCallback(
     (reverse: boolean) => {
       setLimitPriceSetReverse(reverse);
-      setLimitPriceUseRate({
-        ...limitPriceUseRate,
+      setLimitPriceUseRate((v) => ({
+        ...v,
         inputRate: reverse
           ? limitPriceUseRate.reverseRate
           : limitPriceUseRate.rate,
-      });
+      }));
     },
     [setLimitPriceSetReverse, setLimitPriceUseRate, limitPriceUseRate],
   );
 
   useEffect(() => {
-    if (limitPriceMarketPrice.fromTokenMarketPrice) {
-      const { fromToken, toToken, provider } = limitPriceUseRate;
-      const {
-        fromToken: fromTokenMarket,
-        toToken: toTokenMarket,
-        provider: providerMarket,
-      } = limitPriceMarketPrice;
+    if (
+      limitPriceMarketPrice.fromTokenMarketPrice &&
+      limitPriceMarketPrice.toTokenMarketPrice
+    ) {
+      const { fromToken, toToken } = limitPriceUseRate;
+      const { fromToken: fromTokenMarket, toToken: toTokenMarket } =
+        limitPriceMarketPrice;
       if (
         !equalTokenNoCaseSensitive({
           token1: fromToken,
@@ -170,8 +201,7 @@ export const useSwapLimitRate = () => {
         !equalTokenNoCaseSensitive({
           token1: toToken,
           token2: toTokenMarket,
-        }) ||
-        provider !== providerMarket
+        })
       ) {
         setLimitPriceUseRate({
           ...limitPriceMarketPrice,
@@ -191,15 +221,38 @@ export const useSwapLimitRate = () => {
   ]);
 
   useEffect(() => {
-    if (!limitPriceMarketPrice.rate) {
+    if (
+      !limitPriceMarketPrice.rate ||
+      checkWrappedTokenPair({
+        fromToken: fromSelectToken,
+        toToken: toSelectToken,
+      })
+    ) {
       setLimitPriceUseRate({});
       setLimitPriceSetReverse(false);
     }
   }, [
+    fromSelectToken,
     limitPriceMarketPrice.rate,
     setLimitPriceSetReverse,
     setLimitPriceUseRate,
+    toSelectToken,
   ]);
+
+  useEffect(
+    () => () => {
+      cleanLimitOrderMarketPriceInterval();
+      setLimitPriceUseRate({});
+      setLimitPriceSetReverse(false);
+      setInAppNotification((v) => ({ ...v, swapLimitOrdersLoading: false }));
+    },
+    [
+      setLimitPriceSetReverse,
+      setLimitPriceUseRate,
+      cleanLimitOrderMarketPriceInterval,
+      setInAppNotification,
+    ],
+  );
 
   return {
     onLimitRateChange,

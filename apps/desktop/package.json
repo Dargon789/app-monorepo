@@ -10,7 +10,7 @@
     "keytar": "node development/build_keytar.js",
     "clean": "rimraf ./build-electron && rimraf .tamagui && rimraf ./app/build && rimraf ./app/dist && rimraf __generated__",
     "clean:build": "rimraf ./build-electron && rimraf ./app/build && rimraf ./app/dist && rimraf ./node_modules/.cache",
-    "start": "yarn dev",
+    "start": "cross-env NODE_OPTIONS=\"--max-old-space-size=8192\" yarn dev",
     "install-app-deps": "electron-builder install-app-deps",
     "dev": "yarn keytar && npx concurrently \"yarn build:main:dev\" \"yarn dev:renderer\" \"cross-env LAUNCH_ELECTRON=true node scripts/dev.js\"",
     "dev:main": "electron --inspect=5858 app/dist/app.js",
@@ -33,6 +33,7 @@
     "_folderslint": "yarn folderslint"
   },
   "dependencies": {
+    "@abandonware/noble": "^1.9.2-26",
     "@sentry/electron": "5.8.0",
     "adm-zip": "^0.5.10",
     "electron-check-biometric-auth-changed": "0.0.6",
@@ -41,7 +42,7 @@
     "electron-log": "5.2.0",
     "electron-store": "^8.2.0",
     "electron-updater": "6.1.8",
-    "electron-windows-security": "0.0.5",
+    "electron-windows-security": "0.0.7",
     "keytar": "^7.9.0",
     "node-fetch": "^2.6.7"
   },
@@ -53,7 +54,7 @@
     "@types/node-fetch": "^2.6.1",
     "concurrently": "8.2.2",
     "cross-env": "^7.0.3",
-    "electron": "27.3.1",
+    "electron": "31.7.7",
     "electron-builder": "26.0.9",
     "esbuild": "0.15.18",
     "folderslint": "^1.2.0",

@@ -19,6 +19,7 @@ import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/background
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import useDappApproveAction from '@onekeyhq/kit/src/hooks/useDappApproveAction';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import useShouldRejectDappAction from '@onekeyhq/kit/src/hooks/useShouldRejectDappAction';
 import {
   useDecodedTxsAtom,
   useNativeTokenInfoAtom,
@@ -28,6 +29,7 @@ import {
   useSendSelectedFeeInfoAtom,
   useSendTxStatusAtom,
   useSignatureConfirmActions,
+  useTronResourceRentalInfoAtom,
   useTxAdvancedSettingsAtom,
   useUnsignedTxsAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/signatureConfirm';
@@ -35,9 +37,12 @@ import type { ITransferPayload } from '@onekeyhq/kit-bg/src/vaults/types';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type { IModalSendParamList } from '@onekeyhq/shared/src/routes';
+import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { checkIsEmptyData } from '@onekeyhq/shared/src/utils/evmUtils';
+import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { getTxnType } from '@onekeyhq/shared/src/utils/txActionUtils';
 import type { IDappSourceInfo } from '@onekeyhq/shared/types';
+import type { IEncodedTxLightning } from '@onekeyhq/shared/types/lightning';
 import { ESendPreCheckTimingEnum } from '@onekeyhq/shared/types/send';
 import {
   EReplaceTxType,
@@ -46,6 +51,7 @@ import {
 } from '@onekeyhq/shared/types/tx';
 
 import { usePreCheckFeeInfo } from '../../hooks/usePreCheckFeeInfo';
+import { showCustomHexDataAlert } from '../CustomHexDataAlert';
 import TxFeeInfo from '../TxFee';
 
 type IProps = {
@@ -95,6 +101,7 @@ function TxConfirmActions(props: IProps) {
   const { updateSendTxStatus } = useSignatureConfirmActions().current;
   const successfullySentTxs = useRef<string[]>([]);
   const { bottom } = useSafeAreaInsets();
+  const [tronResourceRentalInfo] = useTronResourceRentalInfoAtom();
 
   const toAddress = transferPayload?.originalRecipient;
   const unsignedTx = unsignedTxs[0];
@@ -103,6 +110,7 @@ function TxConfirmActions(props: IProps) {
     id: sourceInfo?.id ?? '',
     closeWindowAfterResolved: true,
   });
+  const { shouldRejectDappAction } = useShouldRejectDappAction();
 
   const vaultSettings = usePromiseResult(
     () =>
@@ -118,11 +126,23 @@ function TxConfirmActions(props: IProps) {
       networkId,
     });
 
-  const handleOnConfirm = useCallback(async () => {
-    const { serviceSend } = backgroundApiProxy;
+  const submitTxs = useCallback(async () => {
+    const { serviceSend, serviceAccount } = backgroundApiProxy;
+
+    if (sourceInfo) {
+      const walletId = accountUtils.getWalletIdFromAccountId({
+        accountId,
+      });
+      if (
+        await serviceAccount.checkIsWalletNotBackedUp({
+          walletId,
+        })
+      ) {
+        return;
+      }
+    }
 
     updateSendTxStatus({ isSubmitting: true });
-    isSubmitted.current = true;
     // Pre-check before submit
 
     const accountAddress =
@@ -132,7 +152,7 @@ function TxConfirmActions(props: IProps) {
       });
     try {
       if (
-        unsignedTx.isInternalTransfer &&
+        unsignedTx?.isInternalTransfer &&
         networkId &&
         accountAddress &&
         toAddress
@@ -163,9 +183,31 @@ function TxConfirmActions(props: IProps) {
       throw e;
     }
 
+    try {
+      const resp =
+        await backgroundApiProxy.serviceSignatureConfirm.preActionsBeforeSending(
+          {
+            accountId,
+            networkId,
+            unsignedTxs,
+            tronResourceRentalInfo,
+          },
+        );
+
+      if (resp?.preSendTx && accountUtils.isQrAccount({ accountId })) {
+        navigation.popStack();
+      }
+    } catch (e: any) {
+      updateSendTxStatus({ isSubmitting: false });
+      onFail?.(e as Error);
+      isSubmitted.current = false;
+      void dappApprove.reject(e);
+      throw e;
+    }
+
     let newUnsignedTxs: IUnsignedTxPro[];
     try {
-      newUnsignedTxs = await serviceSend.updateUnSignedTxBeforeSend({
+      newUnsignedTxs = await serviceSend.updateUnSignedTxBeforeSending({
         accountId,
         networkId,
         unsignedTxs,
@@ -179,6 +221,7 @@ function TxConfirmActions(props: IProps) {
             }
           : undefined,
         feeInfoEditable,
+        tronResourceRentalInfo,
       });
     } catch (e: any) {
       updateSendTxStatus({ isSubmitting: false });
@@ -248,6 +291,7 @@ function TxConfirmActions(props: IProps) {
           replaceTxInfo,
           transferPayload,
           successfullySentTxs: successfullySentTxs.current,
+          tronResourceRentalInfo,
         });
 
       if (vaultSettings?.afterSendTxActionEnabled) {
@@ -261,6 +305,7 @@ function TxConfirmActions(props: IProps) {
       const transferInfo = newUnsignedTxs?.[0].transfersInfo?.[0];
       const swapInfo = newUnsignedTxs?.[0].swapInfo;
       const stakingInfo = newUnsignedTxs?.[0].stakingInfo;
+      const isTronNetwork = networkUtils.isTronNetworkByNetworkId(networkId);
       defaultLogger.transaction.send.sendConfirm({
         network: networkId,
         txnType: getTxnType({
@@ -272,6 +317,24 @@ function TxConfirmActions(props: IProps) {
         tokenSymbol: transferInfo?.tokenInfo?.symbol,
         tokenType: transferInfo?.nftInfo ? 'NFT' : 'Token',
         interactContract: undefined,
+        tronIsResourceRentalNeeded: isTronNetwork
+          ? tronResourceRentalInfo?.isResourceRentalNeeded
+          : undefined,
+        tronIsResourceRentalEnabled: isTronNetwork
+          ? tronResourceRentalInfo?.isResourceRentalEnabled
+          : undefined,
+        tronIsSwapTrxEnabled: isTronNetwork
+          ? tronResourceRentalInfo?.isSwapTrxEnabled
+          : undefined,
+        tronPayCoinCode: isTronNetwork
+          ? tronResourceRentalInfo?.payTokenInfo?.symbol
+          : undefined,
+        tronUseCredit: isTronNetwork
+          ? tronResourceRentalInfo?.isResourceClaimed
+          : undefined,
+        tronUseRedemptionCode: isTronNetwork
+          ? tronResourceRentalInfo?.isResourceRedeemed
+          : undefined,
       });
 
       Toast.success({
@@ -282,16 +345,51 @@ function TxConfirmActions(props: IProps) {
 
       const signedTx = result[0].signedTx;
 
+      isSubmitted.current = true;
+
       void dappApprove.resolve({ result: signedTx });
+
+      if (accountUtils.isQrAccount({ accountId })) {
+        navigation.popStack();
+      }
 
       if (popStack) {
         navigation.popStack();
       } else {
         navigation.pop();
       }
+
       updateSendTxStatus({ isSubmitting: false });
       onSuccess?.(result);
+
+      const isLightningNetwork =
+        networkUtils.isLightningNetworkByNetworkId(networkId);
+      if (isLightningNetwork || transferPayload?.originalRecipient) {
+        let addressToSave: undefined | string | null =
+          transferPayload?.originalRecipient;
+
+        if (isLightningNetwork) {
+          addressToSave = (unsignedTxs[0].encodedTx as IEncodedTxLightning)
+            ?.lightningAddress;
+
+          if (!addressToSave) {
+            addressToSave = transferInfo?.lnurl;
+          }
+        }
+
+        if (addressToSave) {
+          void backgroundApiProxy.serviceSignatureConfirm.updateRecentRecipients(
+            {
+              networkId,
+              address: addressToSave,
+            },
+          );
+        }
+      }
     } catch (e: any) {
+      if (accountUtils.isQrAccount({ accountId })) {
+        navigation.popStack();
+      }
       updateSendTxStatus({ isSubmitting: false });
       // show toast by @toastIfError() in background method
       // Toast.error({
@@ -299,15 +397,18 @@ function TxConfirmActions(props: IProps) {
       // });
       onFail?.(e as Error);
       isSubmitted.current = false;
-      void dappApprove.reject(e);
+      if (shouldRejectDappAction()) {
+        void dappApprove.reject(e);
+      }
       throw e;
     }
   }, [
+    sourceInfo,
     updateSendTxStatus,
     accountId,
     networkId,
     sendSelectedFeeInfo,
-    unsignedTx.isInternalTransfer,
+    unsignedTx?.isInternalTransfer,
     toAddress,
     unsignedTxs,
     nativeTokenTransferAmountToUpdate.isMaxSend,
@@ -316,18 +417,33 @@ function TxConfirmActions(props: IProps) {
     dappApprove,
     txAdvancedSettings.nonce,
     feeInfoEditable,
+    tronResourceRentalInfo,
     checkFeeInfoIsOverflow,
     showFeeInfoOverflowConfirm,
     vaultSettings?.replaceTxEnabled,
     vaultSettings?.afterSendTxActionEnabled,
     signOnly,
-    sourceInfo,
     transferPayload,
     intl,
     popStack,
     onSuccess,
     navigation,
+    shouldRejectDappAction,
   ]);
+
+  const handleOnConfirm = useCallback(async () => {
+    if (decodedTxs[0]?.isCustomHexData) {
+      showCustomHexDataAlert({
+        decodedTx: decodedTxs[0],
+        toAddress: transferPayload?.originalRecipient ?? decodedTxs[0].to ?? '',
+        onConfirm: async () => {
+          await submitTxs();
+        },
+      });
+    } else {
+      await submitTxs();
+    }
+  }, [decodedTxs, submitTxs, transferPayload?.originalRecipient]);
 
   const cancelCalledRef = useRef(false);
   const onCancelOnce = useCallback(() => {
@@ -360,7 +476,11 @@ function TxConfirmActions(props: IProps) {
     if (showTakeRiskAlert && !continueOperate) return true;
 
     if (sendTxStatus.isSubmitting) return true;
-    if (nativeTokenInfo.isLoading || sendTxStatus.isInsufficientNativeBalance)
+    if (
+      nativeTokenInfo.isLoading ||
+      sendTxStatus.isInsufficientNativeBalance ||
+      sendTxStatus.isInsufficientTokenBalance
+    )
       return true;
     if (isBuildingDecodedTxs) return true;
 
@@ -373,6 +493,7 @@ function TxConfirmActions(props: IProps) {
     continueOperate,
     sendTxStatus.isSubmitting,
     sendTxStatus.isInsufficientNativeBalance,
+    sendTxStatus.isInsufficientTokenBalance,
     nativeTokenInfo.isLoading,
     isBuildingDecodedTxs,
     sendSelectedFeeInfo,

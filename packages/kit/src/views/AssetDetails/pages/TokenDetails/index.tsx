@@ -10,13 +10,14 @@ import type {
   IActionListSection,
   IListViewProps,
   ISectionListProps,
+  IStackProps,
 } from '@onekeyhq/components';
 import {
   ActionList,
   Page,
   Spinner,
   Stack,
-  Tab,
+  Tabs,
   getFontToken,
   useClipboard,
   useMedia,
@@ -42,9 +43,15 @@ import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { waitAsync } from '@onekeyhq/shared/src/utils/promiseUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 import type { IAccountHistoryTx } from '@onekeyhq/shared/types/history';
-import type { IToken } from '@onekeyhq/shared/types/token';
+import type {
+  IFetchTokenDetailItem,
+  IToken,
+} from '@onekeyhq/shared/types/token';
 
-import { TokenDetailsContext } from './TokenDetailsContext';
+import {
+  TokenDetailsContext,
+  useTokenDetailsContext,
+} from './TokenDetailsContext';
 import TokenDetailsFooter from './TokenDetailsFooter';
 import TokenDetailsViews from './TokenDetailsView';
 
@@ -66,8 +73,9 @@ export type IProps = {
   isTabView?: boolean;
   listViewContentContainerStyle?: IListViewProps<IAccountHistoryTx>['contentContainerStyle'];
   indexedAccountId?: string;
+  inTabList?: boolean;
   ListHeaderComponent?: ISectionListProps<any>['ListHeaderComponent'];
-};
+} & IStackProps;
 function TokenDetailsView() {
   const intl = useIntl();
 
@@ -80,6 +88,7 @@ function TokenDetailsView() {
     >();
 
   const { copyText } = useClipboard();
+  const { updateTokenMetadata } = useTokenDetailsContext();
 
   const {
     accountId,
@@ -89,9 +98,10 @@ function TokenDetailsView() {
     deriveType,
     tokenInfo,
     isAllNetworks,
+    indexedAccountId,
   } = route.params;
 
-  const { account, network, vaultSettings } = useAccountData({
+  const { network, vaultSettings } = useAccountData({
     accountId,
     networkId,
     walletId,
@@ -143,17 +153,29 @@ function TokenDetailsView() {
         await backgroundApiProxy.serviceAccount.getNetworkAccountsInSameIndexedAccountIdWithDeriveTypes(
           {
             networkId,
-            indexedAccountId: account?.indexedAccountId ?? '',
+            indexedAccountId,
           },
         );
       await waitAsync(600);
       return r;
     },
-    [networkId, account?.indexedAccountId],
+    [networkId, indexedAccountId],
     {
       watchLoading: true,
     },
   );
+
+  usePromiseResult(async () => {
+    const resp = await backgroundApiProxy.serviceToken.fetchTokenInfoOnly({
+      networkId,
+      contractList: [tokenInfo.address],
+    });
+    updateTokenMetadata({
+      price: resp[0]?.price ?? 0,
+      priceChange24h: resp[0]?.price24h ?? 0,
+      coingeckoId: resp[0]?.info?.coingeckoId ?? '',
+    });
+  }, [networkId, tokenInfo.address, updateTokenMetadata]);
 
   const fontColor = useThemeValue('text');
 
@@ -169,25 +191,21 @@ function TokenDetailsView() {
     [fontColor],
   );
 
-  const { gtMd } = useMedia();
-  const { width } = useWindowDimensions();
-
-  const contentItemWidth = useMemo(() => {
-    if (platformEnv.isNative) {
-      return undefined;
-    }
-    return gtMd ? 640 : width;
-  }, [gtMd, width]);
-
   const listViewContentContainerStyle = useMemo(() => ({ pt: '$5' }), []);
   const tabs = useMemo(() => {
-    if (accountId && networkId && walletId) {
-      return result?.networkAccounts.map((item) => ({
-        title: item.deriveInfo.labelKey
-          ? intl.formatMessage({ id: item.deriveInfo.labelKey })
-          : item.deriveInfo.label ?? '',
-        page: () => (
+    if (networkId && walletId) {
+      return result?.networkAccounts.map((item, index) => (
+        <Tabs.Tab
+          key={String(index)}
+          name={
+            item.deriveInfo.labelKey
+              ? intl.formatMessage({ id: item.deriveInfo.labelKey })
+              : item.deriveInfo.label ?? String(index)
+          }
+        >
           <TokenDetailsViews
+            inTabList
+            isTabView
             accountId={item.account?.id ?? ''}
             networkId={networkId}
             walletId={walletId}
@@ -196,16 +214,14 @@ function TokenDetailsView() {
             tokenInfo={tokenInfo}
             isAllNetworks={isAllNetworks}
             listViewContentContainerStyle={listViewContentContainerStyle}
-            indexedAccountId={account?.indexedAccountId}
-            isTabView
+            indexedAccountId={indexedAccountId}
           />
-        ),
-      }));
+        </Tabs.Tab>
+      ));
     }
 
     return [];
   }, [
-    accountId,
     networkId,
     walletId,
     result?.networkAccounts,
@@ -213,10 +229,10 @@ function TokenDetailsView() {
     tokenInfo,
     isAllNetworks,
     listViewContentContainerStyle,
-    account?.indexedAccountId,
+    indexedAccountId,
   ]);
 
-  const renderTokenDetailsView = useCallback(() => {
+  const tokenDetailsViewElement = useMemo(() => {
     if (isLoading)
       return (
         <Stack
@@ -234,13 +250,11 @@ function TokenDetailsView() {
     ) {
       if (tabs && !isEmpty(tabs) && tabs.length > 1) {
         return (
-          <Tab
-            disableRefresh
-            data={tabs}
-            contentItemWidth={contentItemWidth as any}
-            initialScrollIndex={0}
-            showsVerticalScrollIndicator={false}
-          />
+          <Tabs.Container
+            renderTabBar={(props) => <Tabs.TabBar {...props} scrollable />}
+          >
+            {tabs}
+          </Tabs.Container>
         );
       }
       return null;
@@ -255,35 +269,34 @@ function TokenDetailsView() {
         deriveType={deriveType}
         tokenInfo={tokenInfo}
         isAllNetworks={isAllNetworks}
-        indexedAccountId={account?.indexedAccountId}
+        indexedAccountId={indexedAccountId}
         listViewContentContainerStyle={listViewContentContainerStyle}
       />
     );
   }, [
     isLoading,
     vaultSettings?.mergeDeriveAssetsEnabled,
-    isAllNetworks,
     walletId,
     accountId,
     networkId,
     deriveInfo,
     deriveType,
     tokenInfo,
-    account?.indexedAccountId,
+    isAllNetworks,
+    indexedAccountId,
     listViewContentContainerStyle,
     tabs,
-    contentItemWidth,
   ]);
 
   return (
-    <Page safeAreaEnabled>
+    <Page lazyLoad safeAreaEnabled={false}>
       <Page.Header
         headerTitle={tokenInfo.name}
         headerTitleStyle={headerTitleStyle}
         headerRight={headerRight}
       />
-      <Page.Body>{renderTokenDetailsView()}</Page.Body>
-      <TokenDetailsFooter />
+      <Page.Body>{tokenDetailsViewElement}</Page.Body>
+      <TokenDetailsFooter networkId={networkId} />
     </Page>
   );
 }
@@ -295,7 +308,14 @@ export default function TokenDetailsModal() {
   const [tokenMetadata, setTokenMetadata] =
     useState<ITokenDetailsContextValue['tokenMetadata']>();
 
-  // Update function for the context
+  const [tokenDetails, setTokenDetails] = useState<
+    ITokenDetailsContextValue['tokenDetails']
+  >({});
+
+  const [isLoadingTokenDetails, setIsLoadingTokenDetails] = useState<
+    ITokenDetailsContextValue['isLoadingTokenDetails']
+  >({});
+
   const updateTokenMetadata = useCallback(
     (data: Partial<ITokenDetailsContextValue['tokenMetadata']>) => {
       setTokenMetadata((prev) => ({
@@ -306,13 +326,52 @@ export default function TokenDetailsModal() {
     [],
   );
 
+  const updateIsLoadingTokenDetails = useCallback(
+    ({ accountId, isLoading }: { accountId: string; isLoading: boolean }) => {
+      setIsLoadingTokenDetails((prev) => ({
+        ...prev,
+        [accountId]: isLoading,
+      }));
+    },
+    [],
+  );
+
+  const updateTokenDetails = useCallback(
+    ({
+      accountId,
+      isInit,
+      data,
+    }: {
+      accountId: string;
+      isInit: boolean;
+      data: IFetchTokenDetailItem;
+    }) => {
+      setTokenDetails((prev) => ({
+        ...prev,
+        [accountId]: { init: isInit, data },
+      }));
+    },
+    [],
+  );
+
   // Context value
   const contextValue = useMemo(
     () => ({
       tokenMetadata,
       updateTokenMetadata,
+      isLoadingTokenDetails,
+      updateIsLoadingTokenDetails,
+      tokenDetails,
+      updateTokenDetails,
     }),
-    [tokenMetadata, updateTokenMetadata],
+    [
+      tokenMetadata,
+      updateTokenMetadata,
+      isLoadingTokenDetails,
+      updateIsLoadingTokenDetails,
+      tokenDetails,
+      updateTokenDetails,
+    ],
   );
   return (
     <AccountSelectorProviderMirror

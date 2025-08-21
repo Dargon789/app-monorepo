@@ -10,6 +10,7 @@ import {
   Stack,
   XStack,
   YStack,
+  useIsModalPage,
   useMedia,
   useSafeAreaInsets,
   useTabBarHeight,
@@ -59,7 +60,10 @@ function NativeTokenPriceChart({
   const intl = useIntl();
   const [points, setPoints] = useState<IMarketTokenChart>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const { md } = useMedia();
+  const { md: mdMedia } = useMedia();
+  const isModalPage = useIsModalPage();
+  const md = isModalPage ? true : mdMedia;
+
   const options = useMemo(
     () => [
       {
@@ -108,30 +112,32 @@ function NativeTokenPriceChart({
   useEffect(() => {
     void init();
   }, [init]);
-  const { gtLg } = useMedia();
+  const { gtMd: gtMdMedia } = useMedia();
+  const gtMd = isModalPage ? false : gtMdMedia;
+
   return (
     <>
-      <YStack px="$5" $gtMd={{ pr: platformEnv.isNative ? '$5' : 0 }}>
-        <YStack>
-          <PriceChart height={height} isFetching={isLoading} data={points}>
-            {gtLg && !isLoading ? (
-              <SegmentControl
-                value={days}
-                onChange={setDays as ISegmentControlProps['onChange']}
-                options={options}
-              />
-            ) : null}
-          </PriceChart>
-        </YStack>
-      </YStack>
-      {gtLg ? null : (
+      <Stack px="$5" $gtMd={{ pr: '$5' }}>
+        <PriceChart height={height} isFetching={isLoading} data={points}>
+          {gtMd && !isLoading ? (
+            <SegmentControl
+              value={days}
+              onChange={setDays as ISegmentControlProps['onChange']}
+              options={options}
+            />
+          ) : null}
+        </PriceChart>
+      </Stack>
+      {gtMd ? null : (
         <XStack
           gap="$3"
           ai="center"
           px="$5"
           $platform-web={{ zIndex: 30 }}
           position="absolute"
-          top={height - 48}
+          top={10}
+          left={0}
+          right={0}
           width="100%"
         >
           <SegmentControl
@@ -149,14 +155,23 @@ function NativeTokenPriceChart({
 }
 
 const useHeight = () => {
-  const { height } = useWindowDimensions();
+  const isModalPage = useIsModalPage();
+  const { height: windowHeight } = useWindowDimensions();
   const { top } = useSafeAreaInsets();
-  const { gtMd } = useMedia();
+  const { gtMd: gtMdMedia } = useMedia();
+  const gtMd = isModalPage ? false : gtMdMedia;
+
+  const height = useMemo(() => {
+    if (isModalPage && gtMdMedia) {
+      return 640;
+    }
+    return windowHeight;
+  }, [isModalPage, gtMdMedia, windowHeight]);
 
   const tabHeight = useTabBarHeight();
   const fixedHeight = useMemo(() => {
     if (platformEnv.isNativeIOS) {
-      return 268;
+      return 268 + (isModalPage ? 68 : 0);
     }
 
     if (platformEnv.isNativeAndroid) {
@@ -164,7 +179,7 @@ const useHeight = () => {
     }
 
     return 300;
-  }, []);
+  }, [isModalPage]);
   return useMemo(
     () => (gtMd ? 450 : height - top - tabHeight - fixedHeight),
     [fixedHeight, gtMd, height, tabHeight, top],
@@ -185,11 +200,13 @@ function TradingViewChart({
     defer.resolve(null);
   }, [defer]);
 
+  const isModalPage = useIsModalPage();
+
   return (
     <TradingView
       mode="overview"
       h={height}
-      $gtMd={{ pl: '$5' }}
+      $gtMd={{ pl: isModalPage ? 0 : '$5' }}
       $md={{ pt: '$3' }}
       targetToken={targetToken}
       baseToken={baseToken}
@@ -290,19 +307,22 @@ function BasicTokenPriceChart({
   }, [coinGeckoId, tickers, tvPlatform]);
 
   const viewHeight = useHeight();
+
   const chart = useMemo(() => {
     if (isFetching) {
       return null;
     }
     if (fallbackToChart || !ticker) {
       return (
-        <NativeTokenPriceChart
-          height={viewHeight}
-          isFetching={isFetching}
-          coinGeckoId={coinGeckoId}
-          defer={defer}
-          onLoadEnd={onLoadEnd}
-        />
+        <Stack flex={1}>
+          <NativeTokenPriceChart
+            height={viewHeight}
+            isFetching={isFetching}
+            coinGeckoId={coinGeckoId}
+            defer={defer}
+            onLoadEnd={onLoadEnd}
+          />
+        </Stack>
       );
     }
 

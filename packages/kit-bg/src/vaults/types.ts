@@ -25,6 +25,7 @@ import type { IStakingConfig } from '@onekeyhq/shared/types/earn';
 import type {
   IFeeInfoUnit,
   ISendSelectedFeeInfo,
+  ITronResourceRentalInfo,
 } from '@onekeyhq/shared/types/fee';
 import type {
   IAccountHistoryTx,
@@ -56,6 +57,10 @@ import type {
   IAccountDeriveInfoMapEvm,
   IAccountDeriveTypesEvm,
 } from './impls/evm/settings';
+import type {
+  IAccountDeriveInfoMapKaspa,
+  IAccountDeriveTypesKaspa,
+} from './impls/kaspa/settings';
 import type { IBackgroundApi } from '../apis/IBackgroundApi';
 import type { EDBAccountType } from '../dbs/local/consts';
 import type { IDBAccount, IDBWalletId } from '../dbs/local/types';
@@ -75,7 +80,7 @@ export enum EVaultKeyringTypes {
 
 // AccountNameInfo
 export type IAccountDeriveInfoItems = {
-  value: string; // IAccountDeriveTypes
+  value: string; // should as IAccountDeriveTypes
   label: string;
   item: IAccountDeriveInfo;
   description: string | undefined;
@@ -96,6 +101,7 @@ export interface IAccountDeriveInfo {
   coinType: string;
   coinName?: string;
   addressEncoding?: EAddressEncodings;
+  useAddressEncodingDerive?: boolean;
 
   labelKey?: MessageDescriptor['id'];
   label?: string;
@@ -120,16 +126,19 @@ export type IAccountDeriveInfoMapBase = {
 export type IAccountDeriveInfoMap =
   | IAccountDeriveInfoMapEvm
   | IAccountDeriveInfoMapBtc
-  | IAccountDeriveInfoMapCosmos;
+  | IAccountDeriveInfoMapCosmos
+  | IAccountDeriveInfoMapKaspa;
 export type IAccountDeriveTypes =
   | 'default'
   | IAccountDeriveTypesEvm
-  | IAccountDeriveTypesBtc;
+  | IAccountDeriveTypesBtc
+  | IAccountDeriveTypesKaspa;
 
 export type IVaultSettingsNetworkInfo = {
   addressPrefix: string;
   curve: ICurveName;
   nativeTokenAddress?: string;
+  genesisHash?: string;
 };
 export type IVaultSettings = {
   impl: string;
@@ -211,6 +220,7 @@ export type IVaultSettings = {
   hasFrozenBalance?: boolean;
 
   hasResource?: boolean;
+  hasRewardCenter?: boolean;
   resourceKey?: MessageDescriptor['id'];
 
   withL1BaseFee?: boolean;
@@ -259,6 +269,17 @@ export type IVaultSettings = {
   supportBatchEstimateFee?: Record<string, boolean>;
 
   afterSendTxActionEnabled?: boolean;
+
+  createAllDeriveTypeAccountsByDefault?: boolean;
+
+  shouldFixMaxSendAmount?: boolean;
+
+  skipFixFeeInfoDecimal?: boolean;
+
+  payWithTokenEnabled?: boolean;
+
+  maxRetryBroadcastTxCount?: number;
+  minRetryBroadcastTxInterval?: number;
 };
 
 export type IVaultFactoryOptions = {
@@ -363,11 +384,16 @@ export type IBuildHwAllNetworkPrepareAccountsParams = {
   path: string; // full path
   template: string;
   index: number;
+  addressEncoding?: EAddressEncodings;
 };
 
 export type IBuildPrepareAccountsPrefixedPathParams = {
   template: string;
   index: number;
+};
+
+export type INormalizeGetMultiAccountsPathParams = {
+  path: string;
 };
 
 export type IHwSdkNetwork = AllNetworkAddressParams['network'];
@@ -459,6 +485,7 @@ export type ITransferInfo = {
   // Lightning network
   lnurlPaymentInfo?: ILNURLPaymentInfo;
   lightningAddress?: string;
+  lnurl?: string;
 
   paymentId?: string; // Dynex chain paymentId
 
@@ -486,6 +513,7 @@ export type ITransferPayload = {
   paymentId?: string;
   note?: string;
   tokenInfo?: IToken;
+  isCustomHexData?: boolean;
 };
 
 export type IWrappedInfo = {
@@ -551,6 +579,7 @@ export interface IBuildUnsignedTxParams {
   transferPayload?: ITransferPayload;
   isInternalSwap?: boolean;
   isInternalTransfer?: boolean;
+  disableMev?: boolean;
 }
 
 export type ITokenApproveInfo = { allowance: string; isUnlimited: boolean };
@@ -562,6 +591,7 @@ export interface IUpdateUnsignedTxParams {
   tokenApproveInfo?: ITokenApproveInfo;
   nativeAmountInfo?: INativeAmountInfo;
   dataInfo?: { data: string };
+  tronResourceRentalInfo?: ITronResourceRentalInfo;
 }
 export interface IBroadcastTransactionParams {
   accountId: string;
@@ -570,6 +600,7 @@ export interface IBroadcastTransactionParams {
   signedTx: ISignedTxPro;
   signature?: string;
   rawTxType?: 'json' | 'hex';
+  tronResourceRentalInfo?: ITronResourceRentalInfo;
 }
 
 export interface IBroadcastTransactionByCustomRpcParams
@@ -596,6 +627,8 @@ export type ISignAndSendTransactionParams = ISignTransactionParams;
 export type ISignTransactionParams = ISignTransactionParamsBase & {
   password: string;
   deviceParams: IDeviceSharedCallParams | undefined;
+  // addressEncoding other derive address
+  addressEncoding?: EAddressEncodings;
 };
 
 export interface IBatchSignTransactionParamsBase {
@@ -607,12 +640,16 @@ export interface IBatchSignTransactionParamsBase {
   replaceTxInfo?: IReplaceTxInfo;
   transferPayload: ITransferPayload | undefined;
   successfullySentTxs?: string[];
+  tronResourceRentalInfo?: ITronResourceRentalInfo;
 }
 
 export interface ISignMessageParams {
   messages: IUnsignedMessage[];
   password: string;
   deviceParams: IDeviceSharedCallParams | undefined;
+
+  // addressEncoding other derive address
+  addressEncoding?: EAddressEncodings;
 }
 
 export interface IBuildHistoryTxParams {

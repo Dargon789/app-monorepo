@@ -5,8 +5,14 @@ import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/background
 import { TxHistoryListView } from '@onekeyhq/kit/src/components/TxHistoryListView';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
-import { ProviderJotaiContextHistoryList } from '@onekeyhq/kit/src/states/jotai/contexts/historyList';
-import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  useHistoryListActions,
+  withHistoryListProvider,
+} from '@onekeyhq/kit/src/states/jotai/contexts/historyList';
+import {
+  useCurrencyPersistAtom,
+  useSettingsPersistAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { POLLING_INTERVAL_FOR_HISTORY } from '@onekeyhq/shared/src/consts/walletConsts';
 import {
   EAppEventBusNames,
@@ -21,12 +27,20 @@ import type { IProps } from '.';
 function TokenDetailsHistory(props: IProps) {
   const navigation = useAppNavigation();
 
-  const { accountId, networkId, tokenInfo, ListHeaderComponent, isTabView } =
-    props;
+  const {
+    accountId,
+    networkId,
+    tokenInfo,
+    ListHeaderComponent,
+    isTabView,
+    inTabList,
+  } = props;
 
   const [historyInit, setHistoryInit] = useState(false);
   const { isFocused } = useTabIsRefreshingFocused();
   const [settings] = useSettingsPersistAtom();
+  const [{ currencyMap }] = useCurrencyPersistAtom();
+  const { updateAddressesInfo } = useHistoryListActions().current;
 
   /**
    * since some tokens are slow to load history,
@@ -44,15 +58,25 @@ function TokenDetailsHistory(props: IProps) {
         networkId,
         tokenIdOnNetwork: tokenInfo.address,
         filterScam: settings.isFilterScamHistoryEnabled,
+        filterLowValue: settings.isFilterLowValueHistoryEnabled,
+        sourceCurrency: settings.currencyInfo.id,
+        currencyMap,
       });
       setHistoryInit(true);
+      updateAddressesInfo({
+        data: r.addressMap ?? {},
+      });
       return r.txs;
     },
     [
       accountId,
       networkId,
-      settings.isFilterScamHistoryEnabled,
       tokenInfo.address,
+      settings.isFilterScamHistoryEnabled,
+      settings.isFilterLowValueHistoryEnabled,
+      settings.currencyInfo.id,
+      currencyMap,
+      updateAddressesInfo,
     ],
     {
       watchLoading: true,
@@ -108,17 +132,20 @@ function TokenDetailsHistory(props: IProps) {
   }, [run]);
 
   return (
-    <ProviderJotaiContextHistoryList>
-      <TxHistoryListView
-        hideValue
-        initialized={historyInit}
-        isLoading={isLoadingTokenHistory}
-        data={tokenHistory ?? []}
-        onPressHistory={handleHistoryItemPress}
-        ListHeaderComponent={ListHeaderComponent as React.ReactElement}
-      />
-    </ProviderJotaiContextHistoryList>
+    <TxHistoryListView
+      hideValue
+      inTabList={inTabList}
+      initialized={historyInit}
+      isLoading={isLoadingTokenHistory}
+      data={tokenHistory ?? []}
+      onPressHistory={handleHistoryItemPress}
+      ListHeaderComponent={ListHeaderComponent as React.ReactElement}
+    />
   );
 }
 
-export default memo(TokenDetailsHistory);
+const TokenDetailsHistoryWithProvider = memo(
+  withHistoryListProvider(TokenDetailsHistory),
+);
+
+export default memo(TokenDetailsHistoryWithProvider);

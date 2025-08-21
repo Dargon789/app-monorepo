@@ -10,6 +10,7 @@ export interface IBasicAppUpdateInfo {
   isForceUpdate: boolean;
   // change log text
   changeLog?: string;
+  summary?: string;
 }
 
 export interface IResponseAppUpdateInfo extends IBasicAppUpdateInfo {
@@ -29,13 +30,23 @@ export interface IAppUpdateInfo extends IBasicAppUpdateInfo {
   status: EAppUpdateStatus;
   errorText?: ETranslations;
   downloadedEvent?: IUpdateDownloadedEvent;
+  isShowUpdateDialog?: boolean;
+  summary?: string;
 }
 
 export enum EAppUpdateStatus {
   notify = 'notify',
-  downloading = 'downloading',
-  verifying = 'verifying',
+  downloadPackage = 'downloadPackage',
+  downloadPackageFailed = 'downloadPackageFailed',
+  downloadASC = 'downloadASC',
+  downloadASCFailed = 'downloadASCFailed',
+  verifyASC = 'verifyASC',
+  verifyASCFailed = 'verifyASCFailed',
+  verifyPackage = 'verifyPackage',
+  verifyPackageFailed = 'verifyPackageFailed',
   ready = 'ready',
   failed = 'failed',
   done = 'done',
+  manualInstall = 'manualInstall',
+  updateIncomplete = 'updateIncomplete',
 }

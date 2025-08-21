@@ -7,7 +7,10 @@ import type {
   ISignedMessagePro,
   ISignedTxPro,
 } from '@onekeyhq/core/src/types';
-import { OneKeyInternalError } from '@onekeyhq/shared/src/errors';
+import {
+  OneKeyInternalError,
+  OneKeyLocalError,
+} from '@onekeyhq/shared/src/errors';
 import {
   convertDeviceError,
   convertDeviceResponse,
@@ -95,7 +98,7 @@ export class KeyringHardware extends KeyringHardwareBase {
               return allNetworkAccounts;
             }
 
-            throw new Error('use sdk allNetworkGetAddress instead');
+            throw new OneKeyLocalError('use sdk allNetworkGetAddress instead');
 
             // const sdk = await this.getHardwareSDKInstance();
             // const bundle = usedIndexes.map((index, arrIndex) => ({
@@ -142,7 +145,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     const { unsignedTx, deviceParams } = params;
     const { dbDevice, deviceCommonParams } = checkIsDefined(deviceParams);
     const { connectId, deviceId } = checkIsDefined(dbDevice);
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId,
+    });
     const account = await this.vault.getAccount();
     const encodedTx = unsignedTx.encodedTx as IEncodedTxAlph;
     if (!account.pub) {
@@ -200,7 +205,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     const { messages, deviceParams } = params;
     const { dbDevice, deviceCommonParams } = checkIsDefined(deviceParams);
     const { connectId, deviceId } = checkIsDefined(dbDevice);
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId,
+    });
     const account = await this.vault.getAccount();
     const messageHex = Buffer.from(messages[0].message).toString('hex');
     const addressResponse = await sdk.alephiumGetAddress(connectId, deviceId, {

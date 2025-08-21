@@ -7,7 +7,7 @@ import { DesktopLeftSideBar } from './DesktopLeftSideBar';
 import MobileBottomTabBar from './MobileBottomTabBar';
 
 import type { ITabNavigatorExtraConfig } from '../../Navigator/types';
-import type { BottomTabBarProps } from '@react-navigation/bottom-tabs/src/types';
+import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 const useShowMobileBottomTabBar = platformEnv.isNativeIOSPad
   ? () => {
@@ -26,7 +26,7 @@ export default function TabBar({
 }) {
   const isShowMobileBottomTabBar = useShowMobileBottomTabBar();
 
-  if (isShowMobileBottomTabBar) {
+  if (platformEnv.isNativeAndroid || isShowMobileBottomTabBar) {
     return <MobileBottomTabBar {...props} />;
   }
   return <DesktopLeftSideBar {...props} />;

@@ -6,11 +6,9 @@ import { useIntl } from 'react-intl';
 import {
   Dialog,
   Empty,
-  Heading,
   SectionList,
   SizableText,
   Skeleton,
-  Toast,
   XStack,
   useMedia,
 } from '@onekeyhq/components';
@@ -19,6 +17,7 @@ import { useInAppNotificationAtom } from '@onekeyhq/kit-bg/src/states/jotai/atom
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { formatDate } from '@onekeyhq/shared/src/utils/dateUtils';
 import {
+  ESwapCancelLimitOrderSource,
   ESwapLimitOrderStatus,
   type IFetchLimitOrderRes,
 } from '@onekeyhq/shared/types/swap/types';
@@ -47,26 +46,29 @@ const LimitOrderList = ({
 }: ILimitOrderListProps) => {
   const { gtMd } = useMedia();
   const intl = useIntl();
-  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelLoading, setCancelLoading] = useState<Record<string, boolean>>(
+    {},
+  );
   const { cancelLimitOrder } = useSwapBuildTx();
   const [{ swapLimitOrders }] = useInAppNotificationAtom();
   const runCancel = useCallback(
     async (item: IFetchLimitOrderRes) => {
       try {
-        setCancelLoading(true);
-        await cancelLimitOrder(item);
+        setCancelLoading((prev) => ({
+          ...prev,
+          [item.orderId]: true,
+        }));
+        await cancelLimitOrder(item, ESwapCancelLimitOrderSource.LIST);
       } catch (error) {
         console.error(error);
-        Toast.error({
-          title: intl.formatMessage({
-            id: ETranslations.global_failed,
-          }),
-        });
       } finally {
-        setCancelLoading(false);
+        setCancelLoading((prev) => ({
+          ...prev,
+          [item.orderId]: false,
+        }));
       }
     },
-    [cancelLimitOrder, intl],
+    [cancelLimitOrder],
   );
   const onCancel = useCallback(
     async (item: IFetchLimitOrderRes) => {
@@ -97,7 +99,7 @@ const LimitOrderList = ({
     ({ item }: { item: IFetchLimitOrderRes }) => (
       <LimitOrderListItem
         item={item}
-        cancelLoading={cancelLoading}
+        cancelLoading={cancelLoading[item.orderId]}
         onClickCell={onClickCell}
         onCancel={onCancel}
       />

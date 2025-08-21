@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { Freeze } from 'react-freeze';
+import { BackHandler } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import {
@@ -12,8 +13,11 @@ import {
   useSafeAreaInsets,
 } from '@onekeyhq/components';
 import type { IPageNavigationProp } from '@onekeyhq/components/src/layouts/Navigation';
+import { TabPageHeader } from '@onekeyhq/kit/src/components/TabPageHeader';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
+import useListenTabFocusState from '@onekeyhq/kit/src/hooks/useListenTabFocusState';
 import { useBrowserTabActions } from '@onekeyhq/kit/src/states/jotai/contexts/discovery';
+import { useTakeScreenshot } from '@onekeyhq/kit/src/views/Discovery/hooks/useTakeScreenshot';
 import {
   EAppEventBusNames,
   appEventBus,
@@ -23,8 +27,10 @@ import type { IDiscoveryModalParamList } from '@onekeyhq/shared/src/routes';
 import {
   EDiscoveryModalRoutes,
   EModalRoutes,
+  ETabRoutes,
 } from '@onekeyhq/shared/src/routes';
 import { useDebugComponentRemountLog } from '@onekeyhq/shared/src/utils/debug/debugUtils';
+import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 
 import CustomHeaderTitle from '../../components/CustomHeaderTitle';
 import { HandleRebuildBrowserData } from '../../components/HandleData/HandleRebuildBrowserTabData';
@@ -35,22 +41,87 @@ import useMobileBottomBarAnimation from '../../hooks/useMobileBottomBarAnimation
 import {
   useActiveTabId,
   useDisplayHomePageFlag,
+  useWebTabDataById,
   useWebTabs,
 } from '../../hooks/useWebTabs';
+import { webviewRefs } from '../../utils/explorerUtils';
 import { checkAndCreateFolder } from '../../utils/screenshot';
 import { showTabBar } from '../../utils/tabBarUtils';
-import { BrowserTitle } from '../components/BrowserTitle';
-import { HistoryIconButton } from '../components/HistoryIconButton';
 import DashboardContent from '../Dashboard/DashboardContent';
 
 import MobileBrowserContent from './MobileBrowserContent';
 import { withBrowserProvider } from './WithBrowserProvider';
 
+import type { WebView } from 'react-native-webview';
+
+const isNativeMobile = platformEnv.isNative && !platformEnv.isNativeIOSPad;
+
+const useAndroidHardwareBack = platformEnv.isNativeAndroid
+  ? ({
+      displayHomePage,
+      activeTabData,
+      activeTabId,
+      handleGoBackHome,
+    }: {
+      displayHomePage: boolean;
+      activeTabData: { canGoBack?: boolean } | undefined;
+      activeTabId: string | undefined | null;
+      handleGoBackHome: () => Promise<void> | void;
+    }) => {
+      const isDiscoveryTabFocused = useRef(true);
+      useListenTabFocusState(
+        ETabRoutes.Discovery,
+        (isFocus: boolean, isHideByModal: boolean) => {
+          isDiscoveryTabFocused.current = isFocus && !isHideByModal;
+        },
+      );
+
+      useEffect(() => {
+        // Only add back handler on Android
+        if (!platformEnv.isNativeAndroid) {
+          return;
+        }
+
+        const onBackPress = () => {
+          if (!isDiscoveryTabFocused.current || displayHomePage) {
+            return false;
+          }
+          if (!displayHomePage && activeTabData?.canGoBack && activeTabId) {
+            const webviewRef = webviewRefs[activeTabId];
+            if (webviewRef?.innerRef) {
+              try {
+                (webviewRef.innerRef as WebView)?.goBack();
+              } catch (error) {
+                console.error('Error while navigating back:', error);
+              }
+            }
+          } else {
+            void handleGoBackHome();
+          }
+
+          // Prevent default behavior
+          return true;
+        };
+
+        const subscription = BackHandler.addEventListener(
+          'hardwareBackPress',
+          onBackPress,
+        );
+        return () => subscription.remove();
+      }, [
+        activeTabId,
+        activeTabData?.canGoBack,
+        displayHomePage,
+        handleGoBackHome,
+      ]);
+    }
+  : () => {};
+
 function MobileBrowser() {
   const { tabs } = useWebTabs();
   const { activeTabId } = useActiveTabId();
   const { closeWebTab, setCurrentWebTab } = useBrowserTabActions().current;
-  // const { tab } = useWebTabDataById(activeTabId ?? '');
+  const { tab: activeTabData } = useWebTabDataById(activeTabId ?? '');
   const navigation =
     useAppNavigation<IPageNavigationProp<IDiscoveryModalParamList>>();
   const { handleScroll, toolbarRef, toolbarAnimatedStyle } =
@@ -62,12 +133,13 @@ function MobileBrowser() {
   });
 
   const { displayHomePage } = useDisplayHomePageFlag();
+  const displayBottomBar = !displayHomePage;
 
-  const displayBottomBar = useMemo(() => {
-    if (!displayHomePage) return true;
-    if (displayHomePage && tabs.length > 0) return true;
-    return false;
-  }, [displayHomePage, tabs]);
+  useEffect(() => {
+    if (!tabs?.length) {
+      showTabBar();
+    }
+  }, [tabs]);
 
   const { setDisplayHomePage } = useBrowserTabActions().current;
   const firstRender = useRef(true);
@@ -137,45 +209,92 @@ function MobileBrowser() {
   );
 
   const { top, bottom } = useSafeAreaInsets();
+  const takeScreenshot = useTakeScreenshot(activeTabId);
+
+  const handleGoBackHome = useCallback(async () => {
+    // Execute blur() to hide keyboard on the current webview
+    if (activeTabId) {
+      const webviewRef = webviewRefs[activeTabId];
+      if (webviewRef?.innerRef) {
+        try {
+          // Inject JavaScript to blur any focused input elements
+          (webviewRef.innerRef as WebView)?.injectJavaScript(`
+            try {
+              if (document.activeElement && document.activeElement.blur) {
+                document.activeElement.blur();
+              }
+              // Also try to blur any input elements that might be focused
+              const inputs = document.querySelectorAll('input, textarea');
+              inputs.forEach(function(input) {
+                if (input === document.activeElement) {
+                  input.blur();
+                }
+              });
+            } catch (e) {
+              console.error('Error blurring elements:', e);
+            }
+          `);
+        } catch (error) {
+          console.error('Error injecting blur script:', error);
+        }
+      }
+    }
+
+    try {
+      await takeScreenshot();
+    } catch (e) {
+      console.error('takeScreenshot error: ', e);
+    }
+    setTimeout(() => {
+      setDisplayHomePage(true);
+      showTabBar();
+      if (platformEnv.isNativeIOSPad) {
+        navigation.switchTab(ETabRoutes.Discovery);
+      }
+    });
+  }, [takeScreenshot, setDisplayHomePage, navigation, activeTabId]);
+
+  useAndroidHardwareBack({
+    displayHomePage,
+    activeTabData,
+    activeTabId,
+    handleGoBackHome,
+  });
 
   return (
     <Page fullPage>
-      <Page.Header headerShown={false} />
       {/* custom header */}
-      <XStack
-        pt={top}
-        px="$5"
-        alignItems="center"
-        my="$1"
-        mt={platformEnv.isNativeAndroid ? '$3' : undefined}
-      >
-        {!displayHomePage ? (
-          <Stack onPress={onCloseCurrentWebTabAndGoHomePage}>
-            <Icon name="CrossedLargeOutline" mr="$4" />
-          </Stack>
-        ) : null}
 
-        {!displayHomePage ? (
-          <CustomHeaderTitle handleSearchBarPress={handleSearchBarPress} />
-        ) : (
-          <XStack
-            width="100%"
-            position="relative"
-            justifyContent="center"
-            alignItems="center"
-            $gtSm={{
-              justifyContent: 'space-between',
-            }}
+      {displayHomePage ? (
+        <TabPageHeader
+          sceneName={EAccountSelectorSceneName.home}
+          tabRoute={ETabRoutes.Discovery}
+        />
+      ) : (
+        <XStack
+          pt={top}
+          px="$5"
+          alignItems="center"
+          my="$1"
+          mt={platformEnv.isNativeAndroid ? '$3' : undefined}
+        >
+          <Stack
+            onPress={
+              isNativeMobile
+                ? handleGoBackHome
+                : onCloseCurrentWebTabAndGoHomePage
+            }
           >
-            <BrowserTitle />
+            <Icon
+              name={isNativeMobile ? 'MinimizeOutline' : 'CrossedLargeOutline'}
+              mr="$4"
+            />
+          </Stack>
 
-            <Stack position="absolute" right={0}>
-              <HistoryIconButton />
-            </Stack>
-          </XStack>
-        )}
-        <HeaderRightToolBar />
-      </XStack>
+          <CustomHeaderTitle handleSearchBarPress={handleSearchBarPress} />
+          <HeaderRightToolBar />
+        </XStack>
+      )}
       <Page.Body>
         <Stack flex={1} zIndex={3} pb={gtMd ? bottom : 0}>
           <HandleRebuildBrowserData />
@@ -199,7 +318,10 @@ function MobileBrowser() {
                 },
               ]}
             >
-              <MobileBrowserBottomBar id={activeTabId ?? ''} />
+              <MobileBrowserBottomBar
+                id={activeTabId ?? ''}
+                onGoBackHomePage={handleGoBackHome}
+              />
             </Animated.View>
           </Freeze>
         </Stack>

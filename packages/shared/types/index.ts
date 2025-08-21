@@ -20,7 +20,6 @@ export enum ENetworkStatus {
 export const EXT_UI_TO_BG_PORT_NAME = 'onekey@EXT_PORT_UI_TO_BG';
 
 export interface INetworkFeeInfo {
-  code: string;
   symbol: string;
   decimals: number;
   isEIP1559FeeEnabled?: boolean;
@@ -48,7 +47,7 @@ export interface INetworkExplorerConfig {
 }
 
 export type IServerNetwork = {
-  id: string;
+  id: string; // networkId like evm--1
   impl: string;
   chainId: string;
   name: string;
@@ -81,6 +80,7 @@ export enum EAccountSelectorSceneName {
   discover = 'discover',
   addressInput = 'addressInput', // test Gallery AddressInput test
   market = 'market',
+  rewardCenter = 'rewardCenter',
 }
 
 export enum EAccountSelectorAutoSelectTriggerBy {
@@ -106,4 +106,11 @@ export enum EAssetType {
 export enum ETxActionComponentType {
   ListView = 'ListView',
   DetailView = 'DetailView',
+}
+
+export enum EHardwareTransportType {
+  BLE = 'ble',
+  WEBUSB = 'webusb',
+  Bridge = 'bridge',
+  DesktopWebBle = 'desktop-web-ble',
 }

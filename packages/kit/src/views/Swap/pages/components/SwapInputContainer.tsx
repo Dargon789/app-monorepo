@@ -10,15 +10,22 @@ import {
   useRateDifferenceAtom,
   useSwapAlertsAtom,
   useSwapFromTokenAmountAtom,
+  useSwapNativeTokenReserveGasAtom,
   useSwapQuoteActionLockAtom,
   useSwapSelectFromTokenAtom,
+  useSwapSelectToTokenAtom,
   useSwapSelectedFromTokenBalanceAtom,
   useSwapTypeSwitchAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/swap';
-import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  useInAppNotificationAtom,
+  useSettingsPersistAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
+import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
+import { checkWrappedTokenPair } from '@onekeyhq/shared/src/utils/tokenUtils';
 import type { ISwapToken } from '@onekeyhq/shared/types/swap/types';
 import {
   ESwapDirectionType,
@@ -83,10 +90,13 @@ const SwapInputContainer = ({
   }, [amountValue, token?.price]);
 
   const [fromToken] = useSwapSelectFromTokenAtom();
+  const [toToken] = useSwapSelectToTokenAtom();
   const [fromTokenAmount] = useSwapFromTokenAmountAtom();
   const [fromTokenBalance] = useSwapSelectedFromTokenBalanceAtom();
   const [swapTypeSwitch] = useSwapTypeSwitchAtom();
   const [swapQuoteActionLock] = useSwapQuoteActionLockAtom();
+  const [swapNativeTokenReserveGas] = useSwapNativeTokenReserveGasAtom();
+  const [, setInAppNotification] = useInAppNotificationAtom();
 
   const fromInputHasError = useMemo(() => {
     const accountError =
@@ -138,7 +148,11 @@ const SwapInputContainer = ({
     });
   }, [intl]);
   const valueMoreComponent = useMemo(() => {
-    if (rateDifference && direction === ESwapDirectionType.TO) {
+    if (
+      rateDifference &&
+      direction === ESwapDirectionType.TO &&
+      swapTypeSwitch !== ESwapTabSwitchType.LIMIT
+    ) {
       let color = '$textSubdued';
       if (inputLoading) {
         color = '$textPlaceholder';
@@ -151,38 +165,57 @@ const SwapInputContainer = ({
       }
       return (
         <XStack alignItems="center">
-          <SizableText size="$bodyMd" color={color}>
+          <SizableText size="$bodySm" color={color}>
             (
           </SizableText>
           <SizableText
-            size="$bodyMd"
+            size="$bodySm"
             color={color}
             cursor="pointer"
             onPress={onRateDifferencePress}
             {...(rateDifference.unit === ESwapRateDifferenceUnit.NEGATIVE && {
               textDecorationLine: 'underline',
+              textDecorationStyle: 'dotted',
             })}
           >
             {rateDifference.value}
           </SizableText>
-          <SizableText size="$bodyMd" color={color}>
+          <SizableText size="$bodySm" color={color}>
             )
           </SizableText>
         </XStack>
       );
     }
     return null;
-  }, [direction, inputLoading, onRateDifferencePress, rateDifference]);
+  }, [
+    direction,
+    inputLoading,
+    onRateDifferencePress,
+    rateDifference,
+    swapTypeSwitch,
+  ]);
 
   const [percentageInputStageShow, setPercentageInputStageShow] =
     useState(false);
 
   const onFromInputFocus = () => {
     setPercentageInputStageShow(true);
+    if (direction === ESwapDirectionType.FROM) {
+      setInAppNotification((v) => ({
+        ...v,
+        swapPercentageInputStageShowForNative: true,
+      }));
+    }
   };
 
   const onFromInputBlur = () => {
     // delay to avoid blur when select percentage stage
+    if (direction === ESwapDirectionType.FROM) {
+      setInAppNotification((v) => ({
+        ...v,
+        swapPercentageInputStageShowForNative: false,
+      }));
+    }
     setTimeout(() => {
       setPercentageInputStageShow(false);
     }, 200);
@@ -221,6 +254,56 @@ const SwapInputContainer = ({
       fromInputHasError.hasBalanceError,
     [direction, accountInfo?.account?.id, fromToken, fromInputHasError],
   );
+  const readOnly = useMemo(() => {
+    if (direction === ESwapDirectionType.TO) {
+      return (
+        checkWrappedTokenPair({
+          fromToken,
+          toToken,
+        }) || swapTypeSwitch !== ESwapTabSwitchType.LIMIT
+      );
+    }
+    return false;
+  }, [direction, swapTypeSwitch, fromToken, toToken]);
+  const balancePopoverContent = useMemo(() => {
+    const reserveGas = swapNativeTokenReserveGas.find(
+      (item) => item.networkId === fromToken?.networkId,
+    )?.reserveGas;
+    if (fromToken?.isNative) {
+      let reserveGasFormatted: string | undefined | number = reserveGas;
+      if (reserveGas) {
+        reserveGasFormatted = numberFormat(reserveGas.toString(), {
+          formatter: 'balance',
+          formatterOptions: {
+            tokenSymbol: fromToken?.symbol,
+          },
+        }) as string;
+      }
+      return (
+        <XStack alignItems="center" p="$4">
+          <SizableText size="$bodyMd">
+            {intl.formatMessage(
+              {
+                id: reserveGasFormatted
+                  ? ETranslations.swap_native_token_max_tip_already
+                  : ETranslations.swap_native_token_max_tip,
+              },
+              {
+                num_token: reserveGasFormatted,
+              },
+            )}
+          </SizableText>
+        </XStack>
+      );
+    }
+    return undefined;
+  }, [
+    swapNativeTokenReserveGas,
+    fromToken?.isNative,
+    fromToken?.networkId,
+    fromToken?.symbol,
+    intl,
+  ]);
   return (
     <YStack borderRadius="$3" backgroundColor="$bgSubdued" borderWidth="$0">
       <XStack justifyContent="space-between" pt="$2.5" px="$3.5">
@@ -229,6 +312,7 @@ const SwapInputContainer = ({
           onClickNetwork={onSelectToken}
         />
         <SwapInputActions
+          stagePopoverContent={balancePopoverContent}
           fromToken={fromToken}
           accountInfo={accountInfo}
           showPercentageInput={showPercentageInputDebounce}
@@ -246,6 +330,7 @@ const SwapInputContainer = ({
         }
         balanceProps={{
           value: balance,
+          popoverContent: balancePopoverContent,
           onPress:
             direction === ESwapDirectionType.FROM
               ? onBalanceMaxPress
@@ -262,23 +347,17 @@ const SwapInputContainer = ({
         }}
         inputProps={{
           placeholder: '0.0',
-          readOnly:
-            (direction === ESwapDirectionType.TO &&
-              swapTypeSwitch !== ESwapTabSwitchType.LIMIT) ||
-            inputIsLoading,
+          readonly: readOnly || inputIsLoading,
           color: inputIsLoading ? '$textPlaceholder' : undefined,
           style:
-            !platformEnv.isNative &&
-            direction === ESwapDirectionType.TO &&
-            swapTypeSwitch !== ESwapTabSwitchType.LIMIT
+            !platformEnv.isNative && readOnly
               ? ({
                   caretColor: 'transparent',
                 } as unknown as StyleProp<TextStyle>)
               : undefined,
-          inputAccessoryViewID:
-            direction === ESwapDirectionType.FROM && platformEnv.isNativeIOS
-              ? SwapAmountInputAccessoryViewID
-              : undefined,
+          inputAccessoryViewID: platformEnv.isNativeIOS
+            ? SwapAmountInputAccessoryViewID
+            : undefined,
           autoCorrect: false,
           spellCheck: false,
           autoComplete: 'off',

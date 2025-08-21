@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useMemo } from 'react';
 
 import * as ethUtils from 'ethereumjs-util';
 import { useIntl } from 'react-intl';
@@ -59,6 +59,10 @@ function MessageDataViewer(props: IProps) {
       }
 
       case EMessageTypesAptos.SIGN_MESSAGE: {
+        return payload?.message ?? message;
+      }
+
+      case EMessageTypesAptos.SIGN_IN: {
         return payload?.message ?? message;
       }
 

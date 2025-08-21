@@ -5,11 +5,12 @@ import { NotImplemented } from '@onekeyhq/shared/src/errors';
 import { KeyringQrBase } from '../../base/KeyringQrBase';
 
 import type { IDBAccount } from '../../../dbs/local/types';
+import type { INormalizeGetMultiAccountsPathParams } from '../../types';
 
 export class KeyringQr extends KeyringQrBase {
   override coreApi: CoreChainApiBase | undefined = undefined;
 
-  override verifySignedTxMatched(...args: any[]): Promise<void> {
+  override verifySignedTxMatched(..._args: any[]): Promise<void> {
     throw new NotImplemented();
   }
 
@@ -22,6 +23,12 @@ export class KeyringQr extends KeyringQrBase {
   }
 
   override async prepareAccounts(): Promise<IDBAccount[]> {
+    throw new NotImplemented();
+  }
+
+  override async normalizeGetMultiAccountsPath(
+    _params: INormalizeGetMultiAccountsPathParams,
+  ): Promise<string> {
     throw new NotImplemented();
   }
 }

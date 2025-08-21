@@ -1,5 +1,7 @@
 import type { IDemoDeveloperTabParamList } from '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/NavigatorRoute/Tab/RouteParamTypes';
 import type {
+  IModalDeviceManagementParamList,
+  IModalReferFriendsParamList,
   IMultiTabBrowserParamList,
   ITabDiscoveryParamList,
   ITabHomeParamList,
@@ -18,7 +20,10 @@ export enum ETabRoutes {
   Developer = 'Developer',
   Earn = 'Earn',
   Swap = 'Swap',
+  WebviewPerpTrade = 'WebviewPerpTrade',
   MultiTabBrowser = 'MultiTabBrowser',
+  DeviceManagement = 'DeviceManagement',
+  ReferFriends = 'ReferFriends',
 }
 
 export type ITabStackParamList = {
@@ -29,5 +34,8 @@ export type ITabStackParamList = {
   [ETabRoutes.Earn]: ITabEarnParamList;
   [ETabRoutes.Market]: ITabMarketParamList;
   [ETabRoutes.Swap]: ITabSwapParamList;
+  [ETabRoutes.WebviewPerpTrade]: undefined;
   [ETabRoutes.MultiTabBrowser]: IMultiTabBrowserParamList;
+  [ETabRoutes.DeviceManagement]: IModalDeviceManagementParamList;
+  [ETabRoutes.ReferFriends]: IModalReferFriendsParamList;
 };

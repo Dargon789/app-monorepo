@@ -1,5 +1,8 @@
+import { HardwareErrorCode } from '@onekeyfe/hd-shared';
 import axios from 'axios';
 import { isPlainObject } from 'lodash';
+
+import type { ETranslations } from '@onekeyhq/shared/src/locale';
 
 import { EAppEventBusNames, appEventBus } from '../../eventBus/appEventBus';
 import { EOneKeyErrorClassNames, type IOneKeyError } from '../types/errorTypes';
@@ -20,17 +23,26 @@ function showToastOfError(error: IOneKeyError | unknown | undefined) {
     err?.className &&
     [
       // ignore auto toast errors
+      EOneKeyErrorClassNames.HardwareUserCancelFromOutside,
+      EOneKeyErrorClassNames.PrimeLoginDialogCancelError,
+      EOneKeyErrorClassNames.SecureQRCodeDialogCancel,
       EOneKeyErrorClassNames.PasswordPromptDialogCancel,
       EOneKeyErrorClassNames.OneKeyErrorScanQrCodeCancel,
-      EOneKeyErrorClassNames.SecureQRCodeDialogCancel,
-      EOneKeyErrorClassNames.HardwareUserCancelFromOutside,
       EOneKeyErrorClassNames.FirmwareUpdateExit,
       EOneKeyErrorClassNames.FirmwareUpdateTasksClear,
+      EOneKeyErrorClassNames.WebDeviceNotFoundOrNeedsPermission,
       EOneKeyErrorClassNames.OneKeyErrorAirGapAccountNotFound,
       EOneKeyErrorClassNames.OneKeyErrorAirGapStandardWalletRequiredWhenCreateHiddenWallet,
       EOneKeyErrorClassNames.AxiosAbortCancelError,
+      // use Dialog instead of Toast, check GlobalErrorHandlerContainer
+      EOneKeyErrorClassNames.DeviceNotOpenedPassphrase,
+      EOneKeyErrorClassNames.DeviceNotFound,
     ].includes(err?.className)
   ) {
+    return;
+  }
+  // Ignore DefectiveFirmware errors - use Dialog instead of Toast
+  if (err?.code === HardwareErrorCode.DefectiveFirmware) {
     return;
   }
   let shouldMuteToast = false;
@@ -57,6 +69,7 @@ function showToastOfError(error: IOneKeyError | unknown | undefined) {
       method: 'error',
       title: err?.message ?? 'Error',
       message: err?.requestId,
+      i18nKey: err?.key as ETranslations | undefined,
     });
   }
 }

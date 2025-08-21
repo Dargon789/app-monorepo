@@ -1,5 +1,17 @@
-import type { PropsWithChildren, ReactElement, ReactNode } from 'react';
-import { Children, cloneElement, isValidElement, useCallback } from 'react';
+import type {
+  ComponentProps,
+  PropsWithChildren,
+  ReactElement,
+  ReactNode,
+} from 'react';
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useMemo,
+} from 'react';
 
 import { Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { useIntl } from 'react-intl';
@@ -20,6 +32,8 @@ import {
 import { Input } from '../Input';
 import { TextArea, TextAreaInput } from '../TextArea';
 
+import { addFormInstance, removeFormInstance } from './formInstances';
+
 import type { ISizableTextProps } from '../../primitives';
 import type { IPropsWithTestId } from '../../types';
 import type { ControllerRenderProps, UseFormReturn } from 'react-hook-form';
@@ -30,6 +44,7 @@ export type IFormProps = IPropsWithTestId<{
     submit?: () => void;
   };
   header?: ReactNode;
+  childrenGap?: ComponentProps<typeof YStack>['gap'];
 }>;
 
 function HiddenSubmit() {
@@ -46,11 +61,23 @@ function HiddenSubmit() {
   );
 }
 
-export function FormWrapper({ form: formContext, children }: IFormProps) {
+export function FormWrapper({
+  form: formContext,
+  children,
+  childrenGap,
+}: IFormProps) {
+  useEffect(() => {
+    addFormInstance(formContext);
+
+    return () => {
+      removeFormInstance(formContext);
+    };
+  }, [formContext]);
+
   return (
     <FormProvider {...formContext}>
       <TMForm onSubmit={formContext.submit} position="relative">
-        <YStack gap="$5">{children}</YStack>
+        <YStack gap={childrenGap ?? '$5'}>{children}</YStack>
         {formContext.submit ? <HiddenSubmit /> : null}
       </TMForm>
     </FormProvider>
@@ -168,9 +195,14 @@ function Field({
   const error = errors[name] as unknown as Error & {
     translationId: ETranslations;
   };
-  // if (error) {
-  //   debugger;
-  // }
+
+  const descriptionElement = useMemo(() => {
+    return typeof description === 'string' ? (
+      <FieldDescription>{description}</FieldDescription>
+    ) : (
+      description
+    );
+  }, [description]);
   return (
     <Controller
       name={name}
@@ -184,29 +216,33 @@ function Field({
           {...(display ? { display } : {})}
         >
           <Stack
+            gap={horizontal ? '$1' : undefined}
             flexDirection={horizontal ? 'row' : 'column'}
             jc={horizontal ? 'space-between' : undefined}
             alignItems={horizontal ? 'center' : undefined}
             mb={horizontal ? '$1.5' : undefined}
           >
-            {label ? (
-              <XStack
-                mb={horizontal ? undefined : '$1.5'}
-                justifyContent="space-between"
-              >
-                <XStack>
-                  <Label htmlFor={name}>{label}</Label>
-                  {optional ? (
-                    <SizableText size="$bodyMd" color="$textSubdued" pl="$1">
-                      {`(${intl.formatMessage({
-                        id: ETranslations.form_optional_indicator,
-                      })})`}
-                    </SizableText>
-                  ) : null}
+            <YStack flexShrink={horizontal ? 1 : undefined}>
+              {label ? (
+                <XStack
+                  mb={horizontal ? undefined : '$1.5'}
+                  justifyContent="space-between"
+                >
+                  <XStack>
+                    <Label htmlFor={name}>{label}</Label>
+                    {optional ? (
+                      <SizableText size="$bodyMd" color="$textSubdued" pl="$1">
+                        {`(${intl.formatMessage({
+                          id: ETranslations.form_optional_indicator,
+                        })})`}
+                      </SizableText>
+                    ) : null}
+                  </XStack>
+                  {renderLabelAddon()}
                 </XStack>
-                {renderLabelAddon()}
-              </XStack>
-            ) : null}
+              ) : null}
+              {horizontal ? descriptionElement : null}
+            </YStack>
             {Children.map(children as ReactNode[], (child) =>
               isValidElement(child)
                 ? cloneElement(child, getChildProps(child, field, error))
@@ -244,11 +280,7 @@ function Field({
               </SizableText>
             ) : null}
           </HeightTransition>
-          {typeof description === 'string' ? (
-            <FieldDescription>{description}</FieldDescription>
-          ) : (
-            description
-          )}
+          {horizontal ? null : descriptionElement}
         </Fieldset>
       )}
     />

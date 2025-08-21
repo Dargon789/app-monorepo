@@ -10,9 +10,9 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { Image, Stack, useMedia } from '@onekeyhq/components';
-import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
-import { useBrowserAction } from '@onekeyhq/kit/src/states/jotai/contexts/discovery';
+import { Image, Stack, useThemeValue } from '@onekeyhq/components';
+import { useWebSiteHandler } from '@onekeyhq/kit/src/views/Discovery/hooks/useWebSiteHandler';
+import { EEnterMethod } from '@onekeyhq/shared/src/logger/scopes/discovery/scenes/dapp';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import type { ImageSourcePropType, ImageURISource } from 'react-native';
@@ -20,35 +20,34 @@ import type { ImageSourcePropType, ImageURISource } from 'react-native';
 // Animation constants
 const FADE_IN_DURATION = 1000;
 const FADE_IN_DELAY = 1000;
-const FLOAT_MIN_DISTANCE = 3;
-const FLOAT_MAX_DISTANCE = 7;
-const FLOAT_DURATION_BASE = 1500;
+const FLOAT_MIN_DISTANCE = 2;
+const FLOAT_MAX_DISTANCE = 4;
+const FLOAT_DURATION_BASE = 2000;
 const FLOAT_DURATION_VARIANCE = 1000;
 const FLOAT_MAX_DELAY = 500;
 
-const ROTATION_MIN_ANGLE = -20;
-const ROTATION_MAX_ANGLE = 20;
-const ROTATION_DURATION_BASE = 2000;
-const ROTATION_DURATION_VARIANCE = 1000;
+const ROTATION_MIN_ANGLE = -5;
+const ROTATION_MAX_ANGLE = 5;
+const ROTATION_DURATION_BASE = 4000;
+const ROTATION_DURATION_VARIANCE = 2000;
 const ROTATION_MAX_DELAY = 300;
 
-const SCALE_MIN_FACTOR = 1.05;
-const SCALE_MAX_FACTOR = 1.15;
-const SCALE_DURATION_BASE = 2200;
+const SCALE_MIN_FACTOR = 1;
+const SCALE_MAX_FACTOR = 1.1;
+const SCALE_DURATION_BASE = 3500;
 const SCALE_DURATION_VARIANCE = 1000;
 const SCALE_MAX_DELAY = 1000;
 
-const DEFAULT_SHADOW_OPACITY = 0.2;
-const HOVER_SHADOW_OPACITY = 0.5;
-const ANIMATION_SHADOW_OPACITY = 0.4;
+const DEFAULT_SHADOW_OPACITY = 0.4;
+const HOVER_SHADOW_OPACITY = 0.2;
+const ANIMATION_SHADOW_OPACITY = 0.25;
 
 const HOVER_TRANSITION_DURATION = 300;
 const HOVER_SCALE_FACTOR = 1.2;
 
-const SHADOW_COLOR = '#444';
-const SHADOW_OFFSET = { width: 2, height: 8 };
-const SHADOW_RADIUS = 22;
-const ELEVATION = 5;
+const SHADOW_OFFSET = { width: 0, height: 12 };
+const BASE_SHADOW_RADIUS = 32;
+const BASE_ELEVATION = 10;
 
 // Helper function to create random value within range
 const getRandomInRange = (min: number, max: number) =>
@@ -93,27 +92,32 @@ export const WelcomeItem = memo(
     url,
     size = '$12',
     borderRadius = 12,
+    maxOpacity = 1,
+    initialRotation = 0,
     ...stackProps
   }: {
     logo: ImageURISource | ImageURISource['uri'];
     url?: string;
     size?: string;
     borderRadius?: number;
+    maxOpacity?: number;
+    initialRotation?: number;
   } & React.ComponentProps<typeof Stack>) => {
     const opacity = useSharedValue(0);
     const translateY = useSharedValue(0);
-    const rotate = useSharedValue(0);
+    const rotate = useSharedValue(initialRotation);
     const scale = useSharedValue(1);
     const shadowOpacity = useSharedValue(DEFAULT_SHADOW_OPACITY);
-    const navigation = useAppNavigation();
-    const { gtMd } = useMedia();
-    const { handleOpenWebSite } = useBrowserAction().current;
+    const handleWebSite = useWebSiteHandler();
+    const shadowColor = useThemeValue('popoverShadowColor');
 
     useEffect(() => {
       setTimeout(
         () => {
           // Fade-in animation
-          opacity.value = withTiming(1, { duration: FADE_IN_DURATION });
+          opacity.value = withTiming(maxOpacity, {
+            duration: FADE_IN_DURATION,
+          });
         },
         // random delay
         getRandomDelay(FADE_IN_DELAY),
@@ -132,7 +136,10 @@ export const WelcomeItem = memo(
 
       const rotationAngle =
         getRandomInRange(ROTATION_MIN_ANGLE, ROTATION_MAX_ANGLE) *
-        (Math.random() > 0.5 ? 1 : -1);
+          (Math.random() > 0.5 ? 1 : -1) *
+          0.4 +
+        initialRotation;
+
       const rotationDuration = getRandomInRange(
         ROTATION_DURATION_BASE,
         ROTATION_DURATION_BASE + ROTATION_DURATION_VARIANCE,
@@ -174,7 +181,15 @@ export const WelcomeItem = memo(
         duration: scaleDuration,
         delay: scaleDelay,
       });
-    }, [opacity, translateY, rotate, scale, shadowOpacity]);
+    }, [
+      opacity,
+      translateY,
+      rotate,
+      scale,
+      shadowOpacity,
+      maxOpacity,
+      initialRotation,
+    ]);
 
     const handleHoverIn = () => {
       // Cancel and reset animations
@@ -188,6 +203,7 @@ export const WelcomeItem = memo(
       shadowOpacity.value = withTiming(HOVER_SHADOW_OPACITY, {
         duration: HOVER_TRANSITION_DURATION,
       });
+      opacity.value = withTiming(1, { duration: HOVER_TRANSITION_DURATION });
     };
 
     const handleHoverOut = () => {
@@ -196,11 +212,17 @@ export const WelcomeItem = memo(
       shadowOpacity.value = withTiming(DEFAULT_SHADOW_OPACITY, {
         duration: HOVER_TRANSITION_DURATION,
       });
+      opacity.value = withTiming(maxOpacity, {
+        duration: HOVER_TRANSITION_DURATION,
+      });
 
       // Restart rotation animation with new random values
       const rotationAngle =
         getRandomInRange(ROTATION_MIN_ANGLE, ROTATION_MAX_ANGLE) *
-        (Math.random() > 0.5 ? 1 : -1);
+          (Math.random() > 0.5 ? 1 : -1) *
+          0.4 +
+        initialRotation;
+
       rotate.value = withRepeat(
         withTiming(rotationAngle, {
           duration: getRandomInRange(
@@ -216,14 +238,15 @@ export const WelcomeItem = memo(
 
     const handlePress = () => {
       if (url) {
-        handleOpenWebSite({
-          switchToMultiTabBrowser: gtMd,
+        handleWebSite({
           webSite: {
             url,
             title: url,
+            logo: undefined,
+            sortIndex: undefined,
           },
-          navigation,
           shouldPopNavigation: false,
+          enterMethod: EEnterMethod.dashboard,
         });
       }
     };
@@ -235,14 +258,19 @@ export const WelcomeItem = memo(
         { rotate: `${rotate.value}deg` },
         { scale: scale.value },
       ],
-      shadowColor: SHADOW_COLOR,
-      shadowOffset: SHADOW_OFFSET,
-      shadowOpacity: shadowOpacity.value,
-      shadowRadius: SHADOW_RADIUS,
-      elevation: ELEVATION,
+      shadowColor,
+      style: {
+        shadowOffset: SHADOW_OFFSET,
+      },
+      shadowOpacity: shadowOpacity.value * scale.value,
+      shadowRadius: BASE_SHADOW_RADIUS,
+      elevation: BASE_ELEVATION * scale.value,
       backgroundColor: 'transparent',
-      borderRadius,
+      borderRadius: borderRadius * scale.value * 0.5,
       overflow: 'hidden',
+      ...(platformEnv.isWeb
+        ? { overlayColor: 'rgba(128, 128, 128, 0.3)' }
+        : {}),
     }));
 
     return (
@@ -263,7 +291,6 @@ export const WelcomeItem = memo(
             source={{ uri: logo } as ImageSourcePropType}
             width={size}
             height={size}
-            borderRadius={borderRadius}
           />
         </Animated.View>
       </Stack>

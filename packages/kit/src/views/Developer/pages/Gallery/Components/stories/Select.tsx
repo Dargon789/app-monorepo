@@ -1,6 +1,6 @@
 /* eslint-disable react-hooks/rules-of-hooks */
 /* eslint-disable react/no-unstable-nested-components */
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { ISelectItem, ISelectSection } from '@onekeyhq/components';
 import { Icon, Select, SizableText, Stack } from '@onekeyhq/components';
@@ -29,7 +29,10 @@ const items: ISelectItem[] = [
     value: 'Peach',
   },
 
-  { label: 'Apricot5', value: 'Apricot' },
+  {
+    label: 'Apricot5Apricot5Apricot5Apricot5Apricot5Apricot5Apricot5Apricot5',
+    value: 'Apricot',
+  },
 
   { label: 'Melon6', value: 'Melon' },
 
@@ -55,14 +58,17 @@ const SelectDefaultItem = () => {
 };
 
 const SelectLongListItem = () => {
-  const [val, setVal] = useState('Apple');
+  const [val, setVal] = useState('1');
+  const longListItems = useMemo(() => {
+    return new Array(1000).fill(undefined).map((_, index) => ({
+      label: String(index),
+      value: String(index),
+    }));
+  }, []);
 
   return (
     <Select
-      items={new Array(1000).fill(undefined).map((_, index) => ({
-        label: String(index),
-        value: String(index),
-      }))}
+      items={longListItems}
       sheetProps={{
         snapPointsMode: 'percent',
         snapPoints: [80],
@@ -185,6 +191,7 @@ const SelectDefaultValue = () => {
 
 const SelectGallery = () => (
   <Layout
+    filePath={__CURRENT_FILE_PATH__}
     componentName="Select"
     elements={[
       {

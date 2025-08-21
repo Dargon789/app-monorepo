@@ -18,7 +18,6 @@ import {
   SizableText,
   Stack,
   XStack,
-  useMedia,
 } from '@onekeyhq/components';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
@@ -63,6 +62,9 @@ function ActionItem({
         color="$textSubdued"
         minWidth="$20"
         numberOfLines={1}
+        {...(rest.disabled && {
+          color: '$textDisabled',
+        })}
       >
         {label}
       </SizableText>
@@ -119,7 +121,7 @@ function ActionSwap(props: IActionItemsProps) {
   return (
     <ActionItem
       label={intl.formatMessage({ id: ETranslations.global_swap })}
-      icon="SwitchHorOutline"
+      icon="SwapHorOutline"
       {...props}
     />
   );
@@ -147,9 +149,12 @@ function ActionEarn(props: IActionItemsProps) {
   );
 }
 
-function ActionMore({ sections }: { sections: IActionListProps['sections'] }) {
+function ActionMore({
+  renderItemsAsync,
+}: {
+  renderItemsAsync: IActionListProps['renderItemsAsync'];
+}) {
   const intl = useIntl();
-  const media = useMedia();
   return (
     <ActionList
       title={intl.formatMessage({
@@ -161,14 +166,12 @@ function ActionMore({ sections }: { sections: IActionListProps['sections'] }) {
       renderTrigger={
         <ActionItem
           icon="DotHorOutline"
-          {...(media.sm && {
-            label: intl.formatMessage({
-              id: ETranslations.global_more,
-            }),
+          label={intl.formatMessage({
+            id: ETranslations.global_more,
           })}
         />
       }
-      sections={sections}
+      renderItemsAsync={renderItemsAsync}
     />
   );
 }
@@ -180,7 +183,7 @@ function RawActions({ children, ...rest }: IXStackProps) {
       $gtSm={{
         flexDirection: 'row', // override the 'column' direction set in packages/kit/src/views/AssetDetails/pages/TokenDetails/TokenDetailsHeader.tsx 205L
         justifyContent: 'flex-start',
-        gap: '$8',
+        gap: '$6',
       }}
       {...rest}
     >

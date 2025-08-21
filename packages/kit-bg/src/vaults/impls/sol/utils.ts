@@ -4,16 +4,13 @@ import {
   ComputeBudgetProgram,
   PACKET_DATA_SIZE,
   PublicKey,
-  Transaction,
   TransactionMessage,
   VersionedTransaction,
 } from '@solana/web3.js';
 import bs58 from 'bs58';
 
-import type {
-  IEncodedTxSol,
-  INativeTxSol,
-} from '@onekeyhq/core/src/chains/sol/types';
+import type { INativeTxSol } from '@onekeyhq/core/src/chains/sol/types';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 
 import { EParamsEncodings } from './sdkSol/ClientSol';
 
@@ -109,7 +106,7 @@ export async function parseNativeTxDetail({
           encoding: EParamsEncodings.BASE64,
         });
         if (!accountInfo) {
-          throw new Error('Account not found');
+          throw new OneKeyLocalError('Account not found');
         }
         return new AddressLookupTableAccount({
           key: lookup.accountKey,
@@ -178,27 +175,4 @@ export function parseComputeUnitLimit(instructions: TransactionInstruction[]) {
     }
   }
   return computeUnitLimit;
-}
-
-export function parseToNativeTx(
-  encodedTx: IEncodedTxSol,
-  encoding: 'base64' | 'bs58' = 'bs58',
-): Promise<INativeTxSol | null> {
-  if (!encodedTx) {
-    return Promise.resolve(null);
-  }
-
-  let txByte = Buffer.alloc(0);
-
-  if (encoding === 'base64') {
-    txByte = Buffer.from(encodedTx, 'base64');
-  } else if (encoding === 'bs58') {
-    txByte = bs58.decode(encodedTx);
-  }
-
-  try {
-    return Promise.resolve(Transaction.from(txByte));
-  } catch (e) {
-    return Promise.resolve(VersionedTransaction.deserialize(txByte));
-  }
 }

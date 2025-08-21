@@ -1,9 +1,12 @@
+import type { IModalMarketParamList } from '@onekeyhq/kit/src/views/Market/router';
+
 import type { IAccountManagerStacksParamList } from './accountManagerStacks';
 import type { IModalAddressBookParamList } from './addressBook';
 import type { IAppUpdatePagesParamList } from './appUpdate';
 import type { IModalAssetDetailsParamList } from './assetDetails';
 import type { IModalAssetListParamList } from './assetList';
 import type { IAssetSelectorParamList } from './assetSelector';
+import type { IModalBulkCopyAddressesParamList } from './bulkCopyAddresses';
 import type { IChainSelectorParamList } from './chainSelector';
 import type { ICloudBackupParamList } from './cloudBackup';
 import type { IDAppConnectionModalParamList } from './dAppConnection';
@@ -17,6 +20,8 @@ import type { IModalNotificationsParamList } from './notifications';
 import type { IOnboardingParamList } from './onboarding';
 import type { IPrimeParamList } from './prime';
 import type { IModalReceiveParamList } from './receive';
+import type { IModalReferFriendsParamList } from './referFriends';
+import type { IModalRewardCenterParamList } from './rewardCenter';
 import type { IScanQrCodeModalParamList } from './scanQrCode';
 import type { IModalSendParamList } from './send';
 import type { IModalSettingParamList } from './setting';
@@ -36,6 +41,7 @@ export enum EModalRoutes {
   SettingModal = 'SettingModal',
   TestModal = 'TestModal',
   SwapModal = 'SwapModal',
+  MarketModal = 'MarketModal',
   AccountManagerStacks = 'AccountManagerStacks',
   OnboardingModal = 'OnboardingModal',
   PrimeModal = 'PrimeModal',
@@ -60,38 +66,44 @@ export enum EModalRoutes {
   ShortcutsModal = 'ShortcutsModal',
   SignatureConfirmModal = 'SignatureConfirmModal',
   DeviceManagementModal = 'DeviceManagementModal',
+  ReferFriendsModal = 'ReferFriendsModal',
+  BulkCopyAddressesModal = 'BulkCopyAddressesModal',
 }
 
 export type IModalParamList = {
-  [EModalRoutes.MainModal]: IModalAssetListParamList &
-    IModalAssetDetailsParamList &
-    ITabHomeUrlAccountParamList;
-  [EModalRoutes.TestModal]: ITestModalPagesParam;
-  [EModalRoutes.DiscoveryModal]: IDiscoveryModalParamList;
-  [EModalRoutes.SettingModal]: IModalSettingParamList;
-  [EModalRoutes.SwapModal]: IModalSwapParamList;
   [EModalRoutes.AccountManagerStacks]: IAccountManagerStacksParamList;
-  [EModalRoutes.OnboardingModal]: IOnboardingParamList;
-  [EModalRoutes.PrimeModal]: IPrimeParamList;
-  [EModalRoutes.FirmwareUpdateModal]: IModalFirmwareUpdateParamList;
+  [EModalRoutes.AddressBookModal]: IModalAddressBookParamList;
+  [EModalRoutes.AppUpdateModal]: IAppUpdatePagesParamList;
   [EModalRoutes.AssetSelectorModal]: IAssetSelectorParamList;
   [EModalRoutes.ChainSelectorModal]: IChainSelectorParamList;
-  [EModalRoutes.SendModal]: IModalSendParamList;
-  [EModalRoutes.ReceiveModal]: IModalReceiveParamList;
-  [EModalRoutes.ScanQrCodeModal]: IScanQrCodeModalParamList;
-  [EModalRoutes.LiteCardModal]: ILiteCardParamList;
   [EModalRoutes.CloudBackupModal]: ICloudBackupParamList;
-  [EModalRoutes.WebViewModal]: IModalWebViewParamList;
-  [EModalRoutes.AddressBookModal]: IModalAddressBookParamList;
   [EModalRoutes.DAppConnectionModal]: IDAppConnectionModalParamList;
-  [EModalRoutes.AppUpdateModal]: IAppUpdatePagesParamList;
+  [EModalRoutes.DeviceManagementModal]: IModalDeviceManagementParamList;
+  [EModalRoutes.DiscoveryModal]: IDiscoveryModalParamList;
   [EModalRoutes.FiatCryptoModal]: IModalFiatCryptoParamList;
+  [EModalRoutes.FirmwareUpdateModal]: IModalFirmwareUpdateParamList;
   [EModalRoutes.KeyTagModal]: IModalKeyTagParamList;
-  [EModalRoutes.UniversalSearchModal]: IUniversalSearchParamList;
-  [EModalRoutes.StakingModal]: IModalStakingParamList;
-  [EModalRoutes.WalletAddress]: IModalWalletAddressParamList;
+  [EModalRoutes.LiteCardModal]: ILiteCardParamList;
+  [EModalRoutes.MainModal]: IModalAssetListParamList &
+    IModalAssetDetailsParamList &
+    IModalRewardCenterParamList &
+    ITabHomeUrlAccountParamList;
+  [EModalRoutes.MarketModal]: IModalMarketParamList;
   [EModalRoutes.NotificationsModal]: IModalNotificationsParamList;
+  [EModalRoutes.OnboardingModal]: IOnboardingParamList;
+  [EModalRoutes.PrimeModal]: IPrimeParamList;
+  [EModalRoutes.ReceiveModal]: IModalReceiveParamList;
+  [EModalRoutes.ReferFriendsModal]: IModalReferFriendsParamList;
+  [EModalRoutes.ScanQrCodeModal]: IScanQrCodeModalParamList;
+  [EModalRoutes.SendModal]: IModalSendParamList;
+  [EModalRoutes.SettingModal]: IModalSettingParamList;
   [EModalRoutes.ShortcutsModal]: IModalShortcutsParamList;
   [EModalRoutes.SignatureConfirmModal]: IModalSignatureConfirmParamList;
-  [EModalRoutes.DeviceManagementModal]: IModalDeviceManagementParamList;
+  [EModalRoutes.StakingModal]: IModalStakingParamList;
+  [EModalRoutes.SwapModal]: IModalSwapParamList;
+  [EModalRoutes.TestModal]: ITestModalPagesParam;
+  [EModalRoutes.UniversalSearchModal]: IUniversalSearchParamList;
+  [EModalRoutes.WalletAddress]: IModalWalletAddressParamList;
+  [EModalRoutes.WebViewModal]: IModalWebViewParamList;
+  [EModalRoutes.BulkCopyAddressesModal]: IModalBulkCopyAddressesParamList;
 };

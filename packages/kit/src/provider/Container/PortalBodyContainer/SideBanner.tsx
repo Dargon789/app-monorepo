@@ -11,27 +11,23 @@ import {
   Portal,
   SizableText,
   Stack,
+  YStack,
+  useIsIpadLandscape,
   useMedia,
 } from '@onekeyhq/components';
 import { DesktopTabItem } from '@onekeyhq/components/src/layouts/Navigation/Tab/TabBar/DesktopTabItem';
 import SidebarBannerImage from '@onekeyhq/kit/assets/sidebar-banner.png';
 import { useSpotlight } from '@onekeyhq/kit/src/components/Spotlight';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
-import { useShowAddressBook } from '@onekeyhq/kit/src/hooks/useShowAddressBook';
+import { useNotificationsAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms/notifications';
 import { DOWNLOAD_URL } from '@onekeyhq/shared/src/config/appConfig';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import {
-  EModalDeviceManagementRoutes,
-  EModalRoutes,
-  EModalSettingRoutes,
-  EOnboardingPages,
-} from '@onekeyhq/shared/src/routes';
+import { EModalRoutes, EModalSettingRoutes } from '@onekeyhq/shared/src/routes';
+import { EModalNotificationsRoutes } from '@onekeyhq/shared/src/routes/notifications';
 import { shortcutsKeys } from '@onekeyhq/shared/src/shortcuts/shortcutsKeys.enum';
 import { ESpotlightTour } from '@onekeyhq/shared/src/spotlight';
 import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
-
-import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
 
 import type { GestureResponderEvent } from 'react-native';
 
@@ -100,6 +96,60 @@ function BasicSidebarBanner() {
   ) : null;
 }
 
+function _NotificationButton() {
+  const appNavigation = useAppNavigation();
+  const openNotificationsModal = useCallback(async () => {
+    appNavigation.pushModal(EModalRoutes.NotificationsModal, {
+      screen: EModalNotificationsRoutes.NotificationList,
+    });
+  }, [appNavigation]);
+  const [{ firstTimeGuideOpened, badge }] = useNotificationsAtom();
+  return (
+    <DesktopTabItem
+      key="notifications"
+      testID="headerRightNotificationsButton"
+      onPress={openNotificationsModal}
+      trackId="wallet-notification"
+    >
+      <Icon name="BellOutline" size="$5" color="$iconSubdued" />
+      {!firstTimeGuideOpened || badge ? (
+        <Stack
+          position="absolute"
+          right="$-0.5"
+          top="$-0.5"
+          p="$0.5"
+          pointerEvents="none"
+          bg="$bgApp"
+          borderRadius="$full"
+        >
+          <Stack
+            alignItems="center"
+            justifyContent="center"
+            minWidth="$4"
+            h="$4"
+            px="$1"
+            bg="$bgCriticalStrong"
+            borderRadius="$full"
+          >
+            {!firstTimeGuideOpened ? (
+              <Stack
+                width="$1"
+                height="$1"
+                backgroundColor="white"
+                borderRadius="$full"
+              />
+            ) : (
+              <SizableText color="$textOnColor" size="$headingXxs">
+                {badge && badge > 99 ? '99+' : badge}
+              </SizableText>
+            )}
+          </Stack>
+        </Stack>
+      ) : null}
+    </DesktopTabItem>
+  );
+}
+
 function DownloadButton() {
   const intl = useIntl();
   const onPress = useCallback(() => {
@@ -125,57 +175,20 @@ function DownloadButton() {
 function BottomMenu() {
   const intl = useIntl();
   const appNavigation = useAppNavigation();
-
   const openSettingPage = useCallback(() => {
     appNavigation.pushModal(EModalRoutes.SettingModal, {
       screen: EModalSettingRoutes.SettingListModal,
     });
   }, [appNavigation]);
 
-  const openAddressBookPage = useShowAddressBook({
-    useNewModal: true,
-  });
-
-  const openDeviceManagementPage = useCallback(async () => {
-    const allHwQrWallet =
-      await backgroundApiProxy.serviceAccount.getAllHwQrWalletWithDevice();
-    if (Object.keys(allHwQrWallet).length > 0) {
-      appNavigation.pushModal(EModalRoutes.DeviceManagementModal, {
-        screen: EModalDeviceManagementRoutes.DeviceListModal,
-      });
-      return;
-    }
-
-    appNavigation.pushModal(EModalRoutes.OnboardingModal, {
-      screen: EOnboardingPages.DeviceManagementGuide,
-    });
-  }, [appNavigation]);
-
   return (
-    <Stack
+    <YStack
       p="$3"
       borderTopWidth={StyleSheet.hairlineWidth}
       borderTopColor="$borderSubdued"
       bg="$bgSidebar"
+      gap="$2"
     >
-      <DesktopTabItem
-        onPress={openDeviceManagementPage}
-        selected={false}
-        icon="OnekeyDeviceCustom"
-        label={intl.formatMessage({
-          id: ETranslations.global_my_onekey,
-        })}
-        testID="my-onekey"
-      />
-      <DesktopTabItem
-        onPress={openAddressBookPage}
-        selected={false}
-        icon="ContactsOutline"
-        label={intl.formatMessage({
-          id: ETranslations.address_book_title,
-        })}
-        testID="address-book"
-      />
       <DesktopTabItem
         onPress={openSettingPage}
         selected={false}
@@ -187,16 +200,17 @@ function BottomMenu() {
         testID="setting"
       />
       <DownloadButton />
-      <BasicSidebarBanner />
-    </Stack>
+    </YStack>
   );
 }
 
-export const SidebarBanner = () => {
+export function SidebarBanner() {
   const { gtMd } = useMedia();
-  return gtMd ? (
+  const isIpadLandscape = useIsIpadLandscape();
+  const isShowBottomMenu = platformEnv.isNativeIOSPad ? isIpadLandscape : gtMd;
+  return isShowBottomMenu ? (
     <Portal.Body container={EPortalContainerConstantName.SIDEBAR_BANNER}>
       <BottomMenu />
     </Portal.Body>
   ) : null;
-};
+}

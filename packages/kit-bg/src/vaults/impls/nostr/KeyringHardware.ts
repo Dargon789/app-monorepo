@@ -8,7 +8,10 @@ import type {
   ISignedMessagePro,
   ISignedTxPro,
 } from '@onekeyhq/core/src/types';
-import { OneKeyHardwareError } from '@onekeyhq/shared/src/errors';
+import {
+  OneKeyHardwareError,
+  OneKeyLocalError,
+} from '@onekeyhq/shared/src/errors';
 import { convertDeviceError } from '@onekeyhq/shared/src/errors/utils/deviceErrorUtils';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { checkIsDefined } from '@onekeyhq/shared/src/utils/assertUtils';
@@ -76,7 +79,7 @@ export class KeyringHardware extends KeyringHardwareBase {
             if (allNetworkAccounts) {
               return allNetworkAccounts;
             }
-            throw new Error('use sdk allNetworkGetAddress instead');
+            throw new OneKeyLocalError('use sdk allNetworkGetAddress instead');
 
             // const sdk = await this.getHardwareSDKInstance();
             // const response = await sdk.nostrGetPublicKey(connectId, deviceId, {
@@ -111,10 +114,12 @@ export class KeyringHardware extends KeyringHardwareBase {
     const encodedTx = unsignedTx.encodedTx as IEncodedTxNostr;
     const { event } = encodedTx;
     if (!validateEvent(event)) {
-      throw new Error('Invalid event');
+      throw new OneKeyLocalError('Invalid event');
     }
 
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const deviceParams = checkIsDefined(params.deviceParams);
     const { connectId, deviceId } = deviceParams.dbDevice;
     const dbAccount = await this.vault.getAccount();
@@ -148,7 +153,9 @@ export class KeyringHardware extends KeyringHardwareBase {
   override async signMessage(
     params: ISignMessageParams,
   ): Promise<ISignedMessagePro> {
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const deviceParams = checkIsDefined(params.deviceParams);
     const { connectId, deviceId } = deviceParams.dbDevice;
     const dbAccount = await this.vault.getAccount();
@@ -177,7 +184,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     deviceParams: IDeviceSharedCallParams | undefined;
   }): Promise<string> {
     const { pubkey, plaintext } = params;
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const deviceParams = checkIsDefined(params.deviceParams);
     const { connectId, deviceId } = deviceParams.dbDevice;
     const dbAccount = await this.vault.getAccount();
@@ -209,7 +218,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     deviceParams: IDeviceSharedCallParams | undefined;
   }): Promise<string> {
     const { pubkey, ciphertext } = params;
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const deviceParams = checkIsDefined(params.deviceParams);
     const { connectId, deviceId } = deviceParams.dbDevice;
     const dbAccount = await this.vault.getAccount();

@@ -1,4 +1,3 @@
-import { Asset } from 'expo-asset';
 import {
   downloadAsync as ExpoFSDownloadAsync,
   readAsStringAsync as ExpoFSReadAsStringAsync,
@@ -7,7 +6,8 @@ import {
 import { SaveFormat, manipulateAsync } from 'expo-image-manipulator';
 import { isArray, isNil, isNumber, isObject, isString } from 'lodash';
 import { Image as RNImage } from 'react-native';
-import RNFS from 'react-native-fs';
+
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 
 import appGlobals from '../appGlobals';
 import platformEnv from '../platformEnv';
@@ -24,11 +24,10 @@ type ICommonImageLogFn = (...args: string[]) => void;
 
 const range = (length: number) => [...Array(length).keys()];
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const toGrayscale = (red: number, green: number, blue: number): number =>
+export const toGrayScale = (red: number, green: number, blue: number): number =>
   Math.round(0.299 * red + 0.587 * green + 0.114 * blue);
 
-function getOriginX(
+export function getOriginX(
   originW: number,
   originH: number,
   scaleW: number,
@@ -123,6 +122,14 @@ function convertToBlackAndWhiteImageBase64(
   });
 }
 
+export type IResizeImageResult = {
+  hex: string;
+  uri: string;
+  width: number;
+  height: number;
+  base64?: string;
+};
+
 async function resizeImage(params: {
   uri: string;
   width: number;
@@ -130,9 +137,9 @@ async function resizeImage(params: {
   originW: number;
   originH: number;
   isMonochrome?: boolean;
-}) {
-  const { uri, width, height, originW, originH, isMonochrome } = params;
-  if (!uri) return;
+}): Promise<IResizeImageResult> {
+  const { uri, width, height, isMonochrome } = params;
+  if (!uri) return { hex: '', uri: '', width: 0, height: 0 };
   const actions: ExpoImageManipulatorAction[] = [
     // resize first
     {
@@ -155,7 +162,7 @@ async function resizeImage(params: {
     });
   }
   const imageResult: ImageResult = await manipulateAsync(uri, actions, {
-    compress: 0.9,
+    compress: 0.8,
     format: SaveFormat.JPEG,
     base64: true,
   });
@@ -175,7 +182,7 @@ async function resizeImage(params: {
 }
 
 async function getRNLocalImageBase64({
-  nativeModuleId,
+  nativeModuleId: _nativeModuleId,
   uri,
   logFn,
 }: {
@@ -274,7 +281,7 @@ async function getRNLocalImageBase64({
 
   const base64 = base64a || base64a1 || base64b || base64c || base64d;
   if (!base64) {
-    throw new Error('getRNLocalImageBase64 failed');
+    throw new OneKeyLocalError('getRNLocalImageBase64 failed');
   }
 
   return base64;
@@ -323,6 +330,7 @@ async function getBase64FromImageUriWeb(
     const blob = await response.blob();
     return await new Promise((resolve, reject) => {
       const reader = new FileReader();
+      // eslint-disable-next-line spellcheck/spell-checker
       reader.onloadend = () => {
         const readerResult = reader.result as string;
         // readerResult is base64 string with mime prefix
@@ -446,7 +454,7 @@ function htmlImageToCanvas({
 
   const ctx = canvas.getContext('2d');
   if (ctx == null) {
-    throw new Error('2D context is null');
+    throw new OneKeyLocalError('2D context is null');
   }
 
   ctx.clearRect(0, 0, width, height);
@@ -468,12 +476,12 @@ function canvasImageDataToBitmap({
     .map((j) =>
       range(width / 8)
         .map((i) => {
-          const bytestr = range(8)
+          const byteString = range(8)
             .map((k) => (j * width + i * 8 + k) * 4)
             .map((index) => (imageData.data[index] === 0 ? '0' : '1'))
             .join('');
 
-          return String.fromCharCode(Number.parseInt(bytestr, 2));
+          return String.fromCharCode(Number.parseInt(byteString, 2));
         })
         .join(''),
     )
@@ -540,6 +548,7 @@ async function getBase64ImageFromUrl(imageUrl: string) {
 export default {
   resizeImage,
   prefixBase64Uri,
+  stripBase64UriPrefix,
   convertToBlackAndWhiteImageBase64,
   getUriFromRequiredImageSource,
   getBase64FromRequiredImageSource,

@@ -7,6 +7,7 @@ const ONE_HOUR = 60 * 60 * 1000;
 
 const ToastGallery = () => (
   <Layout
+    filePath={__CURRENT_FILE_PATH__}
     componentName="Toast"
     elements={[
       {
@@ -40,7 +41,7 @@ const ToastGallery = () => (
                 Toast.success({
                   title: 'url!',
                   message:
-                    'look, <url href="https://onekey.so">OneKey</url> here. aaa',
+                    'look, <url>https://onekey.so<underline>here</underline></url>. OneKey.',
                 });
               }}
             >
@@ -372,7 +373,7 @@ const ToastGallery = () => (
                 Toast.warning({
                   duration: ONE_HOUR,
                   title:
-                    'OneKey Bridge facilitates seamless communication between OneKey and your browser for a better experience.\n\nIf you encounter issues during the installation of OneKey Bridge, please refer to the <url href="https://1key.so">online tutorial</url> for assistance.',
+                    'You can only transfer funds to accounts within the wallet or to allowlisted addresses in the address book. If you understand the risks, you can enable it in <url>https://app.onekey.so/send/protection<underline>Settings >> Protection</underline></url>',
                 });
               }}
             >
@@ -416,6 +417,30 @@ const ToastGallery = () => (
               }}
             >
               Custom
+            </Button>
+            <Button
+              onPress={() => {
+                const toast = Toast.warning({
+                  onClose: () => {
+                    console.log('onClose');
+                  },
+                  duration: ONE_HOUR,
+                  title: 'OneKey Bridge test',
+                  actions: (
+                    <Button
+                      variant="primary"
+                      size="small"
+                      onPress={() => {
+                        toast?.close();
+                      }}
+                    >
+                      close it
+                    </Button>
+                  ),
+                });
+              }}
+            >
+              Toast with close button
             </Button>
           </YStack>
         ),

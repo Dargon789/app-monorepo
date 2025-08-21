@@ -37,6 +37,7 @@ import type {
 } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import type { IAccountActivityNotificationSettings } from '@onekeyhq/kit-bg/src/dbs/simple/entity/SimpleDbEntityNotificationSettings';
 import { useNotificationsAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms/notifications';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import {
@@ -216,7 +217,7 @@ function AccountNotificationSettingsProvider({
 function useContextAccountNotificationSettings() {
   const context = useContext(AccountNotificationSettingsContext);
   if (context === undefined) {
-    throw new Error(
+    throw new OneKeyLocalError(
       'useAccountNotificationSettings must be used within a NotificationSettingsProvider',
     );
   }
@@ -439,7 +440,7 @@ function WalletAccordionItem({
                 img={wallet.avatarInfo?.img}
                 wallet={wallet as IDBWallet & Partial<IDBWalletExtended>}
               />
-              <XStack gap="$1" flex={1}>
+              <XStack gap="$1" flex={1} ai="center">
                 <SizableText
                   size="$bodyLgMedium"
                   numberOfLines={1}
@@ -706,7 +707,7 @@ function ManageAccountActivityContent({ wallets }: { wallets: IDBWallet[] }) {
     [totalEnabledAccountsCount, maxAccountCount],
   );
 
-  const defaultExpandWalletIdRef = useRef<string | undefined>();
+  const defaultExpandWalletIdRef = useRef<string>(undefined);
   if (!defaultExpandWalletIdRef.current && accountNotificationSettings) {
     defaultExpandWalletIdRef.current = getDefaultExpandWalletId({
       wallets,

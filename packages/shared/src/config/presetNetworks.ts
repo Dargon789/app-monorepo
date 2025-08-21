@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable spellcheck/spell-checker */
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import { memoFn } from '@onekeyhq/shared/src/utils/cacheUtils';
 import type { IServerNetwork } from '@onekeyhq/shared/types';
 import { ENetworkStatus } from '@onekeyhq/shared/types';
@@ -21,7 +22,6 @@ export const dangerAllNetworkRepresent: IServerNetwork = {
   'shortname': 'onekeyall',
   'symbol': 'ALL NETWORKS',
   'feeMeta': {
-    'code': '',
     'decimals': 0,
     'symbol': '0',
   },
@@ -41,7 +41,6 @@ const eth: IServerNetwork = {
   'shortname': 'ETH',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': true,
@@ -69,7 +68,6 @@ const bsc: IServerNetwork = {
   'shortname': 'BSC',
   'decimals': 18,
   'feeMeta': {
-    'code': 'bsc',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -97,7 +95,6 @@ const polygon: IServerNetwork = {
   'shortname': 'Polygon',
   'decimals': 18,
   'feeMeta': {
-    'code': 'polygon',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': true,
@@ -125,7 +122,6 @@ const fantom: IServerNetwork = {
   'shortname': 'FTM',
   'decimals': 18,
   'feeMeta': {
-    'code': 'fantom',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -153,7 +149,6 @@ const arbitrum: IServerNetwork = {
   'shortname': 'Arbitrum',
   'decimals': 18,
   'feeMeta': {
-    'code': 'arbitrum',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -181,7 +176,6 @@ const avalanche: IServerNetwork = {
   'shortname': 'Avalanche',
   'decimals': 18,
   'feeMeta': {
-    'code': 'avalanche',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -209,7 +203,6 @@ const okt: IServerNetwork = {
   'shortname': 'OKC',
   'decimals': 18,
   'feeMeta': {
-    'code': 'okt',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -237,7 +230,6 @@ const optimism: IServerNetwork = {
   'shortname': 'Optimism',
   'decimals': 18,
   'feeMeta': {
-    'code': 'optimism',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -265,7 +257,6 @@ const xdai: IServerNetwork = {
   'shortname': 'GNO',
   'decimals': 18,
   'feeMeta': {
-    'code': 'xdai',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -293,7 +284,6 @@ const celo: IServerNetwork = {
   'shortname': 'CELO',
   'decimals': 18,
   'feeMeta': {
-    'code': 'celo',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -321,7 +311,6 @@ const zksyncera: IServerNetwork = {
   'shortname': 'ZKSYNCERA',
   'decimals': 18,
   'feeMeta': {
-    'code': 'zksyncera',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -349,7 +338,6 @@ const zklinknova: IServerNetwork = {
   'shortname': 'zklink-nova',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -375,7 +363,6 @@ const opbnb: IServerNetwork = {
   'shortname': 'obnb',
   'decimals': 18,
   'feeMeta': {
-    'code': 'bnb',
     'decimals': 9,
     'symbol': 'Gwei',
     'isWithL1BaseFee': true,
@@ -402,7 +389,6 @@ const zora: IServerNetwork = {
   'shortname': 'zora',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -428,7 +414,6 @@ const zetachain: IServerNetwork = {
   'shortname': 'zetachain-mainnet',
   'decimals': 18,
   'feeMeta': {
-    'code': 'zeta',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -454,7 +439,6 @@ const okb: IServerNetwork = {
   'shortname': 'okb',
   'decimals': 18,
   'feeMeta': {
-    'code': 'okb',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -480,7 +464,6 @@ const wemix: IServerNetwork = {
   'shortname': 'wemix',
   'decimals': 18,
   'feeMeta': {
-    'code': 'wemix',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -506,7 +489,6 @@ const taiko: IServerNetwork = {
   'shortname': 'tko-mainnet',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -532,7 +514,6 @@ const scr: IServerNetwork = {
   'shortname': 'scr',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
     'isWithL1BaseFee': true,
@@ -559,7 +540,6 @@ const ronin: IServerNetwork = {
   'shortname': 'ronin',
   'decimals': 18,
   'feeMeta': {
-    'code': 'ron',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -585,7 +565,6 @@ const pulse: IServerNetwork = {
   'shortname': 'pls',
   'decimals': 18,
   'feeMeta': {
-    'code': 'pls',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -611,7 +590,6 @@ const polygonzkevm: IServerNetwork = {
   'shortname': 'polygonzkevm',
   'decimals': 18,
   'feeMeta': {
-    'code': 'polygonzkevm',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -639,7 +617,6 @@ const octa: IServerNetwork = {
   'shortname': 'octa',
   'decimals': 18,
   'feeMeta': {
-    'code': 'octa',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -667,7 +644,6 @@ const moonbeam: IServerNetwork = {
   'shortname': 'mbeam',
   'decimals': 18,
   'feeMeta': {
-    'code': 'glmr',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -693,7 +669,6 @@ const mode: IServerNetwork = {
   'shortname': 'mode',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
     'isWithL1BaseFee': true,
@@ -720,7 +695,6 @@ const mvm: IServerNetwork = {
   'shortname': 'MVM',
   'decimals': 18,
   'feeMeta': {
-    'code': 'mvm',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -749,7 +723,6 @@ const metis: IServerNetwork = {
   'shortname': 'metis-andromeda',
   'decimals': 18,
   'feeMeta': {
-    'code': 'metis',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -775,7 +748,6 @@ const merlinmainnet: IServerNetwork = {
   'shortname': 'Merlin-Mainnet',
   'decimals': 18,
   'feeMeta': {
-    'code': 'btc',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -801,7 +773,6 @@ const mantle: IServerNetwork = {
   'shortname': 'Mantle',
   'decimals': 18,
   'feeMeta': {
-    'code': 'mantle',
     'decimals': 9,
     'symbol': 'Gwei',
     'maxSendFeeUpRatio': 1.2,
@@ -830,7 +801,6 @@ const mantapacific: IServerNetwork = {
   'shortname': 'mantapacific',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'ETH',
     'maxSendFeeUpRatio': 1.2,
@@ -860,7 +830,6 @@ const linea: IServerNetwork = {
   'shortname': 'Linea',
   'decimals': 18,
   'feeMeta': {
-    'code': 'Linea',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -883,12 +852,11 @@ const kaia: IServerNetwork = {
   'id': 'evm--8217',
   'name': 'Kaia',
   'symbol': 'KAIA',
-  'code': 'Kaia',
+  'code': 'kaia',
   'shortcode': 'kaia',
   'shortname': 'kaia',
   'decimals': 18,
   'feeMeta': {
-    'code': 'kaia',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -914,7 +882,6 @@ const kava: IServerNetwork = {
   'shortname': 'kava',
   'decimals': 18,
   'feeMeta': {
-    'code': 'kava',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -940,7 +907,6 @@ const iotex: IServerNetwork = {
   'shortname': 'iotex',
   'decimals': 18,
   'feeMeta': {
-    'code': 'iotex',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -968,7 +934,6 @@ const harmony: IServerNetwork = {
   'shortname': 'hmy-s0',
   'decimals': 18,
   'feeMeta': {
-    'code': 'one',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -994,7 +959,6 @@ const flare: IServerNetwork = {
   'shortname': 'flr',
   'decimals': 18,
   'feeMeta': {
-    'code': 'flr',
     'decimals': 9,
     'symbol': 'Gwei',
     'maxSendFeeUpRatio': 1.1,
@@ -1021,7 +985,6 @@ const fevm: IServerNetwork = {
   'shortname': 'FEVM',
   'decimals': 18,
   'feeMeta': {
-    'code': 'fevm',
     'decimals': 9,
     'symbol': 'Gwei',
     'maxSendFeeUpRatio': 1.1,
@@ -1050,7 +1013,6 @@ const ethw: IServerNetwork = {
   'shortname': 'ETHW',
   'decimals': 18,
   'feeMeta': {
-    'code': 'ethw',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1078,7 +1040,6 @@ const sepolia: IServerNetwork = {
   'shortname': 'Sepolia',
   'decimals': 18,
   'feeMeta': {
-    'code': 'sepolia',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1106,7 +1067,6 @@ const etc: IServerNetwork = {
   'shortname': 'ETC',
   'decimals': 18,
   'feeMeta': {
-    'code': 'etc',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1134,7 +1094,6 @@ const ace: IServerNetwork = {
   'shortname': 'ace',
   'decimals': 18,
   'feeMeta': {
-    'code': 'ace',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -1160,7 +1119,6 @@ const dymension: IServerNetwork = {
   'shortname': 'dymension',
   'decimals': 18,
   'feeMeta': {
-    'code': 'dym',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -1186,7 +1144,6 @@ const dis: IServerNetwork = {
   'shortname': 'DIS',
   'decimals': 18,
   'feeMeta': {
-    'code': 'dis',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1214,7 +1171,6 @@ const cyeth: IServerNetwork = {
   'shortname': 'cyeth',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -1240,7 +1196,6 @@ const cronos: IServerNetwork = {
   'shortname': 'CRO',
   'decimals': 18,
   'feeMeta': {
-    'code': 'cronos',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1268,7 +1223,6 @@ const core: IServerNetwork = {
   'shortname': 'core',
   'decimals': 18,
   'feeMeta': {
-    'code': 'core',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -1294,7 +1248,6 @@ const cfxespace: IServerNetwork = {
   'shortname': 'CFXESPACE',
   'decimals': 18,
   'feeMeta': {
-    'code': 'cfxespace',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1322,7 +1275,6 @@ const b2: IServerNetwork = {
   'shortname': 'b2',
   'decimals': 18,
   'feeMeta': {
-    'code': 'btc',
     'decimals': 9,
     'symbol': 'Gwei',
     'maxSendFeeUpRatio': 1.1,
@@ -1349,7 +1301,6 @@ const bouncebit: IServerNetwork = {
   'shortname': 'bouncebit-mainnet',
   'decimals': 18,
   'feeMeta': {
-    'code': 'bb',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -1375,7 +1326,6 @@ const boba: IServerNetwork = {
   'shortname': 'Boba',
   'decimals': 18,
   'feeMeta': {
-    'code': 'boba',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1397,13 +1347,12 @@ const blast: IServerNetwork = {
   'chainId': '81457',
   'id': 'evm--81457',
   'name': 'Blast',
-  'symbol': 'BLAST',
+  'symbol': 'ETH',
   'code': 'blast',
   'shortcode': 'blast',
   'shortname': 'blast',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'ETH',
     'maxSendFeeUpRatio': 1.2,
@@ -1432,7 +1381,6 @@ const btr: IServerNetwork = {
   'shortname': 'btr',
   'decimals': 18,
   'feeMeta': {
-    'code': 'btc',
     'decimals': 9,
     'symbol': 'Gwei',
     'maxSendFeeUpRatio': 1.1,
@@ -1459,7 +1407,6 @@ const base: IServerNetwork = {
   'shortname': 'Base',
   'decimals': 18,
   'feeMeta': {
-    'code': 'base',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1487,7 +1434,6 @@ const bob: IServerNetwork = {
   'shortname': 'bob',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
   },
@@ -1513,7 +1459,6 @@ const aurora: IServerNetwork = {
   'shortname': 'Aurora',
   'decimals': 18,
   'feeMeta': {
-    'code': 'aurora',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1541,7 +1486,6 @@ const holesky: IServerNetwork = {
   'shortname': 'Holesky',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1569,7 +1513,6 @@ const zircuit: IServerNetwork = {
   'shortname': 'Zircuit',
   'decimals': 18,
   'feeMeta': {
-    'code': 'eth',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1598,7 +1541,6 @@ const neox: IServerNetwork = {
   'shortname': 'neox',
   'decimals': 18,
   'feeMeta': {
-    'code': 'gas',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1628,7 +1570,6 @@ const azero: IServerNetwork = {
   'shortname': 'azero',
   'decimals': 18,
   'feeMeta': {
-    'code': 'azero',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1658,7 +1599,6 @@ const dtc: IServerNetwork = {
   'shortname': 'DTC',
   'decimals': 18,
   'feeMeta': {
-    'code': 'dtt',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1687,7 +1627,6 @@ const sonic: IServerNetwork = {
   'shortname': 'sonic',
   'decimals': 18,
   'feeMeta': {
-    'code': 's',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': true,
@@ -1716,7 +1655,6 @@ const hsk: IServerNetwork = {
   'shortname': 'hsk',
   'decimals': 18,
   'feeMeta': {
-    'code': 'hsk',
     'decimals': 9,
     'symbol': 'Gwei',
     'isEIP1559FeeEnabled': false,
@@ -1730,6 +1668,202 @@ const hsk: IServerNetwork = {
     'isNFTEnabled': false,
   },
   'logoURI': 'https://uni.onekey-asset.com/static/chain/hsk.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const rsk: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '30',
+  'id': 'evm--30',
+  'name': 'Rootstock',
+  'symbol': 'RBTC',
+  'code': 'rsk',
+  'shortcode': 'rsk',
+  'shortname': 'rsk',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': false,
+    'isWithL1BaseFee': false,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': false,
+  'extensions': {
+    'position': 9999,
+    'isTokenSupported': true,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/rsk.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const berachain: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '80094',
+  'id': 'evm--80094',
+  'name': 'Berachain',
+  'symbol': 'BERA',
+  'code': 'bera',
+  'shortcode': 'bera',
+  'shortname': 'bera',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': true,
+    'isWithL1BaseFee': false,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': false,
+  'extensions': {
+    'position': 999,
+    'isTokenSupported': true,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/berachain.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const sei: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '1329',
+  'id': 'evm--1329',
+  'name': 'Sei',
+  'symbol': 'SEI',
+  'code': 'sei',
+  'shortcode': 'sei',
+  'shortname': 'sei',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': false,
+    'isWithL1BaseFee': false,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': false,
+  'extensions': {
+    'position': 999,
+    'isTokenSupported': true,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/sei.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const unichain: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '130',
+  'id': 'evm--130',
+  'name': 'Unichain',
+  'symbol': 'ETH',
+  'code': 'unichain',
+  'shortcode': 'unichain',
+  'shortname': 'unichain',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': true,
+    'isWithL1BaseFee': true,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': false,
+  'extensions': {
+    'position': 999,
+    'isTokenSupported': true,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/logo/unichain.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const worldChain: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '480',
+  'id': 'evm--480',
+  'name': 'World Chain',
+  'symbol': 'ETH',
+  'code': 'worldchain',
+  'shortcode': 'worldchain',
+  'shortname': 'worldchain',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': false,
+    'isWithL1BaseFee': true,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': false,
+  'extensions': {
+    'position': 999,
+    'isTokenSupported': true,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/world-chain.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const hyperEvm: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '999',
+  'id': 'evm--999',
+  'name': 'HyperEVM',
+  'symbol': 'HYPE',
+  'code': 'hyperevm',
+  'shortcode': 'hyperevm',
+  'shortname': 'hyperevm',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': false,
+    'isWithL1BaseFee': false,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': false,
+  'extensions': {
+    'position': 999,
+    'isTokenSupported': true,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/hyper-evm.png',
+  'defaultEnabled': false,
+  'backendIndex': false,
+};
+
+const monadTestnet: IServerNetwork = {
+  'impl': 'evm',
+  'chainId': '10143',
+  'id': 'evm--10143',
+  'name': 'Monad Testnet',
+  'symbol': 'TMON',
+  'code': 'tmon',
+  'shortcode': 'tmon',
+  'shortname': 'tmon',
+  'decimals': 18,
+  'feeMeta': {
+    'decimals': 9,
+    'symbol': 'Gwei',
+    'isEIP1559FeeEnabled': false,
+    'isWithL1BaseFee': false,
+  },
+  'status': ENetworkStatus.LISTED,
+  'isTestnet': true,
+  'extensions': {
+    'position': 9999,
+    'isTokenSupported': false,
+    'isNFTEnabled': false,
+  },
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/monad-testnet.png',
   'defaultEnabled': false,
   'backendIndex': false,
 };
@@ -1750,7 +1884,6 @@ const btc: IServerNetwork = {
   'shortname': 'BTC',
   'symbol': 'BTC',
   'feeMeta': {
-    'code': 'btc',
     'decimals': 8,
     'symbol': 'BTC',
   },
@@ -1772,7 +1905,6 @@ const tbtc: IServerNetwork = {
   'shortname': 'TBTC',
   'symbol': 'TBTC',
   'feeMeta': {
-    'code': 'tbtc',
     'decimals': 8,
     'symbol': 'TBTC',
   },
@@ -1793,7 +1925,6 @@ const sbtc: IServerNetwork = {
   'shortname': 'SBTC',
   'symbol': 'SBTC',
   'feeMeta': {
-    'code': 'sbtc',
     'decimals': 8,
     'symbol': 'SBTC',
   },
@@ -1814,7 +1945,6 @@ const doge: IServerNetwork = {
   'shortname': 'DOGE',
   'symbol': 'DOGE',
   'feeMeta': {
-    'code': 'doge',
     'decimals': 8,
     'symbol': 'DOGE',
   },
@@ -1836,7 +1966,6 @@ const bch: IServerNetwork = {
   'shortname': 'BCH',
   'symbol': 'BCH',
   'feeMeta': {
-    'code': 'bch',
     'decimals': 8,
     'symbol': 'BCH',
   },
@@ -1858,7 +1987,6 @@ const ltc: IServerNetwork = {
   'shortname': 'LTC',
   'symbol': 'LTC',
   'feeMeta': {
-    'code': 'ltc',
     'decimals': 8,
     'symbol': 'LTC',
   },
@@ -1869,7 +1997,7 @@ const ltc: IServerNetwork = {
 
 const neurai: IServerNetwork = {
   'chainId': '0',
-  'code': 'neurai',
+  'code': 'xna',
   'decimals': 8,
   'id': 'neurai--0',
   'impl': 'neurai',
@@ -1880,7 +2008,6 @@ const neurai: IServerNetwork = {
   'shortname': 'XNA',
   'symbol': 'XNA',
   'feeMeta': {
-    'code': 'xna',
     'decimals': 8,
     'symbol': 'XNA',
   },
@@ -1901,7 +2028,6 @@ const tatom: IServerNetwork = {
   'shortname': 'TCosmos',
   'symbol': 'TATOM',
   'feeMeta': {
-    'code': 'tatom',
     'decimals': 6,
     'symbol': 'TATOM',
   },
@@ -1922,7 +2048,6 @@ const cosmoshub: IServerNetwork = {
   'shortname': 'Cosmos',
   'symbol': 'ATOM',
   'feeMeta': {
-    'code': 'cosmoshub',
     'decimals': 6,
     'symbol': 'ATOM',
   },
@@ -1943,7 +2068,6 @@ const osmosis: IServerNetwork = {
   'shortname': 'Osmosis',
   'symbol': 'OSMO',
   'feeMeta': {
-    'code': 'osmosis',
     'decimals': 6,
     'symbol': 'OSMO',
   },
@@ -1964,7 +2088,6 @@ const akash: IServerNetwork = {
   'shortname': 'Akash',
   'symbol': 'AKT',
   'feeMeta': {
-    'code': 'akash',
     'decimals': 6,
     'symbol': 'AKT',
   },
@@ -1972,20 +2095,19 @@ const akash: IServerNetwork = {
   'status': ENetworkStatus.LISTED,
 };
 
-const cryptoorgchain: IServerNetwork = {
+const cronosPosChain: IServerNetwork = {
   'chainId': 'crypto-org-chain-mainnet-1',
-  'code': 'cryptoorgchain',
+  'code': 'cronosposchain',
   'decimals': 8,
   'id': 'cosmos--crypto-org-chain-mainnet-1',
   'impl': 'cosmos',
   'isTestnet': false,
   'logoURI': 'https://uni.onekey-asset.com/static/chain/cryptoorg.png',
-  'name': 'Crypto.org',
-  'shortcode': 'cryptoorgchain',
-  'shortname': 'Crypto.org',
+  'name': 'Cronos POS Chain',
+  'shortcode': 'cronosposchain',
+  'shortname': 'Cronos POS Chain',
   'symbol': 'CRO',
   'feeMeta': {
-    'code': 'cryptoorgchain',
     'decimals': 8,
     'symbol': 'CRO',
   },
@@ -2006,7 +2128,6 @@ const fetchai: IServerNetwork = {
   'shortname': 'Fetch.ai',
   'symbol': 'FET',
   'feeMeta': {
-    'code': 'fetch',
     'decimals': 18,
     'symbol': 'FET',
   },
@@ -2027,7 +2148,6 @@ const juno: IServerNetwork = {
   'shortname': 'Juno',
   'symbol': 'JUNO',
   'feeMeta': {
-    'code': 'juno',
     'decimals': 6,
     'symbol': 'JUNO',
   },
@@ -2048,7 +2168,6 @@ const secret: IServerNetwork = {
   'shortname': 'Secret Network',
   'symbol': 'SCRT',
   'feeMeta': {
-    'code': 'secretnetwork',
     'decimals': 6,
     'symbol': 'SCRT',
   },
@@ -2069,7 +2188,6 @@ const celestia: IServerNetwork = {
   'shortname': 'Celestia',
   'symbol': 'TIA',
   'feeMeta': {
-    'code': 'tia',
     'decimals': 6,
     'symbol': 'TIA',
   },
@@ -2077,22 +2195,61 @@ const celestia: IServerNetwork = {
   'status': ENetworkStatus.LISTED,
 };
 
+const bbn: IServerNetwork = {
+  'chainId': 'bbn-1',
+  'code': 'bbn',
+  'decimals': 6,
+  'id': 'cosmos--bbn-1',
+  'impl': 'cosmos',
+  'isTestnet': false,
+  'logoURI': 'https://uni.onekey-asset.com/static/logo/babylon.png',
+  'name': 'Babylon Genesis',
+  'shortcode': 'bbn',
+  'shortname': 'BBN',
+  'symbol': 'BABY',
+  'feeMeta': {
+    'decimals': 6,
+    'symbol': 'UBBN',
+  },
+  'defaultEnabled': false,
+  'status': ENetworkStatus.LISTED,
+};
+
 const bbnTestnet: IServerNetwork = {
   'chainId': 'bbn-test-5',
-  'code': 'ubbn',
+  'code': 'tbbn',
   'decimals': 6,
   'id': 'cosmos--bbn-test-5',
   'impl': 'cosmos',
   'isTestnet': true,
   'logoURI': 'https://uni.onekey-asset.com/static/logo/babylon.png',
   'name': 'Babylon Testnet',
-  'shortcode': 'bbn',
-  'shortname': 'BBN',
-  'symbol': 'BBN',
+  'shortcode': 'tbbn',
+  'shortname': 'TBBN',
+  'symbol': 'TBABY',
   'feeMeta': {
-    'code': 'ubbn',
     'decimals': 6,
     'symbol': 'UBBN',
+  },
+  'defaultEnabled': false,
+  'status': ENetworkStatus.LISTED,
+};
+
+const noble: IServerNetwork = {
+  'chainId': 'noble-1',
+  'code': 'noble',
+  'decimals': 6,
+  'id': 'cosmos--noble-1',
+  'impl': 'cosmos',
+  'isTestnet': false,
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/noble.png',
+  'name': 'Noble',
+  'shortcode': 'noble',
+  'shortname': 'Noble',
+  'symbol': 'USDC',
+  'feeMeta': {
+    'decimals': 6,
+    'symbol': 'UUSDC',
   },
   'defaultEnabled': false,
   'status': ENetworkStatus.LISTED,
@@ -2114,7 +2271,6 @@ const lightning: IServerNetwork = {
   'shortname': 'Lightning',
   'symbol': 'sats',
   'feeMeta': {
-    'code': 'lightning',
     'decimals': 0,
     'symbol': 'sats',
   },
@@ -2135,7 +2291,6 @@ const tlightning: IServerNetwork = {
   'shortname': 'LightningTestnet',
   'symbol': 'sats',
   'feeMeta': {
-    'code': 'lightning',
     'decimals': 0,
     'symbol': 'sats',
   },
@@ -2159,7 +2314,6 @@ const algo: IServerNetwork = {
   'shortname': 'ALGO',
   'symbol': 'ALGO',
   'feeMeta': {
-    'code': 'algo',
     'decimals': 6,
     'symbol': 'ALGO',
   },
@@ -2180,7 +2334,6 @@ const cardano: IServerNetwork = {
   'shortname': 'Cardano',
   'symbol': 'ADA',
   'feeMeta': {
-    'code': 'ada',
     'decimals': 6,
     'symbol': 'ada',
   },
@@ -2198,7 +2351,6 @@ const nostr: IServerNetwork = {
   feeMeta: {
     symbol: 'nostr',
     decimals: 0,
-    code: 'nostr',
   },
   decimals: 0,
   'status': ENetworkStatus.LISTED,
@@ -2222,7 +2374,6 @@ const ripple: IServerNetwork = {
   'shortname': 'Ripple',
   'symbol': 'XRP',
   'feeMeta': {
-    'code': 'xrp',
     'decimals': 6,
     'symbol': 'xrp',
   },
@@ -2243,12 +2394,32 @@ const tron: IServerNetwork = {
   'shortname': 'TRX',
   'symbol': 'TRX',
   'feeMeta': {
-    'code': 'trx',
     'decimals': 6,
     'symbol': 'TRX',
   },
   'defaultEnabled': true,
   'backendIndex': true,
+  'status': ENetworkStatus.LISTED,
+};
+
+const nile: IServerNetwork = {
+  'chainId': 'tron--0xcd8690dc',
+  'code': 'ttrx',
+  'decimals': 6,
+  'id': 'tron--0xcd8690dc',
+  'impl': 'tron',
+  'isTestnet': true,
+  'logoURI': 'https://uni.onekey-asset.com/static/chain/tron.png',
+  'name': 'Tron Nile Testnet',
+  'shortcode': 'ttrx',
+  'shortname': 'TTRX',
+  'symbol': 'TTRX',
+  'feeMeta': {
+    'decimals': 6,
+    'symbol': 'TTRX',
+  },
+  'defaultEnabled': true,
+  'backendIndex': false,
   'status': ENetworkStatus.LISTED,
 };
 
@@ -2265,7 +2436,6 @@ const near: IServerNetwork = {
   'shortname': 'Near',
   'symbol': 'NEAR',
   'feeMeta': {
-    'code': 'near',
     'decimals': 24,
     'symbol': 'NEAR',
   },
@@ -2289,7 +2459,6 @@ const sol: IServerNetwork = {
   'shortname': 'SOL',
   'symbol': 'SOL',
   'feeMeta': {
-    'code': 'sol',
     'decimals': 9,
     'symbol': 'SOL',
   },
@@ -2310,7 +2479,6 @@ const polkadot: IServerNetwork = {
   'shortname': 'DOT',
   'symbol': 'DOT',
   'feeMeta': {
-    'code': 'dot',
     'decimals': 10,
     'symbol': 'DOT',
   },
@@ -2331,7 +2499,6 @@ const astar: IServerNetwork = {
   'shortname': 'ASTR',
   'symbol': 'ASTR',
   'feeMeta': {
-    'code': 'astar',
     'decimals': 18,
     'symbol': '18',
   },
@@ -2352,7 +2519,6 @@ const kusama: IServerNetwork = {
   'shortname': 'KSM',
   'symbol': 'KSM',
   'feeMeta': {
-    'code': 'dot',
     'decimals': 12,
     'symbol': 'KSM',
   },
@@ -2362,7 +2528,7 @@ const kusama: IServerNetwork = {
 
 const manta: IServerNetwork = {
   'chainId': 'manta',
-  'code': 'dot-manta',
+  'code': 'manta',
   'decimals': 18,
   'id': 'dot--manta',
   'impl': 'dot',
@@ -2373,7 +2539,6 @@ const manta: IServerNetwork = {
   'shortname': 'MANTA',
   'symbol': 'MANTA',
   'feeMeta': {
-    'code': 'manta',
     'decimals': 18,
     'symbol': 'MANTA',
   },
@@ -2383,7 +2548,7 @@ const manta: IServerNetwork = {
 
 const joystream: IServerNetwork = {
   'chainId': 'joystream',
-  'code': 'dot-joystream',
+  'code': 'joy',
   'decimals': 10,
   'id': 'dot--joystream',
   'impl': 'dot',
@@ -2394,7 +2559,6 @@ const joystream: IServerNetwork = {
   'shortname': 'JOY',
   'symbol': 'JOY',
   'feeMeta': {
-    'code': 'joy',
     'decimals': 10,
     'symbol': 'JOY',
   },
@@ -2415,7 +2579,6 @@ const kaspa: IServerNetwork = {
   'shortname': 'KAS',
   'symbol': 'KAS',
   'feeMeta': {
-    'code': 'kaspa',
     'decimals': 8,
     'symbol': 'KAS',
   },
@@ -2439,7 +2602,6 @@ const cfx: IServerNetwork = {
   'shortname': 'CFX',
   'symbol': 'CFX',
   'feeMeta': {
-    'code': 'cfx',
     'decimals': 18,
     'symbol': 'CFX',
   },
@@ -2460,7 +2622,6 @@ const nexa: IServerNetwork = {
   'shortname': 'Nexa',
   'symbol': 'NEX',
   'feeMeta': {
-    'code': 'nexa',
     'decimals': 2,
     'symbol': 'NEX',
   },
@@ -2481,7 +2642,6 @@ const dnx: IServerNetwork = {
   'shortname': 'DNX',
   'symbol': 'DNX',
   'feeMeta': {
-    'code': 'dnx',
     'decimals': 9,
     'symbol': 'DNX',
   },
@@ -2502,7 +2662,6 @@ const sui: IServerNetwork = {
   'shortname': 'SUI',
   'symbol': 'SUI',
   'feeMeta': {
-    'code': 'sui',
     'decimals': 9,
     'symbol': 'SUI',
   },
@@ -2523,7 +2682,6 @@ const fil: IServerNetwork = {
   'shortname': 'FIL',
   'symbol': 'FIL',
   'feeMeta': {
-    'code': 'fil',
     'decimals': 18,
     'symbol': 'FIL',
   },
@@ -2544,7 +2702,6 @@ const aptos: IServerNetwork = {
   'shortname': 'APT',
   'symbol': 'APT',
   'feeMeta': {
-    'code': 'apt',
     'decimals': 8,
     'symbol': 'APT',
   },
@@ -2554,7 +2711,7 @@ const aptos: IServerNetwork = {
 
 const ckb: IServerNetwork = {
   'chainId': 'nervos',
-  'code': 'nervos',
+  'code': 'ckb',
   'decimals': 8,
   'id': 'nervos--mainnet',
   'impl': 'nervos',
@@ -2565,7 +2722,6 @@ const ckb: IServerNetwork = {
   'shortname': 'CKB',
   'symbol': 'CKB',
   'feeMeta': {
-    'code': 'ckb',
     'decimals': 8,
     'symbol': 'CKB',
   },
@@ -2586,7 +2742,6 @@ const ton: IServerNetwork = {
   'shortname': 'ton',
   'symbol': 'TON',
   'feeMeta': {
-    'code': 'TON',
     'decimals': 9,
     'symbol': 'TON',
   },
@@ -2607,7 +2762,6 @@ const scdo: IServerNetwork = {
   'shortname': 'SCDO',
   'symbol': 'SCDO',
   'feeMeta': {
-    'code': 'scdo',
     'decimals': 8,
     'symbol': 'SCDO',
   },
@@ -2628,7 +2782,6 @@ const alph: IServerNetwork = {
   'shortname': 'alph',
   'symbol': 'ALPH',
   'feeMeta': {
-    'code': 'ALPH',
     'decimals': 18,
     'symbol': 'ALPH',
   },
@@ -2649,7 +2802,6 @@ const benfen: IServerNetwork = {
   'shortname': 'BFC',
   'symbol': 'BFC',
   'feeMeta': {
-    'code': 'bfc',
     'decimals': 9,
     'symbol': 'BFC',
   },
@@ -2668,7 +2820,6 @@ const neoN3: IServerNetwork = {
   'shortname': 'neon3',
   'decimals': 8,
   'feeMeta': {
-    'code': 'gas',
     'decimals': 8,
     'symbol': 'GAS',
   },
@@ -2759,16 +2910,20 @@ export const presetNetworksMap = {
   dtc,
   sonic,
   hsk,
+  rsk,
+  unichain,
 
   // cosmos
   celestia,
   secret,
   juno,
   fetchai,
-  cryptoorgchain,
+  cronosPosChain,
   akash,
   osmosis,
   cosmoshub,
+  noble,
+
   // polkadot
   polkadot,
   astar,
@@ -2801,9 +2956,12 @@ export const presetNetworksMap = {
   neoN3,
 };
 
-// top 20 tvl evm networks
-export const getDefaultEnabledEVMNetworksInAllNetworks = memoFn(
+export const getDefaultEnabledNetworksInAllNetworks = memoFn(
   (): IServerNetwork[] => [
+    btc,
+    tron,
+    sol,
+    // top 20 tvl evm networks
     eth,
     bsc,
     base,
@@ -2827,122 +2985,181 @@ export const getDefaultEnabledEVMNetworksInAllNetworks = memoFn(
   ],
 );
 
-export const getPresetNetworks = memoFn((): IServerNetwork[] => [
-  dangerAllNetworkRepresent,
-  // btc & btc fork
-  btc,
-  doge,
-  bch,
-  ltc,
-  neurai,
-  tbtc,
-  sbtc,
-  // evm
-  eth,
-  bsc,
-  polygon,
-  fantom,
-  arbitrum,
-  avalanche,
-  okt,
-  optimism,
-  xdai,
-  celo,
-  zksyncera,
-  zklinknova,
-  opbnb,
-  zora,
-  zetachain,
-  okb,
-  wemix,
-  taiko,
-  scr,
-  ronin,
-  pulse,
-  polygonzkevm,
-  octa,
-  moonbeam,
-  mode,
-  mvm,
-  metis,
-  merlinmainnet,
-  mantle,
-  mantapacific,
-  linea,
-  kaia,
-  kava,
-  iotex,
-  harmony,
-  flare,
-  fevm,
-  ethw,
-  sepolia,
-  etc,
-  ace,
-  dymension,
-  dis,
-  cyeth,
-  cronos,
-  core,
-  cfxespace,
-  b2,
-  bouncebit,
-  boba,
-  blast,
-  btr,
-  base,
-  bob,
-  aurora,
-  holesky,
-  zircuit,
-  neox,
-  azero,
-  dtc,
-  sonic,
-  hsk,
+/**
+ * Validates network codes in development mode
+ * - Checks if code and shortcode match for each network
+ * - Checks for duplicate code values
+ */
+function validateNetworkCodes(networks: IServerNetwork[]): void {
+  // Check if code and shortcode match for each network
+  const mismatchedNetworks = networks.filter(
+    (network) => network.code !== network.shortcode,
+  );
 
-  // cosmos
-  celestia,
-  secret,
-  juno,
-  fetchai,
-  cryptoorgchain,
-  akash,
-  osmosis,
-  cosmoshub,
-  bbnTestnet,
+  if (mismatchedNetworks.length > 0) {
+    throw new OneKeyLocalError(
+      `Found networks with mismatched code and shortcode values: ${mismatchedNetworks
+        .map((n) => `${n.name} (code: ${n.code}, shortcode: ${n.shortcode})`)
+        .join(', ')}`,
+    );
+  }
 
-  // polkadot
-  polkadot,
-  astar,
-  kusama,
-  manta,
-  joystream,
+  // Check for duplicate code values
+  const codeMap = new Map<string, IServerNetwork>();
+  const duplicateCodes: IServerNetwork[] = [];
 
-  aptos,
-  lightning,
-  tlightning,
-  cardano,
-  ripple,
-  nostr,
-  near,
-  tron,
-  cfx,
-  sol,
-  nexa,
-  kaspa,
-  dnx,
-  fil,
-  algo,
-  sui,
-  ckb,
-  alph,
-  ton,
-  scdo,
-  benfen,
-  neoN3,
-  ...(platformEnv.isDev ? chainsOnlyEnabledInDev : []),
-]);
+  for (const network of networks) {
+    if (codeMap.has(network.code)) {
+      duplicateCodes.push(network);
+    } else {
+      codeMap.set(network.code, network);
+    }
+  }
+
+  if (duplicateCodes.length > 0) {
+    throw new OneKeyLocalError(
+      `Found networks with duplicate code values: ${duplicateCodes
+        .map((n) => `${n.name} (code: ${n.code})`)
+        .join(', ')}`,
+    );
+  }
+}
+
+export const getPresetNetworks = memoFn((): IServerNetwork[] => {
+  const networks = [
+    dangerAllNetworkRepresent,
+    // btc & btc fork
+    btc,
+    doge,
+    bch,
+    ltc,
+    neurai,
+    tbtc,
+    sbtc,
+    // evm
+    eth,
+    bsc,
+    polygon,
+    fantom,
+    arbitrum,
+    avalanche,
+    okt,
+    optimism,
+    xdai,
+    celo,
+    zksyncera,
+    zklinknova,
+    opbnb,
+    zora,
+    zetachain,
+    okb,
+    wemix,
+    taiko,
+    scr,
+    ronin,
+    pulse,
+    polygonzkevm,
+    octa,
+    moonbeam,
+    mode,
+    mvm,
+    metis,
+    merlinmainnet,
+    mantle,
+    mantapacific,
+    linea,
+    kaia,
+    kava,
+    iotex,
+    harmony,
+    flare,
+    fevm,
+    ethw,
+    sepolia,
+    etc,
+    ace,
+    dymension,
+    dis,
+    cyeth,
+    cronos,
+    core,
+    cfxespace,
+    b2,
+    bouncebit,
+    boba,
+    blast,
+    btr,
+    base,
+    bob,
+    aurora,
+    holesky,
+    zircuit,
+    neox,
+    azero,
+    dtc,
+    sonic,
+    hsk,
+    rsk,
+    berachain,
+    sei,
+    unichain,
+    worldChain,
+    hyperEvm,
+    monadTestnet,
+
+    // cosmos
+    celestia,
+    secret,
+    juno,
+    fetchai,
+    cronosPosChain,
+    akash,
+    osmosis,
+    cosmoshub,
+    bbn,
+    bbnTestnet,
+    noble,
+
+    // polkadot
+    polkadot,
+    astar,
+    kusama,
+    manta,
+    joystream,
+
+    aptos,
+    lightning,
+    tlightning,
+    cardano,
+    ripple,
+    nostr,
+    near,
+    tron,
+    nile,
+    cfx,
+    sol,
+    nexa,
+    kaspa,
+    dnx,
+    fil,
+    algo,
+    sui,
+    ckb,
+    alph,
+    ton,
+    scdo,
+    benfen,
+    neoN3,
+    ...(platformEnv.isDev ? chainsOnlyEnabledInDev : []),
+  ];
+
+  // Only run validation in development mode
+  if (platformEnv.isDev) {
+    validateNetworkCodes(networks);
+  }
+
+  return networks;
+});
 
 export const getNetworksSupportFilterScamHistory = memoFn(
   (): IServerNetwork[] => [
@@ -2958,4 +3175,38 @@ export const getNetworksSupportFilterScamHistory = memoFn(
     etc,
     tron,
   ],
+);
+
+export const getNetworksSupportMevProtection = memoFn(
+  (): Record<
+    string,
+    {
+      name: string;
+      logoURI: string;
+      logoURIDark?: string;
+    }
+  > => ({
+    [eth.id]: {
+      name: 'MEV Blocker',
+      logoURI: 'https://uni.onekey-asset.com/static/logo/mev_blocker.png',
+    },
+    [bsc.id]: {
+      name: 'Block Razor',
+      logoURI: 'https://uni.onekey-asset.com/static/logo/block_razor.png',
+    },
+    [base.id]: {
+      name: 'Blink',
+      logoURI: 'https://uni.onekey-asset.com/static/logo/blink.png',
+      logoURIDark: 'https://uni.onekey-asset.com/static/logo/blink_dark.png',
+    },
+    [sol.id]: {
+      name: 'Blink',
+      logoURI: 'https://uni.onekey-asset.com/static/logo/blink.png',
+      logoURIDark: 'https://uni.onekey-asset.com/static/logo/blink_dark.png',
+    },
+    [sui.id]: {
+      name: 'Shio',
+      logoURI: 'https://uni.onekey-asset.com/static/logo/shio.png',
+    },
+  }),
 );

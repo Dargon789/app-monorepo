@@ -1,5 +1,7 @@
 import BigNumber from 'bignumber.js';
 import { cloneDeep, isNil } from 'lodash';
+import pLimit from 'p-limit';
+import pRetry from 'p-retry';
 
 import type {
   IEncodedTx,
@@ -12,19 +14,24 @@ import {
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import { HISTORY_CONSTS } from '@onekeyhq/shared/src/engine/engineConsts';
-import { PendingQueueTooLong } from '@onekeyhq/shared/src/errors';
+import {
+  OneKeyLocalError,
+  PendingQueueTooLong,
+} from '@onekeyhq/shared/src/errors';
 import {
   EAppEventBusNames,
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { getValidUnsignedMessage } from '@onekeyhq/shared/src/utils/messageUtils';
 import { generateUUID } from '@onekeyhq/shared/src/utils/miscUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
+import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 import type {
-  IFeeInfoUnit,
   ISendSelectedFeeInfo,
+  ITronResourceRentalInfo,
 } from '@onekeyhq/shared/types/fee';
 import type { ESendPreCheckTimingEnum } from '@onekeyhq/shared/types/send';
 import { EReasonForNeedPassword } from '@onekeyhq/shared/types/setting';
@@ -151,6 +158,7 @@ class ServiceSend extends ServiceBase {
       accountAddress,
       signature,
       rawTxType,
+      tronResourceRentalInfo,
     } = params;
 
     // check if the network has custom rpc
@@ -174,14 +182,18 @@ class ServiceSend extends ServiceBase {
           signedTx: result,
         });
         if (!verified) {
-          throw new Error('Invalid txid');
+          throw new OneKeyLocalError('Invalid txid');
         }
       } catch (error) {
-        throw new Error('Invalid txid');
+        throw new OneKeyLocalError('Invalid txid');
       }
 
       txid = result.txid;
     }
+
+    const hasEnergyRented =
+      tronResourceRentalInfo?.isResourceRentalNeeded &&
+      tronResourceRentalInfo?.isResourceRentalEnabled;
 
     const client = await this.getClient(EServiceEndpointEnum.Wallet);
     const resp = await client.post<{
@@ -195,6 +207,8 @@ class ServiceSend extends ServiceBase {
         signature,
         rawTxType,
         disableBroadcast,
+        disableAntiMev: signedTx.disableMev,
+        hasEnergyRented,
       },
       {
         headers:
@@ -280,6 +294,7 @@ class ServiceSend extends ServiceBase {
 
     tx.swapInfo = unsignedTx.swapInfo;
     tx.stakingInfo = unsignedTx.stakingInfo;
+    tx.disableMev = unsignedTx.disableMev;
     tx.uuid = unsignedTx.uuid;
     return tx;
   }
@@ -288,7 +303,14 @@ class ServiceSend extends ServiceBase {
   public async signAndSendTransaction(
     params: ISendTxBaseParams & ISignTransactionParamsBase,
   ) {
-    const { networkId, accountId, unsignedTx, signOnly, rawTxType } = params;
+    const {
+      networkId,
+      accountId,
+      unsignedTx,
+      signOnly,
+      rawTxType,
+      tronResourceRentalInfo,
+    } = params;
 
     const accountAddress =
       await this.backgroundApi.serviceAccount.getAccountAddressForApi({
@@ -322,18 +344,32 @@ class ServiceSend extends ServiceBase {
         networkId,
         accountId,
       });
-      const { txid } = await vault.broadcastTransaction({
-        accountId,
-        networkId,
-        accountAddress,
-        signedTx,
-        rawTxType,
+
+      const broadcastTx = async () => {
+        return vault.broadcastTransaction({
+          accountId,
+          networkId,
+          accountAddress,
+          signedTx,
+          rawTxType,
+          tronResourceRentalInfo,
+        });
+      };
+
+      const { txid } = await pRetry(broadcastTx, {
+        retries: vaultSettings.maxRetryBroadcastTxCount ?? 5,
+        minTimeout:
+          vaultSettings.minRetryBroadcastTxInterval ??
+          timerUtils.getTimeDurationMs({ seconds: 3 }),
+        shouldRetry: async (error) => {
+          return vault.checkShouldRetryBroadcastTx(error);
+        },
       });
       if (!txid) {
         if (vaultSettings.withoutBroadcastTxId) {
           return signedTx;
         }
-        throw new Error('Broadcast transaction failed.');
+        throw new OneKeyLocalError('Broadcast transaction failed.');
       }
       return { ...signedTx, txid };
     }
@@ -343,7 +379,7 @@ class ServiceSend extends ServiceBase {
 
   @backgroundMethod()
   @toastIfError()
-  public async updateUnSignedTxBeforeSend({
+  public async updateUnSignedTxBeforeSending({
     accountId,
     networkId,
     feeInfos: sendSelectedFeeInfos,
@@ -352,6 +388,7 @@ class ServiceSend extends ServiceBase {
     tokenApproveInfo,
     nonceInfo,
     feeInfoEditable,
+    tronResourceRentalInfo,
   }: ISendTxBaseParams & {
     unsignedTxs: IUnsignedTxPro[];
     tokenApproveInfo?: ITokenApproveInfo;
@@ -359,6 +396,7 @@ class ServiceSend extends ServiceBase {
     nativeAmountInfo?: INativeAmountInfo;
     nonceInfo?: { nonce: number };
     feeInfoEditable?: boolean;
+    tronResourceRentalInfo?: ITronResourceRentalInfo;
   }) {
     const newUnsignedTxs = [];
     for (let i = 0, len = unsignedTxs.length; i < len; i += 1) {
@@ -374,6 +412,7 @@ class ServiceSend extends ServiceBase {
         tokenApproveInfo,
         nonceInfo,
         feeInfoEditable,
+        tronResourceRentalInfo,
       });
 
       newUnsignedTxs.push(newUnsignedTx);
@@ -396,6 +435,7 @@ class ServiceSend extends ServiceBase {
       replaceTxInfo,
       transferPayload,
       successfullySentTxs,
+      tronResourceRentalInfo,
     } = params;
 
     const isMultiTxs = unsignedTxs.length > 1;
@@ -421,6 +461,7 @@ class ServiceSend extends ServiceBase {
               networkId,
               accountId,
               signOnly: false,
+              tronResourceRentalInfo,
             });
         const decodedTx = await this.buildDecodedTx({
           networkId,
@@ -488,7 +529,7 @@ class ServiceSend extends ServiceBase {
         withNonce: true,
       });
     if (isNil(onChainNextNonce)) {
-      throw new Error('Get on-chain nonce failed.');
+      throw new OneKeyLocalError('Get on-chain nonce failed.');
     }
 
     const maxPendingNonce =
@@ -551,6 +592,7 @@ class ServiceSend extends ServiceBase {
       feeInfo,
       isInternalSwap,
       isInternalTransfer,
+      disableMev,
     } = params;
 
     let newUnsignedTx = unsignedTx;
@@ -577,6 +619,7 @@ class ServiceSend extends ServiceBase {
 
     newUnsignedTx.isInternalSwap = isInternalSwap;
     newUnsignedTx.isInternalTransfer = isInternalTransfer;
+    newUnsignedTx.disableMev = disableMev;
 
     if (swapInfo) {
       newUnsignedTx.swapInfo = swapInfo;
@@ -591,6 +634,10 @@ class ServiceSend extends ServiceBase {
 
     if (feeInfo) {
       newUnsignedTx.feeInfo = feeInfo;
+    }
+
+    if (transfersInfo) {
+      newUnsignedTx.transfersInfo = transfersInfo;
     }
 
     const isNonceRequired = (
@@ -642,7 +689,7 @@ class ServiceSend extends ServiceBase {
     }
 
     if (!validUnsignedMessage) {
-      throw new Error('Invalid unsigned message');
+      throw new OneKeyLocalError('Invalid unsigned message');
     }
 
     const { password, deviceParams } =
@@ -654,7 +701,7 @@ class ServiceSend extends ServiceBase {
       await this.backgroundApi.serviceHardwareUI.withHardwareProcessing(
         async () => {
           const [_signedMessage] = await vault.keyring.signMessage({
-            messages: [validUnsignedMessage as IUnsignedMessage],
+            messages: [validUnsignedMessage],
             password,
             deviceParams,
           });
@@ -675,14 +722,63 @@ class ServiceSend extends ServiceBase {
     txids: string[];
   }) {
     const client = await this.getClient(EServiceEndpointEnum.Wallet);
-    const resp = await client.post<{
-      data: { transactionMap: Record<string, { rawTx: string }> };
-    }>('/wallet/v1/network/raw-transaction/list', {
-      networkId,
-      hashList: txids,
+
+    // Split txids into chunks to avoid timeout due to large data volume
+    const chunkSize = 10;
+    const txidsChunks = [];
+    for (let i = 0; i < txids.length; i += chunkSize) {
+      txidsChunks.push(txids.slice(i, i + chunkSize));
+    }
+
+    const concurrencyLimit = 5;
+    const limit = pLimit(concurrencyLimit);
+
+    // Process each chunk concurrently with retry mechanism
+    const fetchChunk = async (chunk: string[]) => {
+      const run = async () => {
+        const resp = await client.post<{
+          data: { transactionMap: Record<string, { rawTx: string }> };
+        }>(
+          '/wallet/v1/network/raw-transaction/list',
+          {
+            networkId,
+            hashList: chunk,
+          },
+          {
+            timeout: timerUtils.getTimeDurationMs({ minute: 1 }),
+          },
+        );
+        return resp.data.data.transactionMap;
+      };
+
+      // Retry configuration: 5 retries with 3s interval
+      return pRetry(run, {
+        retries: 5,
+        minTimeout: timerUtils.getTimeDurationMs({ seconds: 3 }),
+        onFailedAttempt: (error) => {
+          defaultLogger.transaction.send.rawTxFetchFailed({
+            network: networkId,
+            txids: chunk,
+            error: error.message,
+            attemptNumber: error.attemptNumber,
+            retriesLeft: error.retriesLeft,
+          });
+        },
+      });
+    };
+
+    const limitedFetchTasks = txidsChunks.map((chunk) =>
+      limit(() => fetchChunk(chunk)),
+    );
+
+    const results = await Promise.all(limitedFetchTasks);
+
+    const transactionMap: Record<string, { rawTx: string }> = {};
+    results.forEach((result) => {
+      Object.assign(transactionMap, result);
     });
 
-    return resp.data.data.transactionMap;
+    return transactionMap;
   }
 
   @backgroundMethod()

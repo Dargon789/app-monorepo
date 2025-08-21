@@ -1,12 +1,13 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactElement, ReactNode } from 'react';
 import { memo, useEffect, useMemo, useState } from 'react';
 
 import {
   ListView,
-  NestedScrollView,
   SizableText,
   Stack,
-  renderNestedScrollView,
+  Tabs,
+  YStack,
+  useStyle,
 } from '@onekeyhq/components';
 import { SEARCH_KEY_MIN_LENGTH } from '@onekeyhq/shared/src/consts/walletConsts';
 import {
@@ -14,19 +15,31 @@ import {
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import { getFilteredTokenBySearchKey } from '@onekeyhq/shared/src/utils/tokenUtils';
-import type { IAccountToken } from '@onekeyhq/shared/types/token';
-
-import { useTabListScroll } from '../../hooks/useTabListScroll';
 import {
+  getFilteredTokenBySearchKey,
+  sortTokensByFiatValue,
+  sortTokensByName,
+  sortTokensByPrice,
+} from '@onekeyhq/shared/src/utils/tokenUtils';
+import {
+  ETokenListSortType,
+  type IAccountToken,
+} from '@onekeyhq/shared/types/token';
+
+import {
+  useActiveAccountTokenListAtom,
+  useActiveAccountTokenListStateAtom,
   useSearchKeyAtom,
   useSearchTokenListAtom,
   useSearchTokenStateAtom,
   useSmallBalanceTokenListAtom,
   useTokenListAtom,
+  useTokenListMapAtom,
+  useTokenListSortAtom,
   useTokenListStateAtom,
 } from '../../states/jotai/contexts/tokenList';
 import useActiveTabDAppInfo from '../../views/DAppConnection/hooks/useActiveTabDAppInfo';
+import { PullToRefresh } from '../../views/Home/components/PullToRefresh';
 import { EmptySearch } from '../Empty';
 import { EmptyToken } from '../Empty/EmptyToken';
 import { ListLoading } from '../Loading';
@@ -38,15 +51,14 @@ import { TokenListItem } from './TokenListItem';
 
 type IProps = {
   tableLayout?: boolean;
-  onRefresh?: () => void;
   onPressToken?: (token: IAccountToken) => void;
   withHeader?: boolean;
   withFooter?: boolean;
   withPrice?: boolean;
   withBuyAndReceive?: boolean;
-  withPresetVerticalPadding?: boolean;
   withNetwork?: boolean;
   withSmallBalanceTokens?: boolean;
+  withSwapAction?: boolean;
   inTabList?: boolean;
   onReceiveToken?: () => void;
   onBuyToken?: () => void;
@@ -66,6 +78,14 @@ type IProps = {
     tokens: IAccountToken[];
   };
   emptyAccountView?: ReactNode;
+  showActiveAccountTokenList?: boolean;
+  onRefresh?: () => void;
+  listViewStyleProps?: Pick<
+    ComponentProps<typeof ListView>,
+    | 'ListHeaderComponentStyle'
+    | 'ListFooterComponentStyle'
+    | 'contentContainerStyle'
+  >;
 };
 
 function TokenListViewCmp(props: IProps) {
@@ -78,12 +98,12 @@ function TokenListViewCmp(props: IProps) {
     inTabList = false,
     withBuyAndReceive,
     withNetwork,
+    withSwapAction,
     onReceiveToken,
     onBuyToken,
     isBuyTokenSupported,
     onManageToken,
     manageTokenEnabled,
-    withPresetVerticalPadding = true,
     isAllNetworks,
     searchAll,
     isTokenSelector,
@@ -93,14 +113,24 @@ function TokenListViewCmp(props: IProps) {
     tokenSelectorSearchTokenState = { isSearching: false },
     tokenSelectorSearchTokenList = { tokens: [] },
     emptyAccountView,
+    showActiveAccountTokenList = false,
+    listViewStyleProps,
+    onRefresh,
   } = props;
 
+  const [activeAccountTokenList] = useActiveAccountTokenListAtom();
   const [tokenList] = useTokenListAtom();
+  const [tokenListMap] = useTokenListMapAtom();
   const [smallBalanceTokenList] = useSmallBalanceTokenListAtom();
   const [tokenListState] = useTokenListStateAtom();
   const [searchKey] = useSearchKeyAtom();
+  const [activeAccountTokenListState] = useActiveAccountTokenListStateAtom();
 
   const tokens = useMemo(() => {
+    if (showActiveAccountTokenList) {
+      return activeAccountTokenList.tokens;
+    }
+
     if (isTokenSelector) {
       return tokenList.tokens.concat(smallBalanceTokenList.smallBalanceTokens);
     }
@@ -111,40 +141,67 @@ function TokenListViewCmp(props: IProps) {
 
     return tokenList.tokens;
   }, [
+    showActiveAccountTokenList,
     isTokenSelector,
     searchKey,
     tokenList.tokens,
+    activeAccountTokenList.tokens,
     smallBalanceTokenList.smallBalanceTokens,
   ]);
   const [searchTokenState] = useSearchTokenStateAtom();
 
   const [searchTokenList] = useSearchTokenListAtom();
 
-  const filteredTokens = useMemo(
-    () =>
-      getFilteredTokenBySearchKey({
-        tokens,
-        searchKey: isTokenSelector ? tokenSelectorSearchKey : searchKey,
-        searchAll,
-        searchTokenList: isTokenSelector
-          ? tokenSelectorSearchTokenList.tokens
-          : searchTokenList.tokens,
-      }),
-    [
-      tokens,
-      isTokenSelector,
-      tokenSelectorSearchKey,
-      searchKey,
-      searchAll,
-      tokenSelectorSearchTokenList.tokens,
-      searchTokenList.tokens,
-    ],
-  );
+  const [{ sortType, sortDirection }] = useTokenListSortAtom();
 
-  const { listViewProps, listViewRef, onLayout } =
-    useTabListScroll<IAccountToken>({
-      inTabList,
+  const filteredTokens = useMemo(() => {
+    const resp = getFilteredTokenBySearchKey({
+      tokens,
+      searchKey: isTokenSelector ? tokenSelectorSearchKey : searchKey,
+      searchAll,
+      searchTokenList: isTokenSelector
+        ? tokenSelectorSearchTokenList.tokens
+        : searchTokenList.tokens,
     });
+
+    if (!isTokenSelector) {
+      if (sortType === ETokenListSortType.Price) {
+        return sortTokensByPrice({
+          tokens: resp,
+          sortDirection,
+          map: tokenListMap,
+        });
+      }
+
+      if (sortType === ETokenListSortType.Value) {
+        return sortTokensByFiatValue({
+          tokens: resp,
+          sortDirection,
+          map: tokenListMap,
+        });
+      }
+
+      if (sortType === ETokenListSortType.Name) {
+        return sortTokensByName({
+          tokens: resp,
+          sortDirection,
+        });
+      }
+    }
+
+    return resp;
+  }, [
+    tokens,
+    isTokenSelector,
+    tokenSelectorSearchKey,
+    searchKey,
+    searchAll,
+    tokenSelectorSearchTokenList.tokens,
+    searchTokenList.tokens,
+    sortType,
+    sortDirection,
+    tokenListMap,
+  ]);
 
   const { result: extensionActiveTabDAppInfo } = useActiveTabDAppInfo();
   const addPaddingOnListFooter = useMemo(
@@ -152,7 +209,7 @@ function TokenListViewCmp(props: IProps) {
     [extensionActiveTabDAppInfo?.showFloatingPanel],
   );
 
-  const [isInRequest, setIsInRequest] = useState(false);
+  const [, setIsInRequest] = useState(false);
   useEffect(() => {
     if (!platformEnv.isNativeAndroid) {
       return;
@@ -170,13 +227,19 @@ function TokenListViewCmp(props: IProps) {
     () =>
       (isTokenSelector && tokenSelectorSearchTokenState.isSearching) ||
       (!isTokenSelector && searchTokenState.isSearching) ||
-      (!tokenListState.initialized && tokenListState.isRefreshing),
+      (!tokenListState.initialized && tokenListState.isRefreshing) ||
+      (!activeAccountTokenListState.initialized &&
+        showActiveAccountTokenList &&
+        activeAccountTokenListState.isRefreshing),
     [
       isTokenSelector,
+      tokenSelectorSearchTokenState.isSearching,
       searchTokenState.isSearching,
       tokenListState.initialized,
       tokenListState.isRefreshing,
-      tokenSelectorSearchTokenState.isSearching,
+      activeAccountTokenListState.initialized,
+      activeAccountTokenListState.isRefreshing,
+      showActiveAccountTokenList,
     ],
   );
 
@@ -214,27 +277,83 @@ function TokenListViewCmp(props: IProps) {
     }
   }, [tokenListState.isRefreshing]);
 
-  if (showSkeleton) {
-    return (
-      <NestedScrollView style={{ flex: 1 }}>
-        <ListLoading isTokenSelectorView={!tableLayout} />
-      </NestedScrollView>
-    );
-  }
+  const {
+    ListHeaderComponentStyle,
+    ListFooterComponentStyle,
+    contentContainerStyle,
+  } = listViewStyleProps || {};
 
-  if (emptyAccountView) {
-    return emptyAccountView;
-  }
+  const resolvedContentContainerStyle = useStyle(contentContainerStyle || {}, {
+    resolveValues: 'auto',
+  });
+
+  const resolvedListHeaderComponentStyle = useStyle(
+    ListHeaderComponentStyle || {},
+    {
+      resolveValues: 'auto',
+    },
+  );
+
+  const resolvedListFooterComponentStyle = useStyle(
+    ListFooterComponentStyle || {},
+    {
+      resolveValues: 'auto',
+    },
+  );
+
+  const ListComponent = useMemo(() => {
+    return inTabList ? Tabs.FlatList : ListView;
+  }, [inTabList]);
+
+  const EmptyComponentElement = useMemo(() => {
+    if (showSkeleton) {
+      return (
+        <YStack style={{ flex: 1 }}>
+          <ListLoading isTokenSelectorView={!tableLayout} />
+        </YStack>
+      );
+    }
+    if (emptyAccountView) {
+      return emptyAccountView as ReactElement;
+    }
+    return searchKey ? (
+      <EmptySearch
+        onManageToken={onManageToken}
+        manageTokenEnabled={manageTokenEnabled}
+      />
+    ) : (
+      <EmptyToken
+        withBuyAndReceive={withBuyAndReceive}
+        isBuyTokenSupported={isBuyTokenSupported}
+        onBuy={onBuyToken}
+        onReceive={onReceiveToken}
+      />
+    );
+  }, [
+    emptyAccountView,
+    isBuyTokenSupported,
+    manageTokenEnabled,
+    onBuyToken,
+    onManageToken,
+    onReceiveToken,
+    searchKey,
+    showSkeleton,
+    tableLayout,
+    withBuyAndReceive,
+  ]);
 
   return (
-    <ListView
-      {...listViewProps}
-      renderScrollComponent={renderNestedScrollView}
-      // py={withPresetVerticalPadding ? '$3' : '$0'}
-      estimatedItemSize={tableLayout ? 48 : 60}
-      ref={listViewRef}
-      onLayout={onLayout}
+    <ListComponent
+      // @ts-ignore
+      estimatedItemSize={tableLayout ? undefined : 60}
+      refreshControl={
+        onRefresh ? <PullToRefresh onRefresh={onRefresh} /> : undefined
+      }
+      extraData={filteredTokens.length}
       data={filteredTokens}
+      contentContainerStyle={resolvedContentContainerStyle as any}
+      ListHeaderComponentStyle={resolvedListHeaderComponentStyle as any}
+      ListFooterComponentStyle={resolvedListFooterComponentStyle as any}
       ListHeaderComponent={
         withHeader ? (
           <TokenListHeader
@@ -247,21 +366,7 @@ function TokenListViewCmp(props: IProps) {
           />
         ) : null
       }
-      ListEmptyComponent={
-        searchKey ? (
-          <EmptySearch
-            onManageToken={onManageToken}
-            manageTokenEnabled={manageTokenEnabled}
-          />
-        ) : (
-          <EmptyToken
-            withBuyAndReceive={withBuyAndReceive}
-            isBuyTokenSupported={isBuyTokenSupported}
-            onBuy={onBuyToken}
-            onReceive={onReceiveToken}
-          />
-        )
-      }
+      ListEmptyComponent={EmptyComponentElement}
       renderItem={({ item }) => (
         <TokenListItem
           hideValue={hideValue}
@@ -273,6 +378,7 @@ function TokenListViewCmp(props: IProps) {
           isAllNetworks={isAllNetworks}
           withNetwork={withNetwork}
           isTokenSelector={isTokenSelector}
+          withSwapAction={withSwapAction}
         />
       )}
       ListFooterComponent={

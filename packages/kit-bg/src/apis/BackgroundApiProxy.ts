@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-call,@typescript-eslint/no-unsafe-member-access,@typescript-eslint/no-unsafe-return */
 
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+
 import { SimpleDbProxy } from '../dbs/simple/base/SimpleDbProxy';
 
 import { BackgroundApiProxyBase } from './BackgroundApiProxyBase';
@@ -22,6 +24,7 @@ import type ServiceCustomRpc from '../services/ServiceCustomRpc';
 import type ServiceCustomToken from '../services/ServiceCustomToken';
 import type ServiceDApp from '../services/ServiceDApp';
 import type ServiceDappSide from '../services/ServiceDappSide';
+import type ServiceDBBackup from '../services/ServiceDBBackup';
 import type ServiceDefi from '../services/ServiceDefi';
 import type ServiceDemo from '../services/ServiceDemo';
 import type ServiceDevSetting from '../services/ServiceDevSetting';
@@ -38,6 +41,9 @@ import type ServiceLightning from '../services/ServiceLightning';
 import type ServiceLiteCardMnemonic from '../services/ServiceLiteCardMnemonic';
 import type ServiceLogger from '../services/ServiceLogger';
 import type ServiceMarket from '../services/ServiceMarket';
+import type ServiceMarketV2 from '../services/ServiceMarketV2';
+import type ServiceMarketWS from '../services/ServiceMarketWS';
+import type ServiceMasterPassword from '../services/ServiceMasterPassword';
 import type ServiceNameResolver from '../services/ServiceNameResolver';
 import type ServiceNetwork from '../services/ServiceNetwork';
 import type ServiceNFT from '../services/ServiceNFT';
@@ -46,9 +52,12 @@ import type ServiceNotification from '../services/ServiceNotification';
 import type ServiceOnboarding from '../services/ServiceOnboarding';
 import type ServicePassword from '../services/ServicePassword';
 import type ServicePrime from '../services/ServicePrime';
+import type ServicePrimeCloudSync from '../services/ServicePrimeCloudSync';
+import type ServicePrimeTransfer from '../services/ServicePrimeTransfer';
 // import type ServiceCronJob from './services/ServiceCronJob';
 import type ServicePromise from '../services/ServicePromise';
 import type ServiceQrWallet from '../services/ServiceQrWallet';
+import type ServiceReferralCode from '../services/ServiceReferralCode';
 import type ServiceScanQRCode from '../services/ServiceScanQRCode';
 import type ServiceSend from '../services/ServiceSend';
 import type ServiceSetting from '../services/ServiceSetting';
@@ -61,13 +70,33 @@ import type ServiceToken from '../services/ServiceToken';
 import type ServiceUniversalSearch from '../services/ServiceUniversalSearch';
 import type ServiceV4Migration from '../services/ServiceV4Migration';
 import type ServiceValidator from '../services/ServiceValidator';
+import type ServiceWalletBanner from '../services/ServiceWalletBanner';
 import type ServiceWalletConnect from '../services/ServiceWalletConnect';
+import type ServiceWebviewPerp from '../services/ServiceWebviewPerp';
 
 class BackgroundApiProxy
   extends BackgroundApiProxyBase
   implements IBackgroundApi
 {
   simpleDb = new SimpleDbProxy(this);
+
+  localDb = new Proxy({} as any, {
+    get: (_, prop) => {
+      if (
+        typeof prop === 'string' &&
+        prop !== 'toString' &&
+        prop !== 'valueOf' &&
+        prop !== 'inspect'
+      ) {
+        return (..._args: any[]) => {
+          throw new OneKeyLocalError(
+            'localDb cannot be accessed from the UI layer',
+          );
+        };
+      }
+      return undefined;
+    },
+  });
 
   walletConnect = this._createProxyService(
     'walletConnect',
@@ -78,6 +107,10 @@ class BackgroundApiProxy
   servicePassword = this._createProxyService(
     'servicePassword',
   ) as ServicePassword;
+
+  serviceWebviewPerp = this._createProxyService(
+    'serviceWebviewPerp',
+  ) as ServiceWebviewPerp;
 
   serviceDevSetting = this._createProxyService(
     'serviceDevSetting',
@@ -159,6 +192,14 @@ class BackgroundApiProxy
 
   servicePrime = this._createProxyService('servicePrime') as ServicePrime;
 
+  serviceMasterPassword = this._createProxyService(
+    'serviceMasterPassword',
+  ) as ServiceMasterPassword;
+
+  servicePrimeCloudSync = this._createProxyService(
+    'servicePrimeCloudSync',
+  ) as ServicePrimeCloudSync;
+
   serviceQrWallet = this._createProxyService(
     'serviceQrWallet',
   ) as ServiceQrWallet;
@@ -211,6 +252,14 @@ class BackgroundApiProxy
 
   serviceMarket = this._createProxyService('serviceMarket') as ServiceMarket;
 
+  serviceMarketV2 = this._createProxyService(
+    'serviceMarketV2',
+  ) as ServiceMarketV2;
+
+  serviceMarketWS = this._createProxyService(
+    'serviceMarketWS',
+  ) as ServiceMarketWS;
+
   serviceE2E = this._createProxyService('serviceE2E') as ServiceE2E;
 
   serviceLightning = this._createProxyService(
@@ -254,6 +303,22 @@ class BackgroundApiProxy
   serviceSignatureConfirm = this._createProxyService(
     'serviceSignatureConfirm',
   ) as ServiceSignatureConfirm;
+
+  serviceReferralCode = this._createProxyService(
+    'serviceReferralCode',
+  ) as ServiceReferralCode;
+
+  serviceDBBackup = this._createProxyService(
+    'serviceDBBackup',
+  ) as ServiceDBBackup;
+
+  servicePrimeTransfer = this._createProxyService(
+    'servicePrimeTransfer',
+  ) as ServicePrimeTransfer;
+
+  serviceWalletBanner = this._createProxyService(
+    'serviceWalletBanner',
+  ) as ServiceWalletBanner;
 }
 
 export default BackgroundApiProxy;

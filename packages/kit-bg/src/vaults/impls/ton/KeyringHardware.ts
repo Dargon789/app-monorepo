@@ -1,4 +1,6 @@
+/* eslint-disable spellcheck/spell-checker */
 /* eslint-disable @typescript-eslint/no-unused-vars */
+import { EDeviceType } from '@onekeyfe/hd-shared';
 import { TonWalletVersion } from '@onekeyfe/hd-transport';
 import TonWeb from 'tonweb';
 
@@ -14,7 +16,10 @@ import type {
   ISignedTxPro,
   IUnsignedMessageTon,
 } from '@onekeyhq/core/src/types';
-import { OneKeyInternalError } from '@onekeyhq/shared/src/errors';
+import {
+  OneKeyInternalError,
+  OneKeyLocalError,
+} from '@onekeyhq/shared/src/errors';
 import { convertDeviceResponse } from '@onekeyhq/shared/src/errors/utils/deviceErrorUtils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
@@ -100,7 +105,7 @@ export class KeyringHardware extends KeyringHardwareBase {
               return allNetworkAccounts;
             }
 
-            throw new Error('use sdk allNetworkGetAddress instead');
+            throw new OneKeyLocalError('use sdk allNetworkGetAddress instead');
 
             // const sdk = await this.getHardwareSDKInstance();
 
@@ -145,7 +150,9 @@ export class KeyringHardware extends KeyringHardwareBase {
   override async signTransaction(
     params: ISignTransactionParams,
   ): Promise<ISignedTxPro> {
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const account = await this.vault.getAccount();
     const { unsignedTx, deviceParams } = params;
     const { dbDevice, deviceCommonParams } = checkIsDefined(deviceParams);
@@ -222,6 +229,15 @@ export class KeyringHardware extends KeyringHardwareBase {
         hwParams.extPayload?.push(extMsg.payload ?? '');
       });
     }
+
+    let signingMessage = serializeUnsignedTx.signingMessage;
+    if (msg.stateInit) {
+      hwParams.initState = Buffer.from(msg.stateInit, 'base64').toString('hex');
+      hwParams.signingMessageRepr = bufferUtils.bytesToHex(
+        await signingMessage.getRepr(),
+      );
+    }
+
     const result = await convertDeviceResponse(async () => {
       const res = await sdk.tonSignMessage(
         dbDevice.connectId,
@@ -234,36 +250,40 @@ export class KeyringHardware extends KeyringHardwareBase {
       throw new OneKeyInternalError('Failed to sign message');
     }
     const signature = bufferUtils.hexToBytes(result.signature);
-    let signingMessage = serializeUnsignedTx.signingMessage;
-    const signingMessageHexFromHw = result.signning_message as string;
+    // classic1s return signning_message is message hash
+    // pro return signning_message is message boc
+    // pro blind sign return signning_message is null
+    const signingMessageHexFromHw = result.signning_message as string | null;
     const signingMessageHex = Buffer.from(
       await signingMessage.toBoc(),
     ).toString('hex');
     const signingMessageHash = Buffer.from(
       await signingMessage.hash(),
     ).toString('hex');
-    // For Pro, check the boc
-    if (
-      !result.skip_validate &&
-      signingMessageHexFromHw !== signingMessageHex
-    ) {
-      console.warn(
-        'signingMessage mismatch',
-        signingMessageHexFromHw,
-        signingMessageHex,
-      );
-      signingMessage = TonWeb.boc.Cell.oneFromBoc(signingMessageHexFromHw);
-    }
-    // For 1S, check the hash
-    if (
-      result.skip_validate &&
-      signingMessageHexFromHw !== signingMessageHash
-    ) {
-      throw new Error(
-        appLocale.intl.formatMessage({
-          id: ETranslations.feedback_failed_to_sign_transaction,
-        }),
-      );
+    if (signingMessageHexFromHw) {
+      // For Pro, check the boc
+      if (
+        !result.skip_validate &&
+        signingMessageHexFromHw !== signingMessageHex
+      ) {
+        console.warn(
+          'signingMessage mismatch',
+          signingMessageHexFromHw,
+          signingMessageHex,
+        );
+        signingMessage = TonWeb.boc.Cell.oneFromBoc(signingMessageHexFromHw);
+      }
+      // For 1S, check the hash
+      if (
+        result.skip_validate &&
+        signingMessageHexFromHw !== signingMessageHash
+      ) {
+        throw new OneKeyLocalError(
+          appLocale.intl.formatMessage({
+            id: ETranslations.feedback_failed_to_sign_transaction,
+          }),
+        );
+      }
     }
 
     const externalMessage = await createSignedExternalMessage({
@@ -285,7 +305,9 @@ export class KeyringHardware extends KeyringHardwareBase {
   override async signMessage(
     params: ISignMessageParams,
   ): Promise<ISignedMessagePro> {
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const account = await this.vault.getAccount();
     const { messages, deviceParams } = params;
     if (messages.length !== 1) {

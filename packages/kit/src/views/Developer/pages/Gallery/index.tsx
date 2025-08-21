@@ -3,6 +3,12 @@ import type { ComponentType } from 'react';
 import { LazyLoadPage } from '@onekeyhq/kit/src/components/LazyLoadPage';
 import { EGalleryRoutes } from '@onekeyhq/shared/src/routes';
 
+const AnchorGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Anchor'
+    ),
+);
 const ComponentsScreen = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components'),
 );
@@ -311,10 +317,10 @@ const SwitchGallery = LazyLoadPage(
       '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Switch'
     ),
 );
-const TabViewGallery = LazyLoadPage(
+const NewTabsGallery = LazyLoadPage(
   () =>
     import(
-      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TabView'
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/NewTabsGallery'
     ),
 );
 const TextAreaGallery = LazyLoadPage(
@@ -459,6 +465,13 @@ const PasswordKeyboardGallery = LazyLoadPage(
     ),
 );
 
+const PerpGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/PerpGallery'
+    ),
+);
+
 const TradingViewGallery = LazyLoadPage(
   () =>
     import(
@@ -521,6 +534,87 @@ const BannerGallery = LazyLoadPage(
     ),
 );
 
+const StepperGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Stepper'
+    ),
+);
+
+const ThemeColorsGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/ThemeColors'
+    ),
+);
+
+const PaginationGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Pagination'
+    ),
+);
+
+const CountDownCalendarAlertGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CountDownCalendarAlert'
+    ),
+);
+
+const TriggerGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Trigger'
+    ),
+);
+
+const TutorialsListGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TutorialsList'
+    ),
+);
+
+const OrderedListGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/OrderedList'
+    ),
+);
+
+const RestartGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Restart'
+    ),
+);
+
+const FontGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Font'
+    ),
+);
+
+const CryptoGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CryptoGallery'
+    ),
+);
+
+const UnOrderedListGallery = LazyLoadPage(
+  () => import('./Components/stories/UnOrderedListGallery'),
+);
+
+const CarouselGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Carousel'
+    ),
+);
+
 export const galleryScreenList: {
   name: EGalleryRoutes;
   component: ComponentType;
@@ -547,6 +641,12 @@ export const galleryScreenList: {
   { name: EGalleryRoutes.ComponentShortcut, component: ShortcutGallery },
   { name: EGalleryRoutes.ComponentSelect, component: SelectGallery },
   { name: EGalleryRoutes.ComponentTooltip, component: TooltipGallery },
+  { name: EGalleryRoutes.ComponentTrigger, component: TriggerGallery },
+  {
+    name: EGalleryRoutes.ComponentTutorialsList,
+    component: TutorialsListGallery,
+  },
+  { name: EGalleryRoutes.ComponentOrderedList, component: OrderedListGallery },
   { name: EGalleryRoutes.ComponentBadge, component: BadgeGallery },
   { name: EGalleryRoutes.ComponentInput, component: InputGallery },
   { name: EGalleryRoutes.ComponentDialog, component: DialogGallery },
@@ -638,8 +738,8 @@ export const galleryScreenList: {
     component: FormGallery,
   },
   {
-    name: EGalleryRoutes.ComponentTabview,
-    component: TabViewGallery,
+    name: EGalleryRoutes.ComponentNewTabs,
+    component: NewTabsGallery,
   },
   {
     name: EGalleryRoutes.ComponentQRCode,
@@ -726,6 +826,10 @@ export const galleryScreenList: {
     component: PasswordKeyboardGallery,
   },
   {
+    name: EGalleryRoutes.ComponentPerp,
+    component: PerpGallery,
+  },
+  {
     name: EGalleryRoutes.ComponentTradingViewGallery,
     component: TradingViewGallery,
   },
@@ -760,5 +864,42 @@ export const galleryScreenList: {
   {
     name: EGalleryRoutes.ComponentBanner,
     component: BannerGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentStepper,
+    component: StepperGallery,
+  },
+  {
+    name: EGalleryRoutes.CountDownCalendarAlert,
+    component: CountDownCalendarAlertGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentThemeColors,
+    component: ThemeColorsGallery,
+  },
+  { name: EGalleryRoutes.ComponentAnchor, component: AnchorGallery },
+  {
+    name: EGalleryRoutes.ComponentPagination,
+    component: PaginationGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentRestart,
+    component: RestartGallery,
+  },
+  {
+    name: EGalleryRoutes.FontGallery,
+    component: FontGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentCryptoGallery,
+    component: CryptoGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentUnOrderedList,
+    component: UnOrderedListGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentCarousel,
+    component: CarouselGallery,
   },
 ];

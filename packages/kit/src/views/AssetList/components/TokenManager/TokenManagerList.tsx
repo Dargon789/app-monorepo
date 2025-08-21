@@ -14,7 +14,7 @@ import {
   useSafeAreaInsets,
 } from '@onekeyhq/components';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
-import { TokenIconView } from '@onekeyhq/kit/src/components/TokenListView/TokenIconView';
+import TokenIconView from '@onekeyhq/kit/src/components/TokenListView/TokenIconView';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
@@ -34,7 +34,7 @@ function ListHeaderComponent({
         id: ETranslations.manage_token_custom_token_title,
       })}
       drillIn
-      onPress={onAddCustomToken}
+      onPress={onAddCustomToken as any}
     />
   );
 }
@@ -207,15 +207,25 @@ function TokenManagerList({
             isAllNetworks
           />
           <YStack flex={1}>
-            <XStack gap="$2" alignItems="center">
-              <SizableText size="$bodyLgMedium" color="$text">
+            <XStack gap="$2" alignItems="center" flexShrink={1}>
+              <SizableText
+                size="$bodyLgMedium"
+                color="$text"
+                flexShrink={1}
+                numberOfLines={1}
+              >
                 {item.symbol}
               </SizableText>
               {isAllNetwork ? (
                 <Badge>{networkMaps?.[item.networkId ?? '']?.name ?? ''}</Badge>
               ) : null}
             </XStack>
-            <SizableText size="$bodyMd" color="$textSubdued">
+            <SizableText
+              size="$bodyMd"
+              color="$textSubdued"
+              flexShrink={1}
+              numberOfLines={1}
+            >
               {item.name}
             </SizableText>
           </YStack>

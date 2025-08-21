@@ -1,6 +1,7 @@
 import BigNumber from 'bignumber.js';
 import { forEach, isNil, uniqBy } from 'lodash';
 
+import { wrappedTokens } from '../../types/swap/SwapProvider.constants';
 import { SEARCH_KEY_MIN_LENGTH } from '../consts/walletConsts';
 
 import networkUtils from './networkUtils';
@@ -86,11 +87,13 @@ export function getFilteredTokenBySearchKey({
   searchKey,
   searchAll,
   searchTokenList,
+  allowEmptyWhenBelowMinLength,
 }: {
   tokens: IAccountToken[];
   searchKey: string;
   searchAll?: boolean;
   searchTokenList?: IAccountToken[];
+  allowEmptyWhenBelowMinLength?: boolean;
 }) {
   let mergedTokens = tokens;
 
@@ -102,7 +105,7 @@ export function getFilteredTokenBySearchKey({
     );
   }
   if (!searchKey || searchKey.length < SEARCH_KEY_MIN_LENGTH) {
-    return mergedTokens;
+    return allowEmptyWhenBelowMinLength ? [] : mergedTokens;
   }
 
   // eslint-disable-next-line no-param-reassign
@@ -121,24 +124,78 @@ export function getFilteredTokenBySearchKey({
 export function sortTokensByFiatValue({
   tokens,
   map = {},
+  sortDirection = 'desc',
 }: {
   tokens: IAccountToken[];
   map?: {
     [key: string]: ITokenFiat;
   };
+  sortDirection?: 'desc' | 'asc';
 }) {
-  return tokens.sort((a, b) => {
+  return [...tokens].sort((a, b) => {
     const aFiat = new BigNumber(map[a.$key]?.fiatValue ?? 0);
     const bFiat = new BigNumber(map[b.$key]?.fiatValue ?? 0);
 
-    return new BigNumber(bFiat.isNaN() ? 0 : bFiat).comparedTo(
-      new BigNumber(aFiat.isNaN() ? 0 : aFiat),
+    if (sortDirection === 'desc') {
+      return new BigNumber(bFiat.isNaN() ? 0 : bFiat).comparedTo(
+        new BigNumber(aFiat.isNaN() ? 0 : aFiat),
+      );
+    }
+
+    return new BigNumber(aFiat.isNaN() ? 0 : aFiat).comparedTo(
+      new BigNumber(bFiat.isNaN() ? 0 : bFiat),
     );
   });
 }
 
+export function sortTokensByPrice({
+  tokens,
+  map = {},
+  sortDirection = 'desc',
+}: {
+  tokens: IAccountToken[];
+  map?: {
+    [key: string]: ITokenFiat;
+  };
+  sortDirection?: 'desc' | 'asc';
+}) {
+  return [...tokens].sort((a, b) => {
+    const aPrice = new BigNumber(map[a.$key]?.price ?? 0);
+    const bPrice = new BigNumber(map[b.$key]?.price ?? 0);
+
+    if (sortDirection === 'desc') {
+      return new BigNumber(bPrice.isNaN() ? 0 : bPrice).comparedTo(
+        new BigNumber(aPrice.isNaN() ? 0 : aPrice),
+      );
+    }
+
+    return new BigNumber(aPrice.isNaN() ? 0 : aPrice).comparedTo(
+      new BigNumber(bPrice.isNaN() ? 0 : bPrice),
+    );
+  });
+}
+
+export function sortTokensByName({
+  tokens,
+  sortDirection = 'desc',
+}: {
+  tokens: IAccountToken[];
+  sortDirection?: 'desc' | 'asc';
+}): IAccountToken[] {
+  return [...tokens].sort((a, b) => {
+    const aName = a.name?.toLowerCase() ?? '';
+    const bName = b.name?.toLowerCase() ?? '';
+
+    if (sortDirection === 'desc') {
+      return bName.localeCompare(aName);
+    }
+
+    return aName.localeCompare(bName);
+  });
+}
+
 export function sortTokensByOrder({ tokens }: { tokens: IAccountToken[] }) {
-  return tokens.sort((a, b) => {
+  return [...tokens].sort((a, b) => {
     if (!isNil(a.order) && !isNil(b.order)) {
       return new BigNumber(a.order).comparedTo(b.order);
     }
@@ -176,8 +233,10 @@ export function mergeDeriveTokenListMap({
         mergedToken.balance = new BigNumber(mergedToken.balance)
           .plus(value.balance)
           .toFixed();
-        mergedToken.balanceParsed = new BigNumber(mergedToken.balanceParsed)
-          .plus(value.balanceParsed)
+        mergedToken.balanceParsed = new BigNumber(
+          mergedToken.balanceParsed ?? 0,
+        )
+          .plus(value.balanceParsed ?? 0)
           .toFixed();
         mergedToken.frozenBalance = new BigNumber(
           mergedToken.frozenBalance ?? 0,
@@ -286,6 +345,41 @@ export function equalTokenNoCaseSensitive({
     token2?.contractAddress?.toLowerCase()
   );
 }
+
+export const checkWrappedTokenPair = ({
+  fromToken,
+  toToken,
+}: {
+  fromToken?: {
+    networkId: string;
+    contractAddress: string;
+    isNative?: boolean;
+  };
+  toToken?: { networkId: string; contractAddress: string; isNative?: boolean };
+}) => {
+  if (
+    !fromToken ||
+    !toToken ||
+    fromToken.networkId !== toToken.networkId ||
+    fromToken.contractAddress === toToken.contractAddress
+  ) {
+    return false;
+  }
+
+  const fromTokenIsWrapped = wrappedTokens.find(
+    ({ networkId, address }) =>
+      networkId === fromToken.networkId &&
+      (address.toLowerCase() === fromToken.contractAddress.toLowerCase() ||
+        fromToken.isNative),
+  );
+  const toTokenIsWrapped = wrappedTokens.find(
+    ({ networkId, address }) =>
+      networkId === toToken.networkId &&
+      (address.toLowerCase() === toToken.contractAddress.toLowerCase() ||
+        toToken.isNative),
+  );
+  return !!fromTokenIsWrapped && !!toTokenIsWrapped;
+};
 
 export function getMergedDeriveTokenData(params: {
   data: IFetchAccountTokensResp[];
@@ -434,5 +528,26 @@ export function getMergedDeriveTokenData(params: {
     riskyTokenListMap,
     allTokenList,
     allTokenListMap,
+  };
+}
+
+export function getTokenPriceChangeStyle({
+  priceChange,
+}: {
+  priceChange: number;
+}) {
+  let changeColor = '$textSubdued';
+  let showPlusMinusSigns = false;
+  const priceChangeBN = new BigNumber(priceChange);
+  if (priceChangeBN.isGreaterThan(0)) {
+    changeColor = '$textSuccess';
+    showPlusMinusSigns = true;
+  } else if (priceChangeBN.isLessThan(0)) {
+    changeColor = '$textCritical';
+    showPlusMinusSigns = true;
+  }
+  return {
+    changeColor,
+    showPlusMinusSigns,
   };
 }

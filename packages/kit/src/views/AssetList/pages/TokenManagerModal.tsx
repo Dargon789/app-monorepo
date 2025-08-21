@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { useRoute } from '@react-navigation/core';
 import { useIntl } from 'react-intl';
@@ -12,9 +12,10 @@ import {
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { EModalAssetListRoutes } from '@onekeyhq/shared/src/routes';
 import type { IModalAssetListParamList } from '@onekeyhq/shared/src/routes';
-import type {
-  IAccountToken,
-  ICustomTokenItem,
+import {
+  ECustomTokenStatus,
+  type IAccountToken,
+  type ICustomTokenItem,
 } from '@onekeyhq/shared/types/token';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
@@ -78,14 +79,23 @@ function TokenManagerModal() {
 
   const isEditRef = useRef(false);
   const onAddCustomToken = useCallback(
-    (token?: ICustomTokenItem) => {
+    async (token?: ICustomTokenItem) => {
+      let currentNetworkDeriveType = deriveType;
+
+      if (token?.networkId) {
+        currentNetworkDeriveType =
+          await backgroundApiProxy.serviceNetwork.getGlobalDeriveTypeOfNetwork({
+            networkId: token.networkId,
+          });
+      }
+
       navigation.push(EModalAssetListRoutes.AddCustomTokenModal, {
         walletId,
         isOthersWallet,
         indexedAccountId,
         networkId,
         accountId,
-        deriveType,
+        deriveType: currentNetworkDeriveType,
         token,
         onSuccess: () => {
           void refreshTokenLists();
@@ -108,20 +118,35 @@ function TokenManagerModal() {
   const { findAccountInfoForNetwork } = useAccountInfoForManageToken();
   const onHiddenToken = useCallback(
     async (token: IAccountToken) => {
+      let currentNetworkDeriveType = deriveType;
+
+      if (token?.networkId) {
+        currentNetworkDeriveType =
+          await backgroundApiProxy.serviceNetwork.getGlobalDeriveTypeOfNetwork({
+            networkId: token.networkId,
+          });
+      }
+
       const { accountIdForNetwork } = await findAccountInfoForNetwork({
         accountId,
         networkId,
         isOthersWallet,
         indexedAccountId,
-        deriveType,
+        deriveType: currentNetworkDeriveType,
         selectedNetworkId: token.networkId ?? networkId,
       });
+      const accountXpubOrAddress =
+        await backgroundApiProxy.serviceAccount.getAccountXpubOrAddress({
+          accountId: accountIdForNetwork,
+          networkId: token.networkId ?? networkId,
+        });
+
       await backgroundApiProxy.serviceCustomToken.hideToken({
         token: {
           ...token,
-          accountId: accountIdForNetwork,
           networkId: token.networkId ?? networkId,
-          allNetworkAccountId: isAllNetwork ? accountId : undefined,
+          accountXpubOrAddress: accountXpubOrAddress || '',
+          tokenStatus: ECustomTokenStatus.Hidden,
         },
       });
       isEditRef.current = true;
@@ -142,10 +167,19 @@ function TokenManagerModal() {
       indexedAccountId,
       deriveType,
       intl,
-      isAllNetwork,
       findAccountInfoForNetwork,
     ],
   );
+
+  useEffect(() => {
+    const fn = () => {
+      void refreshTokenLists();
+    };
+    appEventBus.on(EAppEventBusNames.RefreshTokenList, fn);
+    return () => {
+      appEventBus.off(EAppEventBusNames.RefreshTokenList, fn);
+    };
+  }, [refreshTokenLists]);
 
   return (
     <Page

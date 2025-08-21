@@ -1,8 +1,6 @@
 import { useCallback, useMemo } from 'react';
 
-import { useIntl } from 'react-intl';
-import { Vibration } from 'react-native';
-
+import { Haptics, ImpactFeedbackStyle } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import type {
   IAnimationValue,
@@ -27,12 +25,12 @@ import useParseQRCode from './useParseQRCode';
 export default function useScanQrCode() {
   const navigation = useAppNavigation();
   const parseQRCode = useParseQRCode();
-  const intl = useIntl();
   const start = useCallback(
     ({
       autoHandleResult = false,
       handlers,
       account,
+      network,
       tokens,
       qrWalletScene = false,
       showProTutorial = false,
@@ -51,43 +49,22 @@ export default function useScanQrCode() {
                   autoHandleResult,
                   handlers,
                   account,
+                  network,
                   tokens,
+                  popNavigation,
                 });
                 if (parseValue.type === EQRCodeHandlerType.ANIMATION_CODE) {
                   const animationValue = parseValue.data as IAnimationValue;
                   if (animationValue.fullData) {
                     parseValue.raw = animationValue.fullData;
                     resolve(parseValue);
-                    popNavigation();
                   }
-                  Vibration.vibrate(1);
+                  Haptics.impact(ImpactFeedbackStyle.Light);
                   return {
                     progress: animationValue.progress,
                   };
                 }
                 resolve(parseValue);
-                if (
-                  [
-                    EQRCodeHandlerType.ANIMATION_CODE,
-                    EQRCodeHandlerType.WALLET_CONNECT,
-                  ].includes(parseValue.type)
-                ) {
-                  popNavigation();
-                  if (parseValue.type === EQRCodeHandlerType.WALLET_CONNECT) {
-                    // TODO: use global singleton loading
-                    // Dialog.loading({
-                    //   title: intl.formatMessage({
-                    //     id: ETranslations.global_processing,
-                    //   }),
-                    //   showExitButton: true,
-                    // });
-                  }
-                }
-
-                if (parseValue.type === EQRCodeHandlerType.UNKNOWN) {
-                  popNavigation();
-                }
-
                 return {};
               }
               reject(new OneKeyErrorScanQrCodeCancel());

@@ -9,6 +9,7 @@ import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/background
 import { useAccountData } from '@onekeyhq/kit/src/hooks/useAccountData';
 import useDappApproveAction from '@onekeyhq/kit/src/hooks/useDappApproveAction';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import {
   validateSignMessageData,
   validateTypedSignMessageDataV1,
@@ -34,6 +35,7 @@ type IProps = {
   isConfirmationRequired?: boolean;
   sourceInfo?: IDappSourceInfo;
   walletInternalSign?: boolean;
+  skipBackupCheck?: boolean;
   onSuccess?: (result: string) => void;
   onFail?: (error: Error) => void;
   onCancel?: () => void;
@@ -52,6 +54,7 @@ function MessageConfirmActions(props: IProps) {
     isConfirmationRequired,
     sourceInfo,
     walletInternalSign,
+    skipBackupCheck,
     onSuccess,
     onFail,
     onCancel,
@@ -74,8 +77,21 @@ function MessageConfirmActions(props: IProps) {
 
   const handleSignMessage = useCallback(
     async (close?: (extra?: { flag?: string }) => void) => {
+      if (sourceInfo) {
+        const walletId = accountUtils.getWalletIdFromAccountId({
+          accountId,
+        });
+        if (
+          !skipBackupCheck &&
+          (await backgroundApiProxy.serviceAccount.checkIsWalletNotBackedUp({
+            walletId,
+          }))
+        ) {
+          return;
+        }
+      }
+
       setIsLoading(true);
-      isSubmitted.current = true;
       try {
         if (
           unsignedMessage.type === EMessageTypesEth.ETH_SIGN ||
@@ -114,6 +130,7 @@ function MessageConfirmActions(props: IProps) {
         void dappApprove.resolve({
           result,
         });
+        isSubmitted.current = true;
         onSuccess?.(result);
         try {
           await backgroundApiProxy.serviceSignature.addItemFromSignMessage({
@@ -145,6 +162,7 @@ function MessageConfirmActions(props: IProps) {
       onSuccess,
       intl,
       sourceInfo,
+      skipBackupCheck,
     ],
   );
 

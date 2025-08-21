@@ -14,9 +14,13 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { SizableText, Stack, XStack } from '../../primitives';
 import { ListView } from '../ListView/list';
 
-import type { ISizableTextProps, IStackProps } from '../../primitives';
+import type {
+  ISizableTextProps,
+  IStackProps,
+  IXStackProps,
+} from '../../primitives';
 import type { IListViewProps, IListViewRef } from '../ListView/list';
-import type { Tokens } from '@tamagui/web/types/types';
+import type { Tokens } from '@tamagui/web';
 import type { ListRenderItem } from 'react-native';
 
 type ISectionRenderInfo = (info: {
@@ -142,7 +146,7 @@ function BaseSectionList<T>(
           ? reloadSectionHeaderIndex(index)
           : null,
       )
-      .filter((index) => index != null) as number[];
+      .filter((index) => index != null);
   }, [reloadSectionHeaderIndex, stickySectionHeadersEnabled, reloadSections]);
 
   const ref = useRef<IListViewRef<T>>(null);
@@ -293,7 +297,7 @@ function BaseSectionList<T>(
   );
 }
 
-const SectionHeader = ({
+function SectionHeader({
   title,
   titleProps,
   children,
@@ -301,20 +305,33 @@ const SectionHeader = ({
 }: IStackProps & {
   title?: string;
   titleProps?: ISizableTextProps;
-}) => (
-  <XStack h="$9" px="$5" alignItems="center" bg="$bgApp" {...restProps}>
-    <SizableText
-      numberOfLines={1}
-      size="$headingSm"
-      color="$textSubdued"
-      {...titleProps}
+}) {
+  return (
+    <XStack
+      h="$9"
+      px="$5"
+      alignItems="center"
+      bg="$bgApp"
+      {...(restProps as IXStackProps)}
     >
-      {title}
-    </SizableText>
-    {children}
-  </XStack>
-);
+      <SizableText
+        numberOfLines={1}
+        size="$headingSm"
+        color="$textSubdued"
+        {...titleProps}
+      >
+        {title}
+      </SizableText>
+      {children}
+    </XStack>
+  );
+}
 
-export const SectionList = withStaticProperties(forwardRef(BaseSectionList), {
-  SectionHeader,
-});
+export const SectionList = withStaticProperties(
+  forwardRef(BaseSectionList) as <T>(
+    props: ISectionListProps<T> & { ref?: ForwardedRef<ISectionListRef<T>> },
+  ) => ReactNode,
+  {
+    SectionHeader,
+  },
+);

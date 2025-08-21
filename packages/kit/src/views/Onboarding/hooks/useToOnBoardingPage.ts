@@ -30,7 +30,17 @@ export const useToOnBoardingPage = () => {
         isFullModal?: boolean;
         params?: IOnboardingParamList[EOnboardingPages.GetStarted];
       } = {}) => {
-        if (platformEnv.isExtensionUiPopup) {
+        if (platformEnv.isWebDappMode) {
+          navigation.pushModal(EModalRoutes.OnboardingModal, {
+            screen: EOnboardingPages.ConnectWalletOptions,
+          });
+          return;
+        }
+
+        if (
+          platformEnv.isExtensionUiPopup ||
+          platformEnv.isExtensionUiSidePanel
+        ) {
           await backgroundApiProxy.serviceApp.openExtensionExpandTab({
             routes: [
               isFullModal ? ERootRoutes.iOSFullScreen : ERootRoutes.Modal,
@@ -39,15 +49,22 @@ export const useToOnBoardingPage = () => {
             ],
             params: {
               ...params,
+              isFullModal,
               fromExt: true,
             },
           });
+          if (platformEnv.isExtensionUiSidePanel) {
+            window.close();
+          }
         } else {
           navigation[isFullModal ? 'pushFullModal' : 'pushModal'](
             EModalRoutes.OnboardingModal,
             {
               screen: EOnboardingPages.GetStarted,
-              params,
+              params: {
+                ...params,
+                isFullModal,
+              },
             },
           );
         }

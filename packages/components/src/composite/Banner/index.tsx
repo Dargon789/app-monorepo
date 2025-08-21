@@ -7,17 +7,18 @@ import { useDebouncedCallback } from 'use-debounce';
 
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
+import { useHoverOpacity } from '../../hooks/useHoverOpacity';
 import { type IRenderPaginationParams, Swiper } from '../../layouts';
 import { Image, SizableText, Stack, XStack } from '../../primitives';
 
 import CloseButton from './CloseButton';
 import { PaginationButton } from './PaginationButton';
 
-import type { IIconButtonProps } from '../../actions';
 import type {
-  IImageSourceProps,
+  IImageProps,
   ISizableTextProps,
   IStackStyle,
+  IXStackProps,
 } from '../../primitives';
 
 export interface IBannerData {
@@ -26,8 +27,8 @@ export interface IBannerData {
   imgUrl?: string;
   theme?: 'dark' | 'light' | string;
   bannerId?: string;
-  imgSource?: IImageSourceProps['source'];
-  imgResizeMode?: IImageSourceProps['resizeMode'];
+  imgSource?: IImageProps['source'];
+  imgResizeMode?: IImageProps['resizeMode'];
   $gtMd?: IBannerData;
   $gtLg?: IBannerData;
 }
@@ -67,12 +68,11 @@ function BannerItem<T extends IBannerData>({
       onPress={onItemPress}
       {...itemContainerStyle}
     >
-      {item.imgUrl ? <Image flex={1} bg="$bgStrong" src={item.imgUrl} /> : null}
+      {item.imgUrl ? <Image flex={1} src={item.imgUrl} /> : null}
 
       {item.imgSource ? (
         <Image
           flex={1}
-          bg="$bgStrong"
           source={item.imgSource}
           resizeMode={item.imgResizeMode}
         />
@@ -105,18 +105,14 @@ export function Banner<T extends IBannerData>({
   itemContainerStyle,
   itemTitleContainerStyle,
   indicatorContainerStyle,
-  leftIconButtonStyle,
-  rightIconButtonStyle,
   showPaginationButton = !platformEnv.isNative,
   showCloseButton = false,
   onBannerClose,
   ...props
-}: {
+}: IStackStyle & {
   data: T[];
   itemContainerStyle?: IStackStyle;
-  leftIconButtonStyle?: Omit<IIconButtonProps, 'icon'>;
-  rightIconButtonStyle?: Omit<IIconButtonProps, 'icon'>;
-  indicatorContainerStyle?: IStackStyle;
+  indicatorContainerStyle?: IXStackProps;
   itemTitleContainerStyle?: IStackStyle;
   size?: 'small' | 'large';
   onItemPress: (item: T) => void;
@@ -125,11 +121,12 @@ export function Banner<T extends IBannerData>({
   showCloseButton?: boolean;
   showPaginationButton?: boolean;
   onBannerClose?: (bannerId: string) => void;
-} & IStackStyle) {
+}) {
   const [isHovering, setIsHovering] = useState(false);
   const setIsHoveringThrottled = useDebouncedCallback((value: boolean) => {
     setIsHovering(value);
-  }, 200);
+  }, 100);
+  const hoverOpacity = useHoverOpacity(isHovering);
 
   const renderItem = useCallback(
     ({ item }: { item: T }) => (
@@ -160,12 +157,12 @@ export function Banner<T extends IBannerData>({
             width="100%"
             jc="center"
             bottom="$2"
+            {...hoverOpacity}
             {...indicatorContainerStyle}
           >
             {data.map((_, index) => (
               <Stack
                 shadowColor="$blackA1"
-                shadowOffset={{ width: 2, height: 2 }}
                 shadowOpacity={0.1}
                 shadowRadius={3}
                 key={index}
@@ -188,12 +185,16 @@ export function Banner<T extends IBannerData>({
               isVisible={currentIndex !== 0 ? isHovering : false}
               direction="previous"
               onPress={gotToPrevIndex}
+              theme="light"
+              onMouseEnter={() => setIsHoveringThrottled(true)}
             />
 
             <PaginationButton
               isVisible={currentIndex !== data.length - 1 ? isHovering : false}
               direction="next"
               onPress={goToNextIndex}
+              theme="light"
+              onMouseEnter={() => setIsHoveringThrottled(true)}
             />
           </>
         ) : null}
@@ -203,6 +204,7 @@ export function Banner<T extends IBannerData>({
             onPress={() => {
               onBannerClose?.(data[currentIndex]?.bannerId ?? '');
             }}
+            isHovering={isHovering}
           />
         ) : null}
       </>
@@ -214,6 +216,8 @@ export function Banner<T extends IBannerData>({
       onBannerClose,
       showCloseButton,
       showPaginationButton,
+      hoverOpacity,
+      setIsHoveringThrottled,
     ],
   );
 
@@ -225,12 +229,9 @@ export function Banner<T extends IBannerData>({
 
   return (
     <Stack
-      onMouseEnter={() => {
-        setIsHoveringThrottled(true);
-      }}
-      onMouseLeave={() => {
-        setIsHoveringThrottled(false);
-      }}
+      onPointerMove={() => setIsHoveringThrottled(true)}
+      onMouseEnter={() => setIsHoveringThrottled(true)}
+      onMouseLeave={() => setIsHoveringThrottled(false)}
       w="100%"
     >
       <Swiper

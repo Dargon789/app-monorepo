@@ -1,11 +1,11 @@
 import { cloneDeep, debounce, isNumber, merge, uniq, uniqBy } from 'lodash';
-import { InteractionManager } from 'react-native';
 
 import {
   backgroundMethod,
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import {
   EAppEventBusNames,
   appEventBus,
@@ -101,9 +101,12 @@ export default class ServiceNotification extends ServiceBase {
       const settings = await settingsPersistAtom.get();
 
       this._notificationProvider = new NotificationProvider({
-        instanceId: settings.instanceId,
-        disabledWebSocket,
-        disabledJPush,
+        options: {
+          instanceId: settings.instanceId,
+          disabledWebSocket,
+          disabledJPush,
+        },
+        backgroundApi: this.backgroundApi,
       });
       this._notificationProvider.eventEmitter.on(
         EPushProviderEventNames.ws_connected,
@@ -128,15 +131,13 @@ export default class ServiceNotification extends ServiceBase {
       defaultLogger.notification.common.notificationInitOk();
     }
     if (!this._notificationProvider) {
-      throw new Error('notification provider not init');
+      throw new OneKeyLocalError('notification provider not init');
     }
     return this._notificationProvider;
   }
 
   init() {
-    return InteractionManager.runAfterInteractions(() =>
-      this.getNotificationProvider(),
-    );
+    return timerUtils.setTimeoutPromised(() => this.getNotificationProvider());
   }
 
   pushClient: INotificationPushClient = {};
@@ -151,7 +152,6 @@ export default class ServiceNotification extends ServiceBase {
   onPushProviderConnected = async ({
     jpushId,
     socketId,
-    socket,
   }: {
     jpushId?: string;
     socketId?: string;
@@ -230,6 +230,10 @@ export default class ServiceNotification extends ServiceBase {
     webEvent,
     eventSource,
   }: INotificationClickParams) => {
+    // Huawei Mate30  HarmonyOS will automatically trigger notificationClick event when App is launched, and notificationId is empty, so it needs to be ignored
+    if (!notificationId) {
+      return;
+    }
     this.addShowedNotificationId(notificationId);
 
     defaultLogger.notification.common.notificationClicked({
@@ -268,7 +272,6 @@ export default class ServiceNotification extends ServiceBase {
   onNotificationClosed = async ({
     notificationId,
     params,
-    webEvent,
   }: {
     notificationId: string | undefined;
     params: INotificationShowParams | undefined;
@@ -372,7 +375,9 @@ export default class ServiceNotification extends ServiceBase {
     }
 
     if (!permission.isSupported) {
-      throw new Error('Notification is not supported on your device');
+      throw new OneKeyLocalError(
+        'Notification is not supported on your device',
+      );
     }
 
     // TODO desktop linux,windows support
@@ -654,7 +659,7 @@ export default class ServiceNotification extends ServiceBase {
 
   private async _registerClientWithOverrideAllAccountsCore() {
     console.log('registerClientWithOverrideAllAccountsCore');
-    await InteractionManager.runAfterInteractions(async () => {
+    await timerUtils.setTimeoutPromised(async () => {
       await this.registerClientWithSyncAccounts({
         syncMethod: ENotificationPushSyncMethod.override,
       });
@@ -950,7 +955,7 @@ export default class ServiceNotification extends ServiceBase {
       isWebSocketAckSuccess = await webSocketProvider?.ackMessage(params);
     }
 
-    if (!isWebSocketAckSuccess) {
+    if (!isWebSocketAckSuccess && params.msgId) {
       const client = await this.getClient(EServiceEndpointEnum.Notification);
       const res = await client.post('/notification/v1/message/ack', {
         msgId: params.msgId,
@@ -1153,6 +1158,6 @@ export default class ServiceNotification extends ServiceBase {
     if (notificationProvider?.webSocketProvider) {
       return notificationProvider.webSocketProvider.ping(params);
     }
-    throw new Error('WebSocket provider not found');
+    throw new OneKeyLocalError('WebSocket provider not found');
   }
 }

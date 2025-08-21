@@ -9,12 +9,6 @@ import {
   usePasswordWebAuthInfoAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms/password';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import {
-  EModalRoutes,
-  EModalSettingRoutes,
-  ERootRoutes,
-} from '@onekeyhq/shared/src/routes';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
 import WebAuthSwitch from '../components/WebAuthSwitch';
@@ -52,7 +46,7 @@ const WebAuthSwitchContainer = ({
         }
       } catch (e: any) {
         Toast.error({
-          title: intl.formatMessage({ id: ETranslations.Toast_web_auth }),
+          title: intl.formatMessage({ id: ETranslations.toast_web_auth }),
         });
       }
     },

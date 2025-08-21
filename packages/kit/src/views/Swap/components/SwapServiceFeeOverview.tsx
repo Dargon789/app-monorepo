@@ -3,14 +3,14 @@ import { useCallback, useMemo } from 'react';
 import { useIntl } from 'react-intl';
 
 import {
-  IconButton,
+  Icon,
   Image,
   Popover,
   SizableText,
   Stack,
   XStack,
 } from '@onekeyhq/components';
-import type { IImageSourceProps } from '@onekeyhq/components';
+import type { IImageProps } from '@onekeyhq/components';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { otherWalletFeeData } from '@onekeyhq/shared/types/swap/SwapProvider.constants';
 
@@ -18,7 +18,7 @@ interface IProtocolFeeInfo {
   name: string;
   fee: number;
   color: string;
-  icon: IImageSourceProps['source'];
+  icon: IImageProps['source'];
   maxFee: number;
 }
 
@@ -64,7 +64,7 @@ export function SwapServiceFeeOverview({
         name: 'oneKey',
         fee: serviceFee,
         // color: '#202020',
-        color: '$bgInverse',
+        color: '#44D62C',
         icon: require('@onekeyhq/kit/assets/logo.png'),
       },
     ],
@@ -76,7 +76,12 @@ export function SwapServiceFeeOverview({
         id: ETranslations.provider_ios_popover_onekey_fee,
       })}
       renderTrigger={
-        <IconButton variant="tertiary" size="small" icon="InfoCircleOutline" />
+        <Icon
+          name="InfoCircleOutline"
+          size="$3.5"
+          cursor="pointer"
+          color="$iconSubdued"
+        />
       }
       renderContent={
         <Stack gap="$4" p="$4">

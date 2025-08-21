@@ -1,5 +1,7 @@
 import { isArray, isEmpty, isFunction, isNil, isPlainObject } from 'lodash';
 
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+
 export const createDelayPromise = <T>(
   delay: number,
   value?: T,
@@ -114,7 +116,7 @@ export async function waitForDataLoaded({
   }
   clearTimeout(timer);
   if (timeoutReject) {
-    throw new Error(`waitForDataLoaded: ${logName ?? ''} timeout`);
+    throw new OneKeyLocalError(`waitForDataLoaded: ${logName ?? ''} timeout`);
   }
 }
 
@@ -165,3 +167,13 @@ export function createPromiseTarget<T>() {
   const p = new PromiseTarget<T>();
   return p;
 }
+
+// p-timeout
+// p-retry
+// p-limit
+// p-queue
+// p-cancelable
+// p-defer
+// p-wait-for
+
+// https://www.npmjs.com/package/bluebird

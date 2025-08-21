@@ -15,7 +15,7 @@ import type {
   ISignedMessagePro,
   ISignedTxPro,
 } from '@onekeyhq/core/src/types';
-import { NotImplemented } from '@onekeyhq/shared/src/errors';
+import { NotImplemented, OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import { convertDeviceResponse } from '@onekeyhq/shared/src/errors/utils/deviceErrorUtils';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { checkIsDefined } from '@onekeyhq/shared/src/utils/assertUtils';
@@ -60,19 +60,18 @@ export class KeyringHardware extends KeyringHardwareBase {
     params: IPrepareHardwareAccountsParams,
   ): Promise<IDBAccount[]> {
     const networkInfo = await this.getNetworkInfo();
-    const chainId = await this.getNetworkChainId();
     return this.basePrepareHdNormalAccounts(params, {
       buildAddressesInfo: async ({ usedIndexes }) => {
         const list = await this.baseGetDeviceAccountAddresses({
           params,
           usedIndexes,
           sdkGetAddressFn: async ({
-            connectId,
-            deviceId,
-            pathPrefix,
-            pathSuffix,
+            connectId: _connectId,
+            deviceId: _deviceId,
+            pathPrefix: _pathPrefix,
+            pathSuffix: _pathSuffix,
             template,
-            showOnOnekeyFn,
+            showOnOnekeyFn: _showOnOnekeyFn,
           }) => {
             const buildFullPath = (p: { index: number }) =>
               accountUtils.buildPathFromTemplate({
@@ -85,7 +84,7 @@ export class KeyringHardware extends KeyringHardwareBase {
               usedIndexes,
               hwSdkNetwork: this.hwSdkNetwork,
               buildPath: buildFullPath,
-              buildResultAccount: ({ account, index }) => ({
+              buildResultAccount: ({ account, index: _index }) => ({
                 path: account.path,
                 address: account.payload?.address || '',
                 publicKey: account.payload?.publicKey || '',
@@ -94,7 +93,7 @@ export class KeyringHardware extends KeyringHardwareBase {
             if (allNetworkAccounts) {
               return allNetworkAccounts;
             }
-            throw new Error('use sdk allNetworkGetAddress instead');
+            throw new OneKeyLocalError('use sdk allNetworkGetAddress instead');
 
             // const sdk = await this.getHardwareSDKInstance();
             // const response = await sdk.polkadotGetAddress(connectId, deviceId, {
@@ -141,7 +140,9 @@ export class KeyringHardware extends KeyringHardwareBase {
   override async signTransaction(
     params: ISignTransactionParams,
   ): Promise<ISignedTxPro> {
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const unsignedTx = checkIsDefined(params.unsignedTx);
     const deviceParams = checkIsDefined(params.deviceParams);
     const encodedTx = checkIsDefined(unsignedTx.encodedTx) as IEncodedTxDot;
@@ -182,7 +183,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     };
   }
 
-  override signMessage(params: ISignMessageParams): Promise<ISignedMessagePro> {
+  override signMessage(
+    _params: ISignMessageParams,
+  ): Promise<ISignedMessagePro> {
     throw new NotImplemented();
   }
 }

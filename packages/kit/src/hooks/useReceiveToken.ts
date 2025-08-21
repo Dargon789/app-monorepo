@@ -9,8 +9,6 @@ import { EModalReceiveRoutes, EModalRoutes } from '@onekeyhq/shared/src/routes';
 import type { IModalReceiveParamList } from '@onekeyhq/shared/src/routes';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
-import type { INetworkAccount } from '@onekeyhq/shared/types/account';
-import { EDeriveAddressActionType } from '@onekeyhq/shared/types/address';
 import type { IToken, ITokenData } from '@onekeyhq/shared/types/token';
 
 import backgroundApiProxy from '../background/instance/backgroundApiProxy';
@@ -24,10 +22,12 @@ function useReceiveToken({
   tokens,
   tokenListState,
   isMultipleDerive,
+  indexedAccountId,
 }: {
   accountId: string;
   networkId: string;
   walletId: string;
+  indexedAccountId: string;
   isAllNetworks?: boolean;
   tokens?: ITokenData;
   tokenListState?: {
@@ -64,22 +64,13 @@ function useReceiveToken({
           vaultSettings?.mergeDeriveAssetsEnabled
         ) {
           navigation.pushModal(EModalRoutes.ReceiveModal, {
-            screen: EModalReceiveRoutes.ReceiveSelectDeriveAddress,
+            screen: EModalReceiveRoutes.ReceiveToken,
             params: {
               networkId,
-              indexedAccountId: account?.indexedAccountId ?? '',
+              accountId: '',
+              walletId,
               token: token ?? tokens?.data?.[0],
-              tokenMap: tokens?.map,
-              accountId: token?.accountId ?? accountId,
-              actionType: EDeriveAddressActionType.Select,
-              onSelected: ({ account: a }: { account: INetworkAccount }) => {
-                navigation.push(EModalReceiveRoutes.ReceiveToken, {
-                  networkId,
-                  accountId: a.id ?? accountId,
-                  walletId,
-                  token: token ?? tokens?.data?.[0],
-                });
-              },
+              indexedAccountId,
             },
           });
           return;
@@ -92,6 +83,7 @@ function useReceiveToken({
             accountId,
             walletId,
             token,
+            indexedAccountId,
           },
         });
       } else {
@@ -130,29 +122,13 @@ function useReceiveToken({
                 network?.isAllNetworks &&
                 !accountUtils.isOthersWallet({ walletId })
               ) {
-                navigation.push(
-                  EModalReceiveRoutes.ReceiveSelectDeriveAddress,
-                  {
-                    networkId: t.networkId ?? '',
-                    indexedAccountId: account?.indexedAccountId ?? '',
-                    token: t,
-                    tokenMap: tokens?.map,
-                    accountId: t.accountId ?? '',
-                    actionType: EDeriveAddressActionType.Select,
-                    onSelected: ({
-                      account: a,
-                    }: {
-                      account: INetworkAccount;
-                    }) => {
-                      navigation.push(EModalReceiveRoutes.ReceiveToken, {
-                        networkId: t.networkId ?? networkId,
-                        accountId: a.id ?? accountId,
-                        walletId,
-                        token: t,
-                      });
-                    },
-                  },
-                );
+                navigation.push(EModalReceiveRoutes.ReceiveToken, {
+                  networkId: t.networkId ?? networkId,
+                  accountId: '',
+                  walletId,
+                  token: t,
+                  indexedAccountId,
+                });
                 return;
               }
 
@@ -161,6 +137,7 @@ function useReceiveToken({
                 accountId: t.accountId ?? accountId,
                 walletId,
                 token: t,
+                indexedAccountId,
               });
             },
           },
@@ -168,8 +145,8 @@ function useReceiveToken({
       }
     },
     [
-      account?.indexedAccountId,
       accountId,
+      indexedAccountId,
       intl,
       isMultipleDerive,
       navigation,

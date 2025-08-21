@@ -20,6 +20,7 @@ import {
   useSignatureConfirmActions,
 } from '@onekeyhq/kit/src/states/jotai/contexts/signatureConfirm';
 import type { IApproveInfo } from '@onekeyhq/kit-bg/src/vaults/types';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { ENFTType } from '@onekeyhq/shared/types/nft';
 import {
@@ -116,27 +117,35 @@ function SignatureAssetDetailItem({
     }
     return (
       <>
-        {transferDirection === ETransferDirection.Out ? (
-          <SizableText size="$headingMd" mr="$-1">
-            -
-          </SizableText>
-        ) : null}
-        {transferDirection === ETransferDirection.In ? (
-          <SizableText size="$headingMd" mr="$-1">
-            +
-          </SizableText>
-        ) : null}
-        {type !== 'nft' || (type === 'nft' && NFTType === ENFTType.ERC1155) ? (
-          <SizableText size="$headingMd" maxWidth={240} overflow="hidden">
-            {isSendNativeTokenOnly &&
-            nativeTokenTransferAmountToUpdate?.isMaxSend &&
-            !isNil(nativeTokenTransferAmountToUpdate.amountToUpdate) &&
-            transferDirection === ETransferDirection.Out
-              ? nativeTokenTransferAmountToUpdate.amountToUpdate
-              : amount}
-          </SizableText>
-        ) : null}
-        {symbol ? <SizableText size="$bodyLg">{symbol}</SizableText> : null}
+        <SizableText
+          maxWidth={editable ? '80%' : '100%'}
+          alignItems="center"
+          style={{
+            wordBreak: 'break-all',
+            overflowWrap: 'break-word',
+          }}
+        >
+          {transferDirection === ETransferDirection.Out ? (
+            <SizableText size="$headingMd">-</SizableText>
+          ) : null}
+          {transferDirection === ETransferDirection.In ? (
+            <SizableText size="$headingMd">+</SizableText>
+          ) : null}
+          {type !== 'nft' ||
+          (type === 'nft' && NFTType === ENFTType.ERC1155) ? (
+            <SizableText size="$headingMd">
+              {isSendNativeTokenOnly &&
+              nativeTokenTransferAmountToUpdate?.isMaxSend &&
+              !isNil(nativeTokenTransferAmountToUpdate.amountToUpdate) &&
+              transferDirection === ETransferDirection.Out
+                ? nativeTokenTransferAmountToUpdate.amountToUpdate
+                : amount}
+            </SizableText>
+          ) : null}
+          {symbol ? (
+            <SizableText size="$bodyLg">{`  ${symbol}`}</SizableText>
+          ) : null}
+        </SizableText>
         {editable ? (
           <Icon name="PencilOutline" size="$4.5" color="$iconSubdued" />
         ) : null}
@@ -168,10 +177,11 @@ function SignatureAssetDetailItem({
           })}
           {...tokenProps}
         />
-        <YStack>
+        <YStack flex={1}>
           <XStack
             gap="$1"
             alignItems="center"
+            flex={1}
             {...(editable && {
               onPress: () => {
                 handleEdit?.();
@@ -280,7 +290,7 @@ function AssetsTokenApproval(props: IAssetsApproveProps) {
       type="token"
       handleEdit={() => {
         if (isNil(token.info.decimals)) {
-          throw new Error('token decimals is required.');
+          throw new OneKeyLocalError('token decimals is required.');
         }
         if (isBuildingDecodedTxs) return;
         showApproveEditor({

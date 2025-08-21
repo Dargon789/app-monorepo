@@ -16,8 +16,12 @@ import {
   backgroundMethod,
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
-import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
-import { OneKeyErrorAirGapInvalidQrCode } from '@onekeyhq/shared/src/errors';
+import { BTC_FIRST_TAPROOT_PATH } from '@onekeyhq/shared/src/consts/chainConsts';
+import { IMPL_EVM, IMPL_TRON } from '@onekeyhq/shared/src/engine/engineConsts';
+import {
+  OneKeyErrorAirGapInvalidQrCode,
+  OneKeyLocalError,
+} from '@onekeyhq/shared/src/errors';
 import {
   EAppEventBusNames,
   appEventBus,
@@ -28,12 +32,14 @@ import { generateUUID } from '@onekeyhq/shared/src/utils/miscUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import type { IQrWalletDevice } from '@onekeyhq/shared/types/device';
 
+import { vaultFactory } from '../../vaults/factory';
 import { buildDefaultAddAccountNetworksForQrWallet } from '../ServiceAccount/defaultNetworkAccountsConfig';
 import ServiceBase from '../ServiceBase';
 
 import { UR_DEFAULT_ORIGIN } from './qrWalletConsts';
 
 import type { IDBDevice, IDBWalletId } from '../../dbs/local/types';
+import type { KeyringQrBase } from '../../vaults/base/KeyringQrBase';
 import type {
   IAnimationValue,
   IQRCodeHandlerParseResult,
@@ -62,9 +68,10 @@ class ServiceQrWallet extends ServiceBase {
         reject,
       });
       // **** 1. Device scan App Qrcode
+      const valueUr = airGapUrUtils.urToJson({ ur: requestUr });
       appEventBus.emit(EAppEventBusNames.ShowAirGapQrcode, {
         drawType: 'animated',
-        valueUr: airGapUrUtils.urToJson({ ur: requestUr }),
+        valueUr,
         promiseId,
         title: appQrCodeModalTitle,
       });
@@ -119,17 +126,25 @@ class ServiceQrWallet extends ServiceBase {
     if (impl === IMPL_EVM) {
       return 'ETH';
     }
+
+    if (impl === IMPL_TRON) {
+      return 'TRON';
+    }
+
     return network.symbol.toUpperCase();
   }
 
   async buildGetMultiAccountsParams({
+    walletId,
     networkId,
     indexedAccountId,
   }: {
+    walletId: string;
     networkId: string;
     indexedAccountId: string;
   }) {
     const { serviceAccount } = this.backgroundApi;
+    const chain = await this.getDeviceChainNameByNetworkId({ networkId });
 
     const items =
       await this.backgroundApi.serviceNetwork.getDeriveInfoItemsOfNetwork({
@@ -141,26 +156,50 @@ class ServiceQrWallet extends ServiceBase {
     });
     const index = indexedAccount.index;
 
-    const paths: string[] = [];
+    let paths: string[] = [];
     for (const deriveInfo of items) {
       const fullPath = accountUtils.buildPathFromTemplate({
         template: deriveInfo.item.template,
         index,
       });
-      paths.push(
-        accountUtils.removePathLastSegment({
-          path: fullPath,
-          removeCount: 2, // TODO always remove last 2 segments, only works for EVM and BTC yet
-        }),
-      );
+      const normalizedPath = await this.normalizeGetMultiAccountsPath({
+        walletId,
+        networkId,
+        path: fullPath,
+      });
+      paths.push(normalizedPath);
     }
 
-    const chain = await this.getDeviceChainNameByNetworkId({ networkId });
+    if (chain === 'BTC') {
+      // for fullXfp build
+      paths.push(BTC_FIRST_TAPROOT_PATH);
+    }
+
+    paths = uniq([...paths]);
 
     return {
       chain,
       paths,
     };
+  }
+
+  async normalizeGetMultiAccountsPath({
+    walletId,
+    networkId,
+    path,
+  }: {
+    walletId: IDBWalletId;
+    networkId: string;
+    path: string;
+  }) {
+    const vault = await vaultFactory.getWalletOnlyVault({
+      walletId,
+      networkId,
+    });
+
+    return (vault.keyring as KeyringQrBase).normalizeGetMultiAccountsPath({
+      path,
+    });
   }
 
   @backgroundMethod()
@@ -181,7 +220,9 @@ class ServiceQrWallet extends ServiceBase {
     const { serviceAccount } = this.backgroundApi;
     let byDevice: IDBDevice | undefined;
     if (!walletId) {
-      throw new Error('prepareQrcodeWalletAddressAdd ERROR: walletId missing ');
+      throw new OneKeyLocalError(
+        'prepareQrcodeWalletAddressAdd ERROR: walletId missing ',
+      );
     }
     const byWallet = await serviceAccount.getWallet({
       walletId,
@@ -198,23 +239,31 @@ class ServiceQrWallet extends ServiceBase {
         backgroundApi: this.backgroundApi,
         includingNetworkWithGlobalDeriveType: true,
       });
-    const allDefaultAddAccountNetworksIds = allDefaultAddAccountNetworks.map(
+    let allDefaultAddAccountNetworksIds = allDefaultAddAccountNetworks.map(
       (item) => item.networkId,
     );
+    allDefaultAddAccountNetworksIds = uniq([
+      ...allDefaultAddAccountNetworksIds,
+    ]);
     if (networkUtils.isAllNetwork({ networkId })) {
-      networkIds = allDefaultAddAccountNetworksIds;
+      networkIds = uniq([...allDefaultAddAccountNetworksIds]);
     } else {
       // networkIds = [networkId];
       // TODO always create all default networks?
       networkIds = uniq([...allDefaultAddAccountNetworksIds, networkId]);
     }
+    networkIds = uniq([...networkIds]);
 
     const params: {
       chain: string;
       paths: string[];
     }[] = await Promise.all(
       networkIds.map((n) =>
-        this.buildGetMultiAccountsParams({ networkId: n, indexedAccountId }),
+        this.buildGetMultiAccountsParams({
+          walletId,
+          networkId: n,
+          indexedAccountId,
+        }),
       ),
     );
 
@@ -283,7 +332,7 @@ class ServiceQrWallet extends ServiceBase {
       };
       buildBy = 'hdkey';
     } else {
-      throw new Error(`Invalid UR type: ${ur.type}`);
+      throw new OneKeyLocalError(`Invalid UR type: ${ur.type}`);
     }
     const qrDevice: IQrWalletDevice = {
       name: airGapMultiAccounts.device || 'QR Wallet',

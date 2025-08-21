@@ -46,6 +46,7 @@ import { BTC_TX_PLACEHOLDER_VSIZE } from '@onekeyhq/shared/src/consts/chainConst
 import {
   InsufficientBalance,
   OneKeyInternalError,
+  OneKeyLocalError,
 } from '@onekeyhq/shared/src/errors';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
@@ -512,6 +513,7 @@ export default class VaultBtc extends VaultBase {
       totalFeeInNative,
       nativeAmount: sendNativeTokenAmountBN.toFixed(),
       nativeAmountValue: sendNativeTokenAmountValueBN.toFixed(),
+      isPsbt: true,
     };
   }
 
@@ -599,7 +601,9 @@ export default class VaultBtc extends VaultBase {
   }
 
   async getBtcForkNetwork() {
-    return getBtcForkNetwork(await this.getNetworkImpl());
+    return getBtcForkNetwork(
+      (await this.getCoreApiNetworkInfo()).networkChainCode,
+    );
   }
 
   override validatePrivateKey(): Promise<IPrivateKeyValidation> {
@@ -692,7 +696,7 @@ export default class VaultBtc extends VaultBase {
     if (encoding) {
       return getCoinSelectTxType(encoding);
     }
-    throw new Error('getCoinSelectTxType ERROR: Invalid encoding');
+    throw new OneKeyLocalError('getCoinSelectTxType ERROR: Invalid encoding');
   }
 
   override keyringMap: Record<IDBWalletType, typeof KeyringBase | undefined> = {
@@ -712,7 +716,9 @@ export default class VaultBtc extends VaultBase {
     if (transfersInfo.length === 1) {
       const transferInfo = transfersInfo[0];
       if (!transferInfo.to) {
-        throw new Error('buildEncodedTx ERROR: transferInfo.to is missing');
+        throw new OneKeyLocalError(
+          'buildEncodedTx ERROR: transferInfo.to is missing',
+        );
       }
     }
     return this._buildEncodedTxFromBatchTransfer(params);
@@ -775,13 +781,13 @@ export default class VaultBtc extends VaultBase {
         }
 
         if (!valueText || new BigNumber(valueText).lte(0)) {
-          throw new Error(
+          throw new OneKeyLocalError(
             'buildEncodedTxFromBatchTransfer ERROR: Invalid value',
           );
         }
 
         if (!address) {
-          throw new Error(
+          throw new OneKeyLocalError(
             'buildEncodedTxFromBatchTransfer ERROR: Invalid output address',
           );
         }
@@ -795,7 +801,7 @@ export default class VaultBtc extends VaultBase {
 
         if (type === 'change') {
           if (!path) {
-            throw new Error(
+            throw new OneKeyLocalError(
               'buildEncodedTxFromBatchTransfer ERROR: Invalid change path',
             );
           }
@@ -809,7 +815,7 @@ export default class VaultBtc extends VaultBase {
           };
         }
 
-        throw new Error(
+        throw new OneKeyLocalError(
           'buildEncodedTxFromBatchTransfer ERROR: Invalid output type',
         );
       }),
@@ -829,7 +835,7 @@ export default class VaultBtc extends VaultBase {
   }) {
     const network = await this.getNetwork();
     if (!transfersInfo.length) {
-      throw new Error(
+      throw new OneKeyLocalError(
         'buildTransferParamsWithCoinSelector ERROR: transferInfos is required',
       );
     }
@@ -921,7 +927,7 @@ export default class VaultBtc extends VaultBase {
 
     // transfer output + maybe opReturn output
     if (!isBatchTransfer && outputsForCoinSelect.length > 2) {
-      throw new Error('single transfer should only have one output');
+      throw new OneKeyLocalError('single transfer should only have one output');
     }
     const btcForkNetwork = await this.getBtcForkNetwork();
     const dbAccount = (await this.getAccount()) as IDBUtxoAccount;
@@ -1013,7 +1019,7 @@ export default class VaultBtc extends VaultBase {
         if (!feeUTXO || isEmpty(feeUTXO)) {
           throw new OneKeyInternalError(
             appLocale.intl.formatMessage({
-              id: ETranslations.feedback_failed_to_fet_fee_rate,
+              id: ETranslations.feedback_failed_to_fetch_fee_rate,
             }),
           );
         }
@@ -1063,7 +1069,7 @@ export default class VaultBtc extends VaultBase {
         console.error(e);
         throw new OneKeyInternalError(
           appLocale.intl.formatMessage({
-            id: ETranslations.feedback_failed_to_fet_fee_rate,
+            id: ETranslations.feedback_failed_to_fetch_fee_rate,
           }),
         );
       }

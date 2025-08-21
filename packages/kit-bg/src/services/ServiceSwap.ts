@@ -31,16 +31,24 @@ import { equalsIgnoreCase } from '@onekeyhq/shared/src/utils/stringUtils';
 import { equalTokenNoCaseSensitive } from '@onekeyhq/shared/src/utils/tokenUtils';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 import type { ESigningScheme } from '@onekeyhq/shared/types/message';
+import type {
+  ISwapProviderManager,
+  ISwapServiceProvider,
+} from '@onekeyhq/shared/types/swap/SwapProvider.constants';
 import {
   maxRecentTokenPairs,
+  mevSwapNetworks,
+  swapApprovingStateFetchInterval,
   swapHistoryStateFetchInterval,
   swapHistoryStateFetchRiceIntervalCount,
   swapQuoteEventTimeout,
+  swapSpeedSwapApprovingStateFetchInterval,
 } from '@onekeyhq/shared/types/swap/SwapProvider.constants';
 import type {
   ESwapQuoteKind,
   IFetchBuildTxParams,
   IFetchBuildTxResponse,
+  IFetchLimitMarketPrice,
   IFetchLimitOrderRes,
   IFetchQuoteResult,
   IFetchQuotesParams,
@@ -50,10 +58,14 @@ import type {
   IFetchTokenListParams,
   IFetchTokensParams,
   IOKXTransactionObject,
+  ISpeedSwapConfig,
+  ISwapApproveAllowanceResponse,
   ISwapApproveTransaction,
   ISwapCheckSupportResponse,
+  ISwapNativeTokenConfig,
   ISwapNetwork,
   ISwapNetworkBase,
+  ISwapTips,
   ISwapToken,
   ISwapTokenBase,
   ISwapTxHistory,
@@ -80,6 +92,8 @@ import type { IAllNetworkAccountInfo } from './ServiceAllNetwork/ServiceAllNetwo
 @backgroundClass()
 export default class ServiceSwap extends ServiceBase {
   private _quoteAbortController?: AbortController;
+
+  private _checkTokenApproveAllowanceAbortController?: AbortController;
 
   private _tokenListAbortController?: AbortController;
 
@@ -111,6 +125,16 @@ export default class ServiceSwap extends ServiceBase {
 
   private swapSupportNetworksTtl = 1000 * 60 * 120;
 
+  private _limitOrderCurrentAccountId?: string;
+
+  private approvingInterval: ReturnType<typeof setTimeout> | undefined;
+
+  private approvingIntervalCount = 0;
+
+  private speedSwapApprovingInterval: ReturnType<typeof setTimeout> | undefined;
+
+  private speedSwapApprovingIntervalCount = 0;
+
   constructor({ backgroundApi }: { backgroundApi: any }) {
     super({ backgroundApi });
   }
@@ -121,6 +145,14 @@ export default class ServiceSwap extends ServiceBase {
     if (this._quoteAbortController) {
       this._quoteAbortController.abort();
       this._quoteAbortController = undefined;
+    }
+  }
+
+  @backgroundMethod()
+  async cancelCheckTokenApproveAllowance() {
+    if (this._checkTokenApproveAllowanceAbortController) {
+      this._checkTokenApproveAllowanceAbortController.abort();
+      this._checkTokenApproveAllowanceAbortController = undefined;
     }
   }
 
@@ -279,6 +311,7 @@ export default class ServiceSwap extends ServiceBase {
       return data?.data ?? [];
     } catch (e) {
       if (axios.isCancel(e)) {
+        // eslint-disable-next-line no-restricted-syntax
         throw new Error('swap fetch token cancel', {
           cause: ESwapFetchCancelCause.SWAP_TOKENS_CANCEL,
         });
@@ -318,6 +351,8 @@ export default class ServiceSwap extends ServiceBase {
               )
             ).id
           : otherWalletTypeAccountId ?? '';
+        console.log('getSupportSwapAllAccounts');
+        // const accountsInfo: IAllNetworkAccountInfo[] = [];
         const { accountsInfo } =
           await this.backgroundApi.serviceAllNetwork.getAllNetworkAccounts({
             accountId: allNetAccountId,
@@ -393,61 +428,68 @@ export default class ServiceSwap extends ServiceBase {
     contractAddress: string;
     direction?: ESwapDirectionType;
   }): Promise<ISwapToken[] | undefined> {
-    await this.cancelFetchTokenDetail(direction);
-    const params: IFetchTokenDetailParams = {
-      protocol: EProtocolOfExchange.SWAP,
-      networkId,
-      accountAddress,
-      contractAddress,
-    };
-    if (direction) {
-      if (direction === ESwapDirectionType.FROM) {
-        this._tokenDetailAbortControllerMap.from = new AbortController();
-      } else if (direction === ESwapDirectionType.TO) {
-        this._tokenDetailAbortControllerMap.to = new AbortController();
+    try {
+      await this.cancelFetchTokenDetail(direction);
+      const params: IFetchTokenDetailParams = {
+        protocol: EProtocolOfExchange.SWAP,
+        networkId,
+        accountAddress,
+        contractAddress,
+      };
+      if (direction) {
+        if (direction === ESwapDirectionType.FROM) {
+          this._tokenDetailAbortControllerMap.from = new AbortController();
+        } else if (direction === ESwapDirectionType.TO) {
+          this._tokenDetailAbortControllerMap.to = new AbortController();
+        }
       }
-    }
-    const client = await this.getClient(EServiceEndpointEnum.Swap);
-    if (accountId && accountAddress && networkId) {
-      const accountAddressForAccountId =
-        await this.backgroundApi.serviceAccount.getAccountAddressForApi({
-          accountId,
-          networkId,
-        });
-      if (accountAddressForAccountId === accountAddress) {
-        params.xpub = await this.backgroundApi.serviceAccount.getAccountXpub({
-          accountId,
-          networkId,
-        });
-      }
-      const inscriptionProtection =
-        await this.backgroundApi.serviceSetting.getInscriptionProtection();
-      const checkInscriptionProtectionEnabled =
-        await this.backgroundApi.serviceSetting.checkInscriptionProtectionEnabled(
-          {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      if (accountId && accountAddress && networkId) {
+        const accountAddressForAccountId =
+          await this.backgroundApi.serviceAccount.getAccountAddressForApi({
+            accountId,
             networkId,
+          });
+        if (accountAddressForAccountId === accountAddress) {
+          params.xpub = await this.backgroundApi.serviceAccount.getAccountXpub({
             accountId,
-          },
-        );
-      const withCheckInscription =
-        checkInscriptionProtectionEnabled && inscriptionProtection;
-      params.withCheckInscription = withCheckInscription;
+            networkId,
+          });
+        }
+        const inscriptionProtection =
+          await this.backgroundApi.serviceSetting.getInscriptionProtection();
+        const checkInscriptionProtectionEnabled =
+          await this.backgroundApi.serviceSetting.checkInscriptionProtectionEnabled(
+            {
+              networkId,
+              accountId,
+            },
+          );
+        const withCheckInscription =
+          checkInscriptionProtectionEnabled && inscriptionProtection;
+        params.withCheckInscription = withCheckInscription;
+      }
+      const { data } = await client.get<IFetchResponse<ISwapToken[]>>(
+        '/swap/v1/token/detail',
+        {
+          params,
+          signal:
+            direction === ESwapDirectionType.FROM
+              ? this._tokenDetailAbortControllerMap.from?.signal
+              : this._tokenDetailAbortControllerMap.to?.signal,
+          headers:
+            await this.backgroundApi.serviceAccountProfile._getWalletTypeHeader(
+              {
+                accountId,
+              },
+            ),
+        },
+      );
+      return data?.data;
+    } catch (e) {
+      console.error(e);
+      return [];
     }
-    const { data } = await client.get<IFetchResponse<ISwapToken[]>>(
-      '/swap/v1/token/detail',
-      {
-        params,
-        signal:
-          direction === ESwapDirectionType.FROM
-            ? this._tokenDetailAbortControllerMap.from?.signal
-            : this._tokenDetailAbortControllerMap.to?.signal,
-        headers:
-          await this.backgroundApi.serviceAccountProfile._getWalletTypeHeader({
-            accountId,
-          }),
-      },
-    );
-    return data?.data;
   }
 
   @backgroundMethod()
@@ -459,12 +501,14 @@ export default class ServiceSwap extends ServiceBase {
     slippagePercentage,
     autoSlippage,
     blockNumber,
+    receivingAddress,
     accountId,
     protocol,
     expirationTime,
     limitPartiallyFillable,
     kind,
     toTokenAmount,
+    userMarketPriceRate,
   }: {
     fromToken: ISwapToken;
     toToken: ISwapToken;
@@ -472,6 +516,7 @@ export default class ServiceSwap extends ServiceBase {
     userAddress?: string;
     slippagePercentage: number;
     autoSlippage?: boolean;
+    receivingAddress?: string;
     blockNumber?: number;
     accountId?: string;
     expirationTime?: number;
@@ -479,8 +524,17 @@ export default class ServiceSwap extends ServiceBase {
     limitPartiallyFillable?: boolean;
     kind?: ESwapQuoteKind;
     toTokenAmount?: string;
+    userMarketPriceRate?: string;
   }): Promise<IFetchQuoteResult[]> {
     await this.cancelFetchQuotes();
+    const denyCrossChainProvider = await this.getDenyCrossChainProvider(
+      fromToken.networkId,
+      toToken.networkId,
+    );
+    const denySingleSwapProvider = await this.getDenySingleSwapProvider(
+      fromToken.networkId,
+      toToken.networkId,
+    );
     const params: IFetchQuotesParams = {
       fromTokenAddress: fromToken.contractAddress,
       toTokenAddress: toToken.contractAddress,
@@ -495,10 +549,14 @@ export default class ServiceSwap extends ServiceBase {
       slippagePercentage,
       autoSlippage,
       blockNumber,
+      receivingAddress,
       expirationTime,
       limitPartiallyFillable,
       kind,
       toTokenAmount,
+      userMarketPriceRate,
+      denyCrossChainProvider,
+      denySingleSwapProvider,
     };
     this._quoteAbortController = new AbortController();
     const client = await this.getClient(EServiceEndpointEnum.Swap);
@@ -524,6 +582,7 @@ export default class ServiceSwap extends ServiceBase {
       }
     } catch (e) {
       if (axios.isCancel(e)) {
+        // eslint-disable-next-line no-restricted-syntax
         throw new Error('swap fetch quote cancel', {
           cause: ESwapFetchCancelCause.SWAP_QUOTE_CANCEL,
         });
@@ -551,13 +610,16 @@ export default class ServiceSwap extends ServiceBase {
     accountId,
     protocol,
     expirationTime,
+    receivingAddress,
     limitPartiallyFillable,
     kind,
     toTokenAmount,
+    userMarketPriceRate,
   }: {
     fromToken: ISwapToken;
     toToken: ISwapToken;
     fromTokenAmount?: string;
+    receivingAddress?: string;
     userAddress?: string;
     slippagePercentage: number;
     autoSlippage?: boolean;
@@ -568,8 +630,17 @@ export default class ServiceSwap extends ServiceBase {
     limitPartiallyFillable?: boolean;
     kind?: ESwapQuoteKind;
     toTokenAmount?: string;
+    userMarketPriceRate?: string;
   }) {
     await this.removeQuoteEventSourceListeners();
+    const denyCrossChainProvider = await this.getDenyCrossChainProvider(
+      fromToken.networkId,
+      toToken.networkId,
+    );
+    const denySingleSwapProvider = await this.getDenySingleSwapProvider(
+      fromToken.networkId,
+      toToken.networkId,
+    );
     const params: IFetchQuotesParams = {
       fromTokenAddress: fromToken.contractAddress,
       toTokenAddress: toToken.contractAddress,
@@ -585,9 +656,13 @@ export default class ServiceSwap extends ServiceBase {
       autoSlippage,
       blockNumber,
       expirationTime,
+      receivingAddress,
       limitPartiallyFillable,
       kind,
       toTokenAmount,
+      userMarketPriceRate,
+      denyCrossChainProvider,
+      denySingleSwapProvider,
     };
     const swapEventUrl = (
       await this.getClient(EServiceEndpointEnum.Swap)
@@ -596,15 +671,23 @@ export default class ServiceSwap extends ServiceBase {
       params,
     });
     let headers = await getRequestHeaders();
+    const walletType =
+      await this.backgroundApi.serviceAccountProfile._getRequestWalletType({
+        accountId,
+      });
     headers = {
       ...headers,
       ...(accountId
-        ? await this.backgroundApi.serviceAccountProfile._getWalletTypeHeader({
-            accountId,
-          })
+        ? {
+            'X-OneKey-Wallet-Type': walletType,
+          }
         : {}),
     };
     if (platformEnv.isExtension) {
+      if (this._quoteEventSourcePolyfill) {
+        this._quoteEventSourcePolyfill.close();
+        this._quoteEventSourcePolyfill = undefined;
+      }
       this._quoteEventSourcePolyfill = new EventSourcePolyfill(swapEventUrl, {
         headers: headers as Record<string, string>,
       });
@@ -662,6 +745,10 @@ export default class ServiceSwap extends ServiceBase {
         });
       };
     } else {
+      if (this._quoteEventSource) {
+        this._quoteEventSource.close();
+        this._quoteEventSource = undefined;
+      }
       this._quoteEventSource = new EventSource(swapEventUrl, {
         headers,
         pollingInterval: 0,
@@ -716,6 +803,46 @@ export default class ServiceSwap extends ServiceBase {
     }
   }
 
+  async getDenyCrossChainProvider(fromNetworkId: string, toNetworkId: string) {
+    if (fromNetworkId === toNetworkId) {
+      return undefined;
+    }
+    const { bridgeProviderManager } = await inAppNotificationAtom.get();
+    const denyBridges = bridgeProviderManager.filter((item) => !item.enable);
+    if (!denyBridges?.length) {
+      return undefined;
+    }
+    return denyBridges.map((item) => item.providerInfo.provider).join(',');
+  }
+
+  async getDenySingleSwapProvider(fromNetworkId: string, toNetworkId: string) {
+    if (fromNetworkId !== toNetworkId) {
+      return undefined;
+    }
+    const { swapProviderManager } = await inAppNotificationAtom.get();
+    const denyDexs = swapProviderManager.filter((item) => !item.enable);
+    let denyDexArr = denyDexs?.map((item) => item.providerInfo.provider);
+    const denyDexNetworks = swapProviderManager.filter((item) => {
+      if (item.enable) {
+        const netDisEnable = item.disableNetworks?.find(
+          (net) => net.networkId === fromNetworkId,
+        );
+        if (netDisEnable) {
+          return true;
+        }
+        return false;
+      }
+      return false;
+    });
+    if (denyDexNetworks?.length) {
+      denyDexArr = [
+        ...(denyDexArr ?? []),
+        ...denyDexNetworks.map((item) => item.providerInfo.provider),
+      ];
+    }
+    return denyDexArr?.join(',');
+  }
+
   @backgroundMethod()
   @toastIfError()
   async fetchBuildTx({
@@ -729,6 +856,9 @@ export default class ServiceSwap extends ServiceBase {
     slippagePercentage,
     quoteResultCtx,
     accountId,
+    protocol,
+    kind,
+    walletType,
   }: {
     fromToken: ISwapToken;
     toToken: ISwapToken;
@@ -740,6 +870,9 @@ export default class ServiceSwap extends ServiceBase {
     slippagePercentage: number;
     accountId?: string;
     quoteResultCtx?: any;
+    protocol: EProtocolOfExchange;
+    kind: ESwapQuoteKind;
+    walletType?: string;
   }): Promise<IFetchBuildTxResponse | undefined> {
     const params: IFetchBuildTxParams = {
       fromTokenAddress: fromToken.contractAddress,
@@ -748,12 +881,14 @@ export default class ServiceSwap extends ServiceBase {
       toTokenAmount,
       fromNetworkId: fromToken.networkId,
       toNetworkId: toToken.networkId,
-      protocol: EProtocolOfExchange.SWAP,
+      protocol,
       provider,
       userAddress,
       receivingAddress,
       slippagePercentage,
       quoteResultCtx,
+      kind,
+      walletType,
     };
     try {
       const client = await this.getClient(EServiceEndpointEnum.Swap);
@@ -777,6 +912,7 @@ export default class ServiceSwap extends ServiceBase {
         title: error?.message,
         message: error?.requestId,
       });
+      throw e;
     }
   }
 
@@ -840,32 +976,65 @@ export default class ServiceSwap extends ServiceBase {
     spenderAddress,
     walletAddress,
     accountId,
+    amount,
   }: {
     networkId: string;
     tokenAddress: string;
     spenderAddress: string;
     walletAddress: string;
     accountId?: string;
+    amount: string;
   }) {
+    await this.cancelCheckTokenApproveAllowance();
     const params = {
       networkId,
       tokenAddress,
       spenderAddress,
       walletAddress,
+      amount,
     };
     const client = await this.getClient(EServiceEndpointEnum.Swap);
-
-    const { data } = await client.get<IFetchResponse<string>>(
-      '/swap/v1/allowance',
-      {
+    this._checkTokenApproveAllowanceAbortController = new AbortController();
+    try {
+      const { data } = await client.get<
+        IFetchResponse<ISwapApproveAllowanceResponse>
+      >('/swap/v1/allowance', {
         params,
+        signal: this._checkTokenApproveAllowanceAbortController.signal,
         headers:
           await this.backgroundApi.serviceAccountProfile._getWalletTypeHeader({
             accountId,
           }),
-      },
-    );
-    return data?.data;
+      });
+      return data?.data;
+    } catch (e) {
+      if (axios.isCancel(e)) {
+        // eslint-disable-next-line no-restricted-syntax
+        throw new Error('swap check token approve allowance cancel', {
+          cause: ESwapFetchCancelCause.SWAP_APPROVE_ALLOWANCE_CANCEL,
+        });
+      }
+      throw e;
+    }
+  }
+
+  @backgroundMethod()
+  async fetchSwapNativeTokenConfig({ networkId }: { networkId: string }) {
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const resp = await client.get<{
+        data: ISwapNativeTokenConfig;
+      }>(`/swap/v1/native-token-config`, {
+        params: { networkId },
+      });
+      return resp.data.data;
+    } catch (e) {
+      console.error(e);
+      return {
+        networkId,
+        reserveGas: 0,
+      };
+    }
   }
 
   // swap approving transaction
@@ -876,11 +1045,249 @@ export default class ServiceSwap extends ServiceBase {
   }
 
   @backgroundMethod()
+  async getSpeedSwapApprovingTransaction() {
+    const { speedSwapApprovingTransaction } = await inAppNotificationAtom.get();
+    return speedSwapApprovingTransaction;
+  }
+
+  @backgroundMethod()
   async setApprovingTransaction(item?: ISwapApproveTransaction) {
     await inAppNotificationAtom.set((pre) => ({
       ...pre,
       swapApprovingTransaction: item,
+      ...(item?.status !== ESwapApproveTransactionStatus.PENDING && {
+        swapApprovingLoading: false,
+      }),
     }));
+  }
+
+  @backgroundMethod()
+  async setSpeedSwapApprovingTransaction(item?: ISwapApproveTransaction) {
+    await inAppNotificationAtom.set((pre) => ({
+      ...pre,
+      speedSwapApprovingTransaction: item,
+      ...(item?.status !== ESwapApproveTransactionStatus.PENDING && {
+        speedSwapApprovingLoading: false,
+      }),
+    }));
+  }
+
+  @backgroundMethod()
+  async closeApproving() {
+    await inAppNotificationAtom.set((pre) => ({
+      ...pre,
+      swapApprovingTransaction: undefined,
+      swapApprovingLoading: false,
+    }));
+  }
+
+  @backgroundMethod()
+  async closeSpeedSwapApproving() {
+    await inAppNotificationAtom.set((pre) => ({
+      ...pre,
+      speedSwapApprovingTransaction: undefined,
+      speedSwapApprovingLoading: false,
+    }));
+  }
+
+  // --- swap provider manager
+  @backgroundMethod()
+  async getSwapProviderManager() {
+    const client = await this.getClient(EServiceEndpointEnum.Swap);
+    const resp = await client.get<{
+      data: ISwapServiceProvider[];
+    }>(`/swap/v1/providers/list`);
+    return resp.data.data;
+  }
+
+  @backgroundMethod()
+  async updateSwapProviderManager(
+    data: ISwapProviderManager[],
+    isBridge: boolean,
+  ) {
+    if (isBridge) {
+      await this.backgroundApi.simpleDb.swapConfigs.setBridgeProviderManager(
+        data,
+      );
+      await inAppNotificationAtom.set((pre) => ({
+        ...pre,
+        bridgeProviderManager: data,
+      }));
+    } else {
+      await this.backgroundApi.simpleDb.swapConfigs.setSwapProviderManager(
+        data,
+      );
+      await inAppNotificationAtom.set((pre) => ({
+        ...pre,
+        swapProviderManager: data,
+      }));
+    }
+  }
+
+  @backgroundMethod()
+  async updateSwapApprovingLoading(loading: boolean) {
+    await inAppNotificationAtom.set((pre) => ({
+      ...pre,
+      swapApprovingLoading: loading,
+    }));
+  }
+
+  @backgroundMethod()
+  async cleanApprovingInterval() {
+    if (this.approvingInterval) {
+      clearTimeout(this.approvingInterval);
+      this.approvingInterval = undefined;
+    }
+  }
+
+  @backgroundMethod()
+  async cleanSpeedSwapApprovingInterval() {
+    if (this.speedSwapApprovingInterval) {
+      clearTimeout(this.speedSwapApprovingInterval);
+      this.speedSwapApprovingInterval = undefined;
+    }
+  }
+
+  async approvingStateRunSync(networkId: string, txId: string) {
+    let enableInterval = true;
+    try {
+      const txState = await this.fetchTxState({
+        txId,
+        networkId,
+      });
+      const preApproveTx = await this.getApprovingTransaction();
+      if (
+        txState.state === ESwapTxHistoryStatus.SUCCESS ||
+        txState.state === ESwapTxHistoryStatus.FAILED
+      ) {
+        enableInterval = false;
+        if (preApproveTx) {
+          if (
+            txState.state === ESwapTxHistoryStatus.SUCCESS ||
+            txState.state === ESwapTxHistoryStatus.FAILED
+          ) {
+            let newApproveTx: ISwapApproveTransaction = {
+              ...preApproveTx,
+              blockNumber: txState.blockNumber,
+              status: ESwapApproveTransactionStatus.SUCCESS,
+            };
+            if (txState.state === ESwapTxHistoryStatus.FAILED) {
+              newApproveTx = {
+                ...preApproveTx,
+                txId: undefined,
+                status: ESwapApproveTransactionStatus.FAILED,
+              };
+            }
+            await this.setApprovingTransaction(newApproveTx);
+          }
+        }
+      } else if (
+        preApproveTx &&
+        preApproveTx.status !== ESwapApproveTransactionStatus.PENDING
+      ) {
+        await this.setApprovingTransaction({
+          ...preApproveTx,
+          status: ESwapApproveTransactionStatus.PENDING,
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (enableInterval) {
+        this.approvingIntervalCount += 1;
+        void this.approvingStateAction();
+      } else {
+        void this.cleanApprovingInterval();
+        this.approvingIntervalCount = 0;
+      }
+    }
+  }
+
+  async speedSwapApprovingStateRunSync(networkId: string, txId: string) {
+    let enableInterval = true;
+    try {
+      const txState = await this.fetchTxState({
+        txId,
+        networkId,
+      });
+      const preApproveTx = await this.getSpeedSwapApprovingTransaction();
+      if (
+        txState.state === ESwapTxHistoryStatus.SUCCESS ||
+        txState.state === ESwapTxHistoryStatus.FAILED
+      ) {
+        enableInterval = false;
+        if (preApproveTx) {
+          if (
+            txState.state === ESwapTxHistoryStatus.SUCCESS ||
+            txState.state === ESwapTxHistoryStatus.FAILED
+          ) {
+            let newApproveTx: ISwapApproveTransaction = {
+              ...preApproveTx,
+              blockNumber: txState.blockNumber,
+              status: ESwapApproveTransactionStatus.SUCCESS,
+            };
+            if (txState.state === ESwapTxHistoryStatus.FAILED) {
+              newApproveTx = {
+                ...preApproveTx,
+                txId: undefined,
+                status: ESwapApproveTransactionStatus.FAILED,
+              };
+            }
+            await this.setSpeedSwapApprovingTransaction(newApproveTx);
+          }
+        }
+      } else if (
+        preApproveTx &&
+        preApproveTx.status !== ESwapApproveTransactionStatus.PENDING
+      ) {
+        await this.setSpeedSwapApprovingTransaction({
+          ...preApproveTx,
+          status: ESwapApproveTransactionStatus.PENDING,
+        });
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (enableInterval) {
+        this.speedSwapApprovingIntervalCount += 1;
+        void this.speedSwapApprovingStateAction();
+      } else {
+        void this.cleanSpeedSwapApprovingInterval();
+        this.speedSwapApprovingIntervalCount = 0;
+      }
+    }
+  }
+
+  @backgroundMethod()
+  async approvingStateAction() {
+    void this.cleanApprovingInterval();
+    const approvingTransaction = await this.getApprovingTransaction();
+    if (approvingTransaction && approvingTransaction.txId) {
+      this.approvingInterval = setTimeout(() => {
+        if (approvingTransaction.txId) {
+          void this.approvingStateRunSync(
+            approvingTransaction.fromToken.networkId,
+            approvingTransaction.txId,
+          );
+        }
+      }, swapApprovingStateFetchInterval * (Math.floor(this.approvingIntervalCount / swapHistoryStateFetchRiceIntervalCount) + 1));
+    }
+  }
+
+  @backgroundMethod()
+  async speedSwapApprovingStateAction() {
+    void this.cleanSpeedSwapApprovingInterval();
+    const approvingTransaction = await this.getSpeedSwapApprovingTransaction();
+    if (approvingTransaction && approvingTransaction.txId) {
+      this.speedSwapApprovingInterval = setTimeout(() => {
+        if (approvingTransaction.txId) {
+          void this.speedSwapApprovingStateRunSync(
+            approvingTransaction.fromToken.networkId,
+            approvingTransaction.txId,
+          );
+        }
+      }, swapSpeedSwapApprovingStateFetchInterval * (Math.floor(this.speedSwapApprovingIntervalCount / swapHistoryStateFetchRiceIntervalCount) + 1));
+    }
   }
 
   // --- swap history
@@ -903,6 +1310,13 @@ export default class ServiceSwap extends ServiceBase {
       ...pre,
       swapHistoryPendingList: [...pendingHistories],
     }));
+  }
+
+  @backgroundMethod()
+  async getSwapHistoryByTxId({ txId }: { txId: string }) {
+    const history =
+      await this.backgroundApi.simpleDb.swapHistory.getSwapHistoryByTxId(txId);
+    return history;
   }
 
   @backgroundMethod()
@@ -1029,10 +1443,14 @@ export default class ServiceSwap extends ServiceBase {
         }
         void this.backgroundApi.serviceApp.showToast({
           method:
-            item.status === ESwapTxHistoryStatus.SUCCESS ? 'success' : 'error',
+            item.status === ESwapTxHistoryStatus.SUCCESS ||
+            item.status === ESwapTxHistoryStatus.PARTIALLY_FILLED
+              ? 'success'
+              : 'error',
           title: appLocale.intl.formatMessage({
             id:
-              item.status === ESwapTxHistoryStatus.SUCCESS
+              item.status === ESwapTxHistoryStatus.SUCCESS ||
+              item.status === ESwapTxHistoryStatus.PARTIALLY_FILLED
                 ? ETranslations.swap_page_toast_swap_successful
                 : ETranslations.swap_page_toast_swap_failed,
           }),
@@ -1137,6 +1555,7 @@ export default class ServiceSwap extends ServiceBase {
         currentSwapTxHistory = {
           ...currentSwapTxHistory,
           status: txStatusRes.state,
+          extraStatus: txStatusRes.extraStatus,
           swapInfo: {
             ...currentSwapTxHistory.swapInfo,
             surplus:
@@ -1177,13 +1596,18 @@ export default class ServiceSwap extends ServiceBase {
           currentSwapTxHistory.crossChainStatus ===
             ESwapCrossChainStatus.REFUNDED ||
           (!currentSwapTxHistory.crossChainStatus &&
-            txStatusRes?.state === ESwapTxHistoryStatus.SUCCESS)
+            (txStatusRes?.state === ESwapTxHistoryStatus.SUCCESS ||
+              txStatusRes?.state === ESwapTxHistoryStatus.PARTIALLY_FILLED))
         ) {
           appEventBus.emit(EAppEventBusNames.SwapTxHistoryStatusUpdate, {
             fromToken: currentSwapTxHistory.baseInfo.fromToken,
             toToken: currentSwapTxHistory.baseInfo.toToken,
             status: txStatusRes.state,
             crossChainStatus: txStatusRes.crossChainStatus,
+          });
+          appEventBus.emit(EAppEventBusNames.SwapSpeedBalanceUpdate, {
+            orderFromToken: currentSwapTxHistory.baseInfo.fromToken,
+            orderToToken: currentSwapTxHistory.baseInfo.toToken,
           });
         }
         if (txStatusRes?.state !== ESwapTxHistoryStatus.PENDING) {
@@ -1445,22 +1869,22 @@ export default class ServiceSwap extends ServiceBase {
       ) {
         let toastTitle = '';
         let toastMessage = '';
-        let method: 'success' | 'error' | 'message' = 'success';
+        const method: 'success' | 'error' | 'message' = 'success';
         if (ESwapLimitOrderStatus.FULFILLED === newStatus) {
           appEventBus.emit(EAppEventBusNames.SwapTxHistoryStatusUpdate, {
-            fromToken: openOrder.fromTokenInfo,
-            toToken: openOrder.toTokenInfo,
+            fromToken: updatedOrder.fromTokenInfo,
+            toToken: updatedOrder.toTokenInfo,
             status: ESwapTxHistoryStatus.SUCCESS,
           });
           const executedBuyAmountBN = new BigNumber(
-            openOrder.executedBuyAmount ?? '0',
-          ).shiftedBy(-(openOrder.toTokenInfo?.decimals ?? 0));
+            updatedOrder.executedBuyAmount ?? '0',
+          ).shiftedBy(-(updatedOrder.toTokenInfo?.decimals ?? 0));
           const formattedExecutedBuyAmount = formatBalance(
             executedBuyAmountBN.toFixed(),
           );
           const executedSellAmountBN = new BigNumber(
-            openOrder.executedSellAmount ?? '0',
-          ).shiftedBy(-(openOrder.fromTokenInfo?.decimals ?? 0));
+            updatedOrder.executedSellAmount ?? '0',
+          ).shiftedBy(-(updatedOrder.fromTokenInfo?.decimals ?? 0));
           const formattedExecutedSellAmount = formatBalance(
             executedSellAmountBN.toFixed(),
           );
@@ -1474,37 +1898,17 @@ export default class ServiceSwap extends ServiceBase {
             {
               num1: formattedExecutedSellAmount.formattedValue,
               num2: formattedExecutedBuyAmount.formattedValue,
-              token1: openOrder.fromTokenInfo.symbol,
-              token2: openOrder.toTokenInfo.symbol,
+              token1: updatedOrder.fromTokenInfo.symbol,
+              token2: updatedOrder.toTokenInfo.symbol,
             },
           );
         }
         if (ESwapLimitOrderStatus.CANCELLED === newStatus) {
-          const fromAmountBN = new BigNumber(
-            openOrder.fromAmount ?? '0',
-          ).shiftedBy(-(openOrder.fromTokenInfo?.decimals ?? 0));
-          const formattedFromAmount = formatBalance(fromAmountBN.toFixed());
-          const toAmountBN = new BigNumber(openOrder.toAmount ?? '0').shiftedBy(
-            -(openOrder.toTokenInfo?.decimals ?? 0),
-          );
-          const formattedToAmount = formatBalance(toAmountBN.toFixed());
-          method = 'error';
           toastTitle = appLocale.intl.formatMessage({
             id: ETranslations.limit_toast_order_cancelled,
           });
-          toastMessage = appLocale.intl.formatMessage(
-            {
-              id: ETranslations.limit_toast_order_content,
-            },
-            {
-              num1: formattedFromAmount.formattedValue,
-              num2: formattedToAmount.formattedValue,
-              token1: openOrder.fromTokenInfo.symbol,
-              token2: openOrder.toTokenInfo.symbol,
-            },
-          );
         }
-        if (toastTitle && toastMessage) {
+        if (toastTitle || toastMessage) {
           void this.backgroundApi.serviceApp.showToast({
             method,
             title: toastTitle,
@@ -1520,11 +1924,30 @@ export default class ServiceSwap extends ServiceBase {
     indexedAccountId?: string,
     otherWalletTypeAccountId?: string,
     isFetchNewOrder?: boolean,
+    interval?: boolean,
   ) {
     if (this.limitOrderStateInterval) {
       clearTimeout(this.limitOrderStateInterval);
       this.limitOrderStateInterval = null;
     }
+    if (
+      interval &&
+      this._limitOrderCurrentAccountId &&
+      this._limitOrderCurrentAccountId !==
+        `${indexedAccountId ?? ''}-${otherWalletTypeAccountId ?? ''}`
+    ) {
+      return;
+    }
+    if (
+      !interval &&
+      this._limitOrderCurrentAccountId !==
+        `${indexedAccountId ?? ''}-${otherWalletTypeAccountId ?? ''}`
+    ) {
+      this._limitOrderCurrentAccountId = `${indexedAccountId ?? ''}-${
+        otherWalletTypeAccountId ?? ''
+      }`;
+    }
+    let sameAccount = true;
     const swapSupportNetworks = await this.getCacheSwapSupportNetworks();
     const swapLimitSupportNetworks = swapSupportNetworks.filter(
       (item) => item.supportLimit,
@@ -1547,53 +1970,31 @@ export default class ServiceSwap extends ServiceBase {
             ),
         )
       ) {
-        await inAppNotificationAtom.set((pre) => ({
-          ...pre,
-          swapLimitOrders: [],
-        }));
+        sameAccount = false;
       }
-      const openLimitOrders = swapLimitOrders.filter(
-        (item) => item.status === ESwapLimitOrderStatus.OPEN,
+      const openOrders = swapLimitOrders.filter(
+        (or) => or.status === ESwapLimitOrderStatus.OPEN,
       );
       let res: IFetchLimitOrderRes[] = [];
       try {
         if (
           !swapLimitOrders.length ||
-          openLimitOrders.length > 0 ||
-          isFetchNewOrder
+          isFetchNewOrder ||
+          !sameAccount ||
+          openOrders.length
         ) {
           const accounts = swapSupportAccounts.map((account) => ({
             userAddress: account.apiAddress,
             networkId: account.networkId,
           }));
-          if (openLimitOrders.length > 0) {
-            const needUpdateAccounts = accounts.filter((account) =>
-              openLimitOrders.find(
-                (item) =>
-                  equalsIgnoreCase(item.userAddress, account.userAddress) &&
-                  item.networkId === account.networkId,
-              ),
-            );
-            res = await this.fetchLimitOrders(
-              needUpdateAccounts.map((account) => ({
-                userAddress: account.userAddress,
-                networkId: account.networkId,
-                orderIds: openLimitOrders
-                  ?.filter(
-                    (item) =>
-                      equalsIgnoreCase(item.userAddress, account.userAddress) &&
-                      item.networkId === account.networkId,
-                  )
-                  ?.map((item) => item.orderId)
-                  ?.join(','),
-              })),
-            );
-          } else {
-            res = await this.fetchLimitOrders(accounts);
-          }
-          if (res.length) {
-            await this.checkLimitOrderStatus(res, swapLimitOrders);
-            await inAppNotificationAtom.set((pre) => {
+          await inAppNotificationAtom.set((pre) => ({
+            ...pre,
+            swapLimitOrdersLoading: true,
+          }));
+          res = await this.fetchLimitOrders(accounts);
+          await this.checkLimitOrderStatus(res, swapLimitOrders);
+          await inAppNotificationAtom.set((pre) => {
+            if (sameAccount) {
               let newList = [...pre.swapLimitOrders];
               res.forEach((item) => {
                 const index = newList.findIndex(
@@ -1608,18 +2009,24 @@ export default class ServiceSwap extends ServiceBase {
               return {
                 ...pre,
                 swapLimitOrders: [...newList],
+                swapLimitOrdersLoading: false,
               };
-            });
-            if (
-              res.find((item) => item.status === ESwapLimitOrderStatus.OPEN)
-            ) {
-              this.limitOrderStateInterval = setTimeout(() => {
-                void this.swapLimitOrdersFetchLoop(
-                  indexedAccountId,
-                  otherWalletTypeAccountId,
-                );
-              }, ESwapLimitOrderUpdateInterval);
             }
+            return {
+              ...pre,
+              swapLimitOrdersLoading: false,
+              swapLimitOrders: [...res],
+            };
+          });
+          if (res.find((item) => item.status === ESwapLimitOrderStatus.OPEN)) {
+            this.limitOrderStateInterval = setTimeout(() => {
+              void this.swapLimitOrdersFetchLoop(
+                indexedAccountId,
+                otherWalletTypeAccountId,
+                false,
+                true,
+              );
+            }, ESwapLimitOrderUpdateInterval);
           }
         }
       } catch (error) {
@@ -1627,8 +2034,15 @@ export default class ServiceSwap extends ServiceBase {
           void this.swapLimitOrdersFetchLoop(
             indexedAccountId,
             otherWalletTypeAccountId,
+            false,
+            true,
           );
         }, ESwapLimitOrderUpdateInterval);
+      } finally {
+        await inAppNotificationAtom.set((pre) => ({
+          ...pre,
+          swapLimitOrdersLoading: false,
+        }));
       }
     }
   }
@@ -1643,13 +2057,18 @@ export default class ServiceSwap extends ServiceBase {
       offset?: number;
     }[],
   ) {
-    const client = await this.getClient(EServiceEndpointEnum.Swap);
-    const res = await client.post<{
-      data: IFetchLimitOrderRes[];
-    }>(`/swap/v1/limit-orders`, {
-      accounts,
-    });
-    return res.data.data;
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const res = await client.post<{
+        data: IFetchLimitOrderRes[];
+      }>(`/swap/v1/limit-orders`, {
+        accounts,
+      });
+      return res.data.data;
+    } catch (error) {
+      console.error(error);
+      throw error;
+    }
   }
 
   @backgroundMethod()
@@ -1661,18 +2080,197 @@ export default class ServiceSwap extends ServiceBase {
     provider: string;
     userAddress: string;
   }) {
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const resp = await client.post<{ success: boolean }>(
+        `/swap/v1/cancel-limit-orders`,
+        {
+          networkId: params.networkId,
+          orderIds: params.orderIds.join(','),
+          userAddress: params.userAddress,
+          provider: params.provider,
+          signature: params.signature,
+          signingScheme: params.signingScheme,
+        },
+      );
+      return resp.data.success;
+    } catch (error) {
+      console.error(error);
+      return false;
+    }
+  }
+
+  @backgroundMethod()
+  async fetchLimitMarketPrice(params: {
+    fromToken: ISwapTokenBase;
+    toToken: ISwapTokenBase;
+  }) {
     const client = await this.getClient(EServiceEndpointEnum.Swap);
-    const resp = await client.post<{ success: boolean }>(
-      `/swap/v1/cancel-limit-orders`,
+    const fromTokenFetchPromise = client.get<{ data: IFetchLimitMarketPrice }>(
+      `/swap/v1/limit-market-price`,
       {
-        networkId: params.networkId,
-        orderIds: params.orderIds.join(','),
-        userAddress: params.userAddress,
-        provider: params.provider,
-        signature: params.signature,
-        signingScheme: params.signingScheme,
+        params: {
+          tokenAddress: params.fromToken.contractAddress,
+          networkId: params.fromToken.networkId,
+        },
       },
     );
-    return resp.data.success;
+    const toTokenFetchPromise = client.get<{ data: IFetchLimitMarketPrice }>(
+      `/swap/v1/limit-market-price`,
+      {
+        params: {
+          tokenAddress: params.toToken.contractAddress,
+          networkId: params.toToken.networkId,
+        },
+      },
+    );
+    try {
+      const [{ data: fromTokenRes }, { data: toTokenRes }] = await Promise.all([
+        fromTokenFetchPromise,
+        toTokenFetchPromise,
+      ]);
+      return {
+        fromTokenPrice: fromTokenRes.data?.price,
+        toTokenPrice: toTokenRes.data?.price,
+      };
+    } catch (error) {
+      console.error(error);
+      return {
+        fromTokenPrice: '',
+        toTokenPrice: '',
+      };
+    }
+  }
+
+  @backgroundMethod()
+  async fetchSpeedSwapConfig(params: { networkId: string }) {
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const res = await client.get<{ data: ISpeedSwapConfig }>(
+        `/swap/v1/speed-config`,
+        {
+          params: { networkId: params.networkId },
+        },
+      );
+      return res.data.data;
+    } catch (error) {
+      console.error(error);
+      return {
+        provider: '',
+        speedConfig: {
+          slippage: 0.5,
+          spenderAddress: '',
+          defaultTokens: [],
+          swapMevNetConfig: mevSwapNetworks,
+        },
+        supportSpeedSwap: false,
+      };
+    }
+  }
+
+  @backgroundMethod()
+  @toastIfError()
+  async fetchBuildSpeedSwapTx({
+    fromToken,
+    toToken,
+    fromTokenAmount,
+    userAddress,
+    provider,
+    receivingAddress,
+    slippagePercentage,
+    accountId,
+    protocol,
+    kind,
+  }: {
+    fromToken: ISwapToken;
+    toToken: ISwapToken;
+    fromTokenAmount: string;
+    provider: string;
+    userAddress: string;
+    receivingAddress: string;
+    slippagePercentage: number;
+    accountId?: string;
+    protocol: EProtocolOfExchange;
+    kind: ESwapQuoteKind;
+    walletType?: string;
+  }): Promise<IFetchBuildTxResponse | undefined> {
+    let headers = await getRequestHeaders();
+    const walletType =
+      await this.backgroundApi.serviceAccountProfile._getRequestWalletType({
+        accountId,
+      });
+    headers = {
+      ...headers,
+      ...(accountId
+        ? {
+            'X-OneKey-Wallet-Type': walletType,
+          }
+        : {}),
+    };
+    const params: IFetchBuildTxParams = {
+      fromTokenAddress: fromToken.contractAddress,
+      toTokenAddress: toToken.contractAddress,
+      fromTokenAmount,
+      fromNetworkId: fromToken.networkId,
+      toNetworkId: toToken.networkId,
+      protocol,
+      provider,
+      userAddress,
+      receivingAddress,
+      slippagePercentage,
+      kind,
+      walletType,
+    };
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const { data } = await client.post<IFetchResponse<IFetchBuildTxResponse>>(
+        '/swap/v1/build-tx/speed',
+        params,
+        {
+          headers,
+        },
+      );
+      return data?.data;
+    } catch (e) {
+      const error = e as { code: number; message: string; requestId: string };
+      void this.backgroundApi.serviceApp.showToast({
+        method: 'error',
+        title: error?.message,
+        message: error?.requestId,
+      });
+      return undefined;
+    }
+  }
+
+  @backgroundMethod()
+  async fetchSwapTips() {
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Utility);
+      const { data } = await client.get<{ data: ISwapTips }>(
+        '/utility/v1/swap-tips',
+      );
+      return data?.data;
+    } catch (e) {
+      console.error(e);
+      return undefined;
+    }
+  }
+
+  @backgroundMethod()
+  async fetchSwapConfigs() {
+    try {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const { data } = await client.get<{
+        data: {
+          swapMevNetConfig: string[];
+        };
+      }>('/swap/v1/swap-config');
+      return data?.data;
+    } catch (e) {
+      console.error(e);
+      return {
+        swapMevNetConfig: null,
+      };
+    }
   }
 }

@@ -1,28 +1,35 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { EDeviceType } from '@onekeyfe/hd-shared';
 import { useRoute } from '@react-navigation/native';
 import { useIntl } from 'react-intl';
 
 import { Page, YStack } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { FirmwareUpdateReminderAlert } from '@onekeyhq/kit/src/views/FirmwareUpdate/components/HomeFirmwareUpdateReminder';
 import { useFirmwareUpdateActions } from '@onekeyhq/kit/src/views/FirmwareUpdate/hooks/useFirmwareUpdateActions';
 import { useFirmwareVerifyDialog } from '@onekeyhq/kit/src/views/Onboarding/pages/ConnectHardwareWallet/FirmwareVerifyDialog';
+import type { IAccountSelectorStatusAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  useAccountSelectorStatusAtom,
+  useFirmwareUpdatesDetectStatusPersistAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
   EAppEventBusNames,
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import type {
-  EModalDeviceManagementRoutes,
-  IModalDeviceManagementParamList,
-} from '@onekeyhq/shared/src/routes';
+import type { IModalDeviceManagementParamList } from '@onekeyhq/shared/src/routes';
 import {
   EAccountManagerStacksRoutes,
+  EModalDeviceManagementRoutes,
   EModalRoutes,
 } from '@onekeyhq/shared/src/routes';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
+import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 import type { IHwQrWalletWithDevice } from '@onekeyhq/shared/types/account';
 
 import DeviceAdvanceSection from './DeviceAdvanceSection';
@@ -32,7 +39,7 @@ import DeviceSpecsSection from './DeviceSpecsSection';
 
 import type { RouteProp } from '@react-navigation/native';
 
-function DeviceDetailsModal() {
+function DeviceDetailsModalCmp() {
   const intl = useIntl();
   const navigation = useAppNavigation();
   const route =
@@ -50,26 +57,41 @@ function DeviceDetailsModal() {
     result,
     isLoading,
     run: refreshData,
-  } = usePromiseResult<IHwQrWalletWithDevice | undefined>(async () => {
-    const r =
-      await backgroundApiProxy.serviceAccount.getAllHwQrWalletWithDevice();
+  } = usePromiseResult<IHwQrWalletWithDevice | undefined>(
+    async () => {
+      const r =
+        await backgroundApiProxy.serviceAccount.getAllHwQrWalletWithDevice({
+          filterHiddenWallet: true,
+        });
 
-    const device = r?.[walletId]?.device;
-    setPassphraseEnabled(Boolean(device?.featuresInfo?.passphrase_protection));
-    setPinOnAppEnabled(Boolean(device?.settings?.inputPinOnSoftware));
+      const device = r?.[walletId]?.device;
+      setPassphraseEnabled(
+        Boolean(device?.featuresInfo?.passphrase_protection),
+      );
+      setPinOnAppEnabled(Boolean(device?.settings?.inputPinOnSoftware));
 
-    return r?.[walletId] ?? undefined;
-  }, [walletId]);
+      return r?.[walletId] ?? undefined;
+    },
+    [walletId],
+    {
+      checkIsFocused: false,
+    },
+  );
 
   useEffect(() => {
     const fn = () => {
       void refreshData();
     };
     appEventBus.on(EAppEventBusNames.WalletUpdate, fn);
+    appEventBus.on(EAppEventBusNames.HardwareFeaturesUpdate, fn);
+    appEventBus.on(EAppEventBusNames.FinishFirmwareUpdate, fn);
     return () => {
       appEventBus.off(EAppEventBusNames.WalletUpdate, fn);
+      appEventBus.off(EAppEventBusNames.HardwareFeaturesUpdate, fn);
+      appEventBus.off(EAppEventBusNames.FinishFirmwareUpdate, fn);
     };
   }, [refreshData]);
+  const [, setAccountSelectorStatus] = useAccountSelectorStatusAtom();
 
   const isQrWallet = result
     ? accountUtils.isQrWallet({ walletId: result.wallet.id })
@@ -86,7 +108,8 @@ function DeviceDetailsModal() {
     });
   }, [result?.device, navigation]);
 
-  const { showFirmwareVerifyDialog } = useFirmwareVerifyDialog();
+  const { showFirmwareVerifyDialog, isLoading: isFirmwareVerifyDialogLoading } =
+    useFirmwareVerifyDialog();
   const onPressAuthRequest = useCallback(async () => {
     if (!result?.device) {
       return;
@@ -97,6 +120,7 @@ function DeviceDetailsModal() {
       onContinue: async ({ checked }) => {
         console.log(checked);
       },
+      onClose: async () => {},
     });
   }, [result?.device, showFirmwareVerifyDialog]);
 
@@ -107,10 +131,19 @@ function DeviceDetailsModal() {
     });
   }, [result?.device?.connectId, actions]);
 
+  const onPressTroubleshooting = useCallback(() => {
+    navigation.push(EModalDeviceManagementRoutes.HardwareTroubleshootingModal, {
+      walletWithDevice: result,
+    });
+  }, [navigation, result]);
+
   // Advance Section
-  const inputPinOnSoftwareSupport = ['classic', 'mini', 'classic1s'].includes(
-    result?.device?.deviceType || '',
-  );
+  const inputPinOnSoftwareSupport = [
+    EDeviceType.Classic,
+    EDeviceType.Mini,
+    EDeviceType.Classic1s,
+    EDeviceType.ClassicPure,
+  ].includes((result?.device?.deviceType || '') as EDeviceType);
 
   const onPassphraseEnabledChange = useCallback(
     async (value: boolean) => {
@@ -120,11 +153,17 @@ function DeviceDetailsModal() {
           passphraseEnabled: value,
         });
         setPassphraseEnabled(value);
+        setAccountSelectorStatus(
+          (prev): IAccountSelectorStatusAtom => ({
+            ...prev,
+            passphraseProtectionChangedAt: Date.now(),
+          }),
+        );
       } catch (error) {
         console.error(error);
       }
     },
-    [result?.wallet.id],
+    [result?.wallet.id, setAccountSelectorStatus],
   );
 
   const onPinOnAppEnabledChange = useCallback(
@@ -142,6 +181,58 @@ function DeviceDetailsModal() {
     },
     [result?.wallet.id],
   );
+
+  const [detectStatus] = useFirmwareUpdatesDetectStatusPersistAtom();
+  const { result: detectResult } = usePromiseResult(async () => {
+    if (!result?.device?.connectId) return undefined;
+
+    const detectInfo = detectStatus?.[result.device.connectId];
+    const shouldUpdate =
+      detectInfo?.connectId === result.device.connectId &&
+      detectInfo?.hasUpgrade;
+
+    return {
+      shouldUpdate,
+      detectInfo,
+    };
+  }, [result?.device?.connectId, detectStatus]);
+
+  const renderUpdateAlert = useCallback(() => {
+    if (isQrWallet) return null;
+    if (!detectResult?.shouldUpdate) return null;
+
+    let message = 'New firmware is available';
+    if (detectResult?.detectInfo?.toVersion) {
+      message = intl.formatMessage(
+        { id: ETranslations.update_firmware_version_available },
+        {
+          version: detectResult.detectInfo.toVersion,
+        },
+      );
+    } else if (detectResult?.detectInfo?.toVersionBle) {
+      message = intl.formatMessage(
+        { id: ETranslations.update_bluetooth_version_available },
+        {
+          version: detectResult.detectInfo.toVersionBle,
+        },
+      );
+    }
+
+    return (
+      <FirmwareUpdateReminderAlert
+        containerProps={{
+          py: '$3.5',
+          borderTopWidth: 0,
+          borderBottomWidth: 0,
+          borderRadius: '$3',
+        }}
+        message={message}
+        onPress={() => {
+          actions.openChangeLogModal({ connectId: result?.device?.connectId });
+        }}
+      />
+    );
+  }, [intl, actions, result?.device?.connectId, detectResult, isQrWallet]);
 
   const renderContent = useCallback(() => {
     if (isLoading || !result) {
@@ -184,11 +275,14 @@ function DeviceDetailsModal() {
         <YStack px="$5" py="$3" gap={isQrWallet ? '$5' : '$3'} bg="$bgApp">
           {result ? (
             <>
+              {renderUpdateAlert()}
               <DeviceBasicInfoSection
                 data={result}
                 onPressHomescreen={onPressHomescreen}
                 onPressAuthRequest={onPressAuthRequest}
+                authRequestLoading={isFirmwareVerifyDialogLoading}
                 onPressCheckForUpdates={onPressCheckForUpdates}
+                onPressTroubleshooting={onPressTroubleshooting}
               />
               {renderContent()}
             </>
@@ -196,6 +290,17 @@ function DeviceDetailsModal() {
         </YStack>
       </Page.Body>
     </Page>
+  );
+}
+
+function DeviceDetailsModal() {
+  return (
+    <AccountSelectorProviderMirror
+      config={{ sceneName: EAccountSelectorSceneName.home }}
+      enabledNum={[0]}
+    >
+      <DeviceDetailsModalCmp />
+    </AccountSelectorProviderMirror>
   );
 }
 

@@ -8,7 +8,11 @@ import { normalizeErrorProps } from '../utils/errorUtils';
 
 import { OneKeyError } from './baseErrors';
 
-import type { IOneKeyError } from '../types/errorTypes';
+import type {
+  IOneKeyError,
+  IOneKeyErrorI18nInfo,
+  IOneKeyJsError,
+} from '../types/errorTypes';
 
 const map = {
   hello: 'world',
@@ -19,7 +23,16 @@ type ILocaleKeyInfoMap = typeof map;
 // Generic errors.
 export class NotAutoPrintError extends Error {}
 
-export class IncorrectPassword extends OneKeyError {
+export class OneKeyAppError<
+  I18nInfoT = IOneKeyErrorI18nInfo | any,
+  DataT = IOneKeyJsError | any,
+> extends OneKeyError<I18nInfoT, DataT> {
+  override className = EOneKeyErrorClassNames.OneKeyAppError;
+
+  override name = EOneKeyErrorClassNames.OneKeyAppError;
+}
+
+export class IncorrectPassword extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -28,9 +41,68 @@ export class IncorrectPassword extends OneKeyError {
       }),
     );
   }
+
+  override className = EOneKeyErrorClassNames.IncorrectPassword;
 }
 
-export class NotImplemented extends OneKeyError {
+export class IncorrectMasterPassword extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        defaultMessage: 'OneKeyError: IncorrectMasterPassword',
+        defaultKey: ETranslations.prime_incorrect_password,
+      }),
+    );
+  }
+
+  override className = EOneKeyErrorClassNames.IncorrectMasterPassword;
+}
+
+export class LocalDBRecordNotFoundError extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        defaultMessage: 'LocalDBRecordNotFoundError',
+        // defaultKey: ETranslations.local_db_record_not_found,
+      }),
+    );
+  }
+
+  override className = EOneKeyErrorClassNames.LocalDBRecordNotFoundError;
+}
+
+export class TransferInvalidCodeError extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        defaultMessage: 'TransferInvalidCodeError',
+        defaultKey: ETranslations.transfer_invalid_code,
+      }),
+    );
+  }
+}
+
+export class RequestLimitExceededError extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        defaultMessage: 'RequestLimitExceededError',
+        defaultKey: ETranslations.global_request_limit,
+      }),
+    );
+  }
+}
+
+export class SystemDiskFullError extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        defaultMessage: 'System Disk is full',
+      }),
+    );
+  }
+}
+export class NotImplemented extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -40,10 +112,12 @@ export class NotImplemented extends OneKeyError {
     );
   }
 
+  override name = EOneKeyErrorClassNames.OneKeyErrorNotImplemented;
+
   override className = EOneKeyErrorClassNames.OneKeyErrorNotImplemented;
 }
 
-export class OneKeyErrorAirGapStandardWalletRequiredWhenCreateHiddenWallet extends OneKeyError {
+export class OneKeyErrorAirGapStandardWalletRequiredWhenCreateHiddenWallet extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -53,11 +127,14 @@ export class OneKeyErrorAirGapStandardWalletRequiredWhenCreateHiddenWallet exten
     );
   }
 
+  override name =
+    EOneKeyErrorClassNames.OneKeyErrorAirGapStandardWalletRequiredWhenCreateHiddenWallet;
+
   override className =
     EOneKeyErrorClassNames.OneKeyErrorAirGapStandardWalletRequiredWhenCreateHiddenWallet;
 }
 
-export class OneKeyErrorAirGapAccountNotFound extends OneKeyError {
+export class OneKeyErrorAirGapAccountNotFound extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -66,10 +143,12 @@ export class OneKeyErrorAirGapAccountNotFound extends OneKeyError {
     );
   }
 
+  override name = EOneKeyErrorClassNames.OneKeyErrorAirGapAccountNotFound;
+
   override className = EOneKeyErrorClassNames.OneKeyErrorAirGapAccountNotFound;
 }
 
-export class OneKeyErrorAirGapWalletMismatch extends OneKeyError {
+export class OneKeyErrorAirGapWalletMismatch extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -82,7 +161,7 @@ export class OneKeyErrorAirGapWalletMismatch extends OneKeyError {
   override autoToast?: boolean | undefined = true;
 }
 
-export class OneKeyErrorAirGapInvalidQrCode extends OneKeyError {
+export class OneKeyErrorAirGapInvalidQrCode extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -93,7 +172,7 @@ export class OneKeyErrorAirGapInvalidQrCode extends OneKeyError {
   }
 }
 
-export class OneKeyErrorScanQrCodeCancel extends OneKeyError {
+export class OneKeyErrorScanQrCodeCancel extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -104,20 +183,37 @@ export class OneKeyErrorScanQrCodeCancel extends OneKeyError {
   }
 
   override className = EOneKeyErrorClassNames.OneKeyErrorScanQrCodeCancel;
+
+  override name = EOneKeyErrorClassNames.OneKeyErrorScanQrCodeCancel;
 }
 
-export class OneKeyErrorPrimeLoginInvalidToken extends OneKeyError {
+export class OneKeyErrorPrimeLoginInvalidToken extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
-        defaultMessage: 'Prime login invalid, please login again',
+        defaultMessage: 'OneKeyID login invalid, please login again',
         defaultAutoToast: true,
+        defaultKey: ETranslations.id_login_expired_description,
       }),
     );
   }
 }
 
-export class OneKeyErrorPrimeLoginExceedDeviceLimit extends OneKeyError {
+export class OneKeyErrorPrimeMasterPasswordInvalid extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        defaultMessage: 'Prime master password invalid',
+        defaultAutoToast: true,
+      }),
+    );
+  }
+
+  override className =
+    EOneKeyErrorClassNames.OneKeyErrorPrimeMasterPasswordInvalid;
+}
+
+export class OneKeyErrorPrimeLoginExceedDeviceLimit extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -128,7 +224,19 @@ export class OneKeyErrorPrimeLoginExceedDeviceLimit extends OneKeyError {
   }
 }
 
-export class OneKeyInternalError extends OneKeyError {
+export class OneKeyErrorPrimePaidMembershipRequired extends OneKeyAppError {
+  constructor(props?: IOneKeyError | string) {
+    super(
+      normalizeErrorProps(props, {
+        // Prime subscription is not active
+        defaultMessage: 'Prime Paid membership required',
+        defaultAutoToast: true,
+      }),
+    );
+  }
+}
+
+export class OneKeyInternalError extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -139,7 +247,7 @@ export class OneKeyInternalError extends OneKeyError {
   }
 }
 
-export class VaultKeyringNotDefinedError extends OneKeyError {
+export class VaultKeyringNotDefinedError extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -149,9 +257,11 @@ export class VaultKeyringNotDefinedError extends OneKeyError {
   }
 
   override className = EOneKeyErrorClassNames.VaultKeyringNotDefinedError;
+
+  override name = EOneKeyErrorClassNames.VaultKeyringNotDefinedError;
 }
 
-export class PasswordPromptDialogCancel extends OneKeyError {
+export class PasswordPromptDialogCancel extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -162,9 +272,11 @@ export class PasswordPromptDialogCancel extends OneKeyError {
   }
 
   override className = EOneKeyErrorClassNames.PasswordPromptDialogCancel;
+
+  override name = EOneKeyErrorClassNames.PasswordPromptDialogCancel;
 }
 
-export class PrimeLoginDialogCancelError extends OneKeyError {
+export class PrimeLoginDialogCancelError extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -175,9 +287,11 @@ export class PrimeLoginDialogCancelError extends OneKeyError {
   }
 
   override className = EOneKeyErrorClassNames.PrimeLoginDialogCancelError;
+
+  override name = EOneKeyErrorClassNames.PrimeLoginDialogCancelError;
 }
 
-export class FailedToTransfer extends OneKeyError {
+export class FailedToTransfer extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -188,7 +302,7 @@ export class FailedToTransfer extends OneKeyError {
   }
 }
 
-export class RenameDuplicateNameError extends OneKeyError {
+export class RenameDuplicateNameError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -199,7 +313,7 @@ export class RenameDuplicateNameError extends OneKeyError {
   }
 }
 
-export class WrongPassword extends OneKeyError {
+export class WrongPassword extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -211,7 +325,7 @@ export class WrongPassword extends OneKeyError {
   }
 }
 
-export class SecureQRCodeDialogCancel extends OneKeyError {
+export class SecureQRCodeDialogCancel extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -226,7 +340,7 @@ export class SecureQRCodeDialogCancel extends OneKeyError {
     EOneKeyErrorClassNames.SecureQRCodeDialogCancel;
 }
 
-export class PreCheckBeforeSendingCancelError extends OneKeyError {
+export class PreCheckBeforeSendingCancelError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -238,7 +352,7 @@ export class PreCheckBeforeSendingCancelError extends OneKeyError {
   }
 }
 
-export class PasswordNotSet extends OneKeyError {
+export class PasswordNotSet extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -250,7 +364,7 @@ export class PasswordNotSet extends OneKeyError {
   }
 }
 
-export class PasswordStrengthValidationFailed extends OneKeyError {
+export class PasswordStrengthValidationFailed extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -261,7 +375,7 @@ export class PasswordStrengthValidationFailed extends OneKeyError {
   }
 }
 
-export class PasswordUpdateSameFailed extends OneKeyError {
+export class PasswordUpdateSameFailed extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -272,7 +386,7 @@ export class PasswordUpdateSameFailed extends OneKeyError {
   }
 }
 
-export class BiologyAuthFailed extends OneKeyError {
+export class BiologyAuthFailed extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -283,7 +397,7 @@ export class BiologyAuthFailed extends OneKeyError {
   }
 }
 
-export class PasswordAlreadySetFailed extends OneKeyError {
+export class PasswordAlreadySetFailed extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -296,7 +410,7 @@ export class PasswordAlreadySetFailed extends OneKeyError {
 
 // Simple input errors.
 
-export class InvalidMnemonic extends OneKeyError {
+export class InvalidMnemonic extends OneKeyAppError {
   // give the default constructor to ensure unittest expect.toThrow() checking passed
   constructor(props?: IOneKeyError) {
     super(
@@ -313,7 +427,7 @@ export type IMinimumBalanceRequiredInfo = {
   token: string;
   amount: string;
 };
-export class MinimumBalanceRequired extends OneKeyError<IMinimumBalanceRequiredInfo> {
+export class MinimumBalanceRequired extends OneKeyAppError<IMinimumBalanceRequiredInfo> {
   constructor(props?: IOneKeyError<IMinimumBalanceRequiredInfo>) {
     super(
       normalizeErrorProps(props, {
@@ -324,7 +438,7 @@ export class MinimumBalanceRequired extends OneKeyError<IMinimumBalanceRequiredI
   }
 }
 
-export class InvalidAddress extends OneKeyError {
+export class InvalidAddress extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -335,7 +449,7 @@ export class InvalidAddress extends OneKeyError {
   }
 }
 
-export class FirmwareUpdateExit extends OneKeyError {
+export class FirmwareUpdateExit extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -345,9 +459,11 @@ export class FirmwareUpdateExit extends OneKeyError {
   }
 
   override className = EOneKeyErrorClassNames.FirmwareUpdateExit;
+
+  override name = EOneKeyErrorClassNames.FirmwareUpdateExit;
 }
 
-export class FirmwareUpdateTasksClear extends OneKeyError {
+export class FirmwareUpdateTasksClear extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -357,9 +473,11 @@ export class FirmwareUpdateTasksClear extends OneKeyError {
   }
 
   override className = EOneKeyErrorClassNames.FirmwareUpdateTasksClear;
+
+  override name = EOneKeyErrorClassNames.FirmwareUpdateTasksClear;
 }
 
-export class InvalidAccount extends OneKeyError {
+export class InvalidAccount extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -374,7 +492,7 @@ export type INetworkFeeInsufficientInfo = {
   symbol: string;
 };
 
-export class NetworkFeeInsufficient extends OneKeyError<INetworkFeeInsufficientInfo> {
+export class NetworkFeeInsufficient extends OneKeyAppError<INetworkFeeInsufficientInfo> {
   constructor(props?: IOneKeyError<INetworkFeeInsufficientInfo>) {
     super(
       normalizeErrorProps(
@@ -394,7 +512,7 @@ export class NetworkFeeInsufficient extends OneKeyError<INetworkFeeInsufficientI
   }
 }
 
-export class InvalidTokenAddress extends OneKeyError {
+export class InvalidTokenAddress extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -409,7 +527,7 @@ export type IInvalidTransferValueInfo = {
   amount: string;
   unit: string;
 };
-export class InvalidTransferValue extends OneKeyError<IInvalidTransferValueInfo> {
+export class InvalidTransferValue extends OneKeyAppError<IInvalidTransferValueInfo> {
   constructor(props?: IOneKeyError<IInvalidTransferValueInfo> | string) {
     super(
       normalizeErrorProps(props, {
@@ -424,7 +542,7 @@ export type IBalanceLowerMinimumInfo = {
   amount: string;
   symbol: string;
 };
-export class BalanceLowerMinimum extends OneKeyError<IBalanceLowerMinimumInfo> {
+export class BalanceLowerMinimum extends OneKeyAppError<IBalanceLowerMinimumInfo> {
   constructor(props?: IOneKeyError<IBalanceLowerMinimumInfo> | string) {
     super(
       normalizeErrorProps(props, {
@@ -435,7 +553,7 @@ export class BalanceLowerMinimum extends OneKeyError<IBalanceLowerMinimumInfo> {
   }
 }
 
-export class TransferValueTooSmall extends OneKeyError {
+export class TransferValueTooSmall extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -452,7 +570,7 @@ export type IInsufficientBalanceInfo = {
   symbol: string;
 };
 
-export class InsufficientBalance extends OneKeyError<IInsufficientBalanceInfo> {
+export class InsufficientBalance extends OneKeyAppError<IInsufficientBalanceInfo> {
   override className =
     EOneKeyErrorClassNames.OneKeyErrorInsufficientNativeBalance;
 
@@ -481,7 +599,7 @@ export type IStringLengthRequirementInfo = {
 };
 export class StringLengthRequirement<
   T = IStringLengthRequirementInfo,
-> extends OneKeyError<T> {
+> extends OneKeyAppError<T> {
   constructor(props: IOneKeyError<T>) {
     super(
       normalizeErrorProps(props, {
@@ -507,7 +625,7 @@ export type IAccountNameLengthErrorInfo = {
   minLength: number;
   maxLength: number;
 };
-export class AccountNameLengthError extends OneKeyError<IAccountNameLengthErrorInfo> {
+export class AccountNameLengthError extends OneKeyAppError<IAccountNameLengthErrorInfo> {
   constructor(props?: IOneKeyError<IAccountNameLengthErrorInfo>) {
     super(
       normalizeErrorProps(props, {
@@ -518,18 +636,18 @@ export class AccountNameLengthError extends OneKeyError<IAccountNameLengthErrorI
   }
 }
 
-export class WatchedAccountTradeError extends OneKeyError {
+export class WatchedAccountTradeError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
         defaultMessage: 'WatchedAccountTradeError',
-        defaultKey: ETranslations.wallet_error_trade_with_watched_acocunt,
+        defaultKey: ETranslations.wallet_error_trade_with_watched_account,
       }),
     );
   }
 }
 
-export class AccountAlreadyExists extends OneKeyError {
+export class AccountAlreadyExists extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -543,7 +661,7 @@ export class AccountAlreadyExists extends OneKeyError {
 export type INumberLimitInfo = {
   limit: string | number;
 };
-export class NumberLimit<T = INumberLimitInfo> extends OneKeyError<T> {
+export class NumberLimit<T = INumberLimitInfo> extends OneKeyAppError<T> {
   constructor({
     limit,
     key,
@@ -582,7 +700,7 @@ export class TooManyWatchingAccounts extends NumberLimit {
 export class TooManyExternalAccounts extends NumberLimit {
   constructor(
     limit: number,
-    key: ETranslations = ETranslations.wallet_engine_ttoo_many_external_accounts,
+    key: ETranslations = ETranslations.wallet_engine_too_many_external_accounts,
   ) {
     super({ limit, key, defaultMessage: 'TooManyExternalAccounts' });
   }
@@ -638,7 +756,7 @@ export type ITooManyDerivedAccountsInfo = {
   coinType: string;
   purpose: string;
 };
-export class TooManyDerivedAccounts extends OneKeyError<ITooManyDerivedAccountsInfo> {
+export class TooManyDerivedAccounts extends OneKeyAppError<ITooManyDerivedAccountsInfo> {
   constructor(props?: IOneKeyError<ITooManyDerivedAccountsInfo>) {
     super(
       normalizeErrorProps(props, {
@@ -649,7 +767,7 @@ export class TooManyDerivedAccounts extends OneKeyError<ITooManyDerivedAccountsI
   }
 }
 
-export class OneKeyWalletConnectModalCloseError extends OneKeyError {
+export class OneKeyWalletConnectModalCloseError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -660,7 +778,7 @@ export class OneKeyWalletConnectModalCloseError extends OneKeyError {
   }
 }
 
-export class FailedToEstimatedGasError extends OneKeyError {
+export class FailedToEstimatedGasError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -671,7 +789,7 @@ export class FailedToEstimatedGasError extends OneKeyError {
   }
 }
 
-export class InvalidLightningPaymentRequest extends OneKeyError {
+export class InvalidLightningPaymentRequest extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -682,7 +800,7 @@ export class InvalidLightningPaymentRequest extends OneKeyError {
   }
 }
 
-export class InvoiceAlreadyPaid extends OneKeyError {
+export class InvoiceAlreadyPaid extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -693,7 +811,7 @@ export class InvoiceAlreadyPaid extends OneKeyError {
   }
 }
 
-export class NoRouteFoundError extends OneKeyError {
+export class NoRouteFoundError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -704,7 +822,7 @@ export class NoRouteFoundError extends OneKeyError {
   }
 }
 
-export class ChannelInsufficientLiquidityError extends OneKeyError {
+export class ChannelInsufficientLiquidityError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -716,7 +834,7 @@ export class ChannelInsufficientLiquidityError extends OneKeyError {
   }
 }
 
-export class BadAuthError extends OneKeyError {
+export class BadAuthError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -727,7 +845,7 @@ export class BadAuthError extends OneKeyError {
   }
 }
 
-export class InvoiceExpiredError extends OneKeyError {
+export class InvoiceExpiredError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -738,7 +856,7 @@ export class InvoiceExpiredError extends OneKeyError {
   }
 }
 
-export class TaprootAddressError extends OneKeyError {
+export class TaprootAddressError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -750,7 +868,7 @@ export class TaprootAddressError extends OneKeyError {
   }
 }
 
-export class UtxoNotFoundError extends OneKeyError {
+export class UtxoNotFoundError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -761,7 +879,7 @@ export class UtxoNotFoundError extends OneKeyError {
   }
 }
 
-export class AllNetworksMinAccountsError extends OneKeyError {
+export class AllNetworksMinAccountsError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -773,7 +891,7 @@ export class AllNetworksMinAccountsError extends OneKeyError {
   }
 }
 
-export class AllNetworksUpToThreeLimitsError extends OneKeyError {
+export class AllNetworksUpToThreeLimitsError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -789,7 +907,7 @@ export type IInsufficientGasFeeInfo = {
   token: string;
   amount: string;
 };
-export class InsufficientGasFee extends OneKeyError<IInsufficientGasFeeInfo> {
+export class InsufficientGasFee extends OneKeyAppError<IInsufficientGasFeeInfo> {
   constructor(props: IOneKeyError<IInsufficientGasFeeInfo>) {
     super(
       normalizeErrorProps(props, {
@@ -804,13 +922,13 @@ export type IMinimumTransferBalanceRequiredErrorInfo = {
   amount: string;
   symbol: string;
 };
-export class MinimumTransferBalanceRequiredError extends OneKeyError<IMinimumTransferBalanceRequiredErrorInfo> {
+export class MinimumTransferBalanceRequiredError extends OneKeyAppError<IMinimumTransferBalanceRequiredErrorInfo> {
   constructor(props: IOneKeyError<IMinimumTransferBalanceRequiredErrorInfo>) {
     super(
       normalizeErrorProps(props, {
         defaultMessage: 'MinimumTransferBalanceRequiredError',
         defaultKey:
-          ETranslations.send_the_minimum_value_for_transffering_to_a_new_account_is_str_str,
+          ETranslations.send_the_minimum_value_for_transferring_to_a_new_account_is_str_str,
       }),
     );
   }
@@ -822,7 +940,7 @@ export type IMinimumTransferBalanceRequiredForSendingAssetErrorInfo = {
   symbol: string;
 };
 
-export class MinimumTransferBalanceRequiredForSendingAssetError extends OneKeyError<IMinimumTransferBalanceRequiredForSendingAssetErrorInfo> {
+export class MinimumTransferBalanceRequiredForSendingAssetError extends OneKeyAppError<IMinimumTransferBalanceRequiredForSendingAssetErrorInfo> {
   constructor(
     props: IOneKeyError<IMinimumTransferBalanceRequiredForSendingAssetErrorInfo>,
   ) {
@@ -850,7 +968,7 @@ export type IMinimumTransferAmountErrorInfo = {
   amount: string;
 };
 
-export class MinimumTransferAmountError extends OneKeyError<IMinimumTransferAmountErrorInfo> {
+export class MinimumTransferAmountError extends OneKeyAppError<IMinimumTransferAmountErrorInfo> {
   constructor(props: IOneKeyError<IMinimumTransferAmountErrorInfo>) {
     super(
       normalizeErrorProps(
@@ -873,7 +991,7 @@ export type IChangeLessThanMinInputCapacityError = {
   amount: string;
 };
 
-export class AddressNotSupportSignMethodError extends OneKeyError {
+export class AddressNotSupportSignMethodError extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -885,7 +1003,7 @@ export class AddressNotSupportSignMethodError extends OneKeyError {
   }
 }
 
-export class LowerTransactionAmountError extends OneKeyError {
+export class LowerTransactionAmountError extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -896,7 +1014,7 @@ export class LowerTransactionAmountError extends OneKeyError {
   }
 }
 
-export class Expect24WordsMnemonicError extends OneKeyError {
+export class Expect24WordsMnemonicError extends OneKeyAppError {
   constructor(props?: IOneKeyError | string) {
     super(
       normalizeErrorProps(props, {
@@ -912,7 +1030,7 @@ export type IRemainingMinBalanceErrorInfo = {
   miniAmount: string;
 };
 
-export class RemainingMinBalanceError extends OneKeyError<IRemainingMinBalanceErrorInfo> {
+export class RemainingMinBalanceError extends OneKeyAppError<IRemainingMinBalanceErrorInfo> {
   constructor(props?: IOneKeyError<IRemainingMinBalanceErrorInfo>) {
     super(
       normalizeErrorProps(props, {
@@ -923,7 +1041,7 @@ export class RemainingMinBalanceError extends OneKeyError<IRemainingMinBalanceEr
   }
 }
 
-export class ConvertTxError extends OneKeyError {
+export class ConvertTxError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -934,7 +1052,7 @@ export class ConvertTxError extends OneKeyError {
   }
 }
 
-export class CanNotSendZeroAmountError extends OneKeyError {
+export class CanNotSendZeroAmountError extends OneKeyAppError {
   constructor(props?: IOneKeyError) {
     super(
       normalizeErrorProps(props, {
@@ -948,7 +1066,7 @@ export class CanNotSendZeroAmountError extends OneKeyError {
 export type IManageTokenInsufficientBalanceErrorInfo = {
   token: string;
 };
-export class ManageTokenInsufficientBalanceError extends OneKeyError<IManageTokenInsufficientBalanceErrorInfo> {
+export class ManageTokenInsufficientBalanceError extends OneKeyAppError<IManageTokenInsufficientBalanceErrorInfo> {
   constructor(props?: IOneKeyError<IManageTokenInsufficientBalanceErrorInfo>) {
     super(
       normalizeErrorProps(props, {

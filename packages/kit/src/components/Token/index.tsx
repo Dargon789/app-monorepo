@@ -3,13 +3,31 @@
   A component for render token (and NFT) images. It has a fallback icon when the image is not available. Typically used in list, card, or any other components that display small token images.
 */
 
+import { useMemo } from 'react';
+
+import { useIntl } from 'react-intl';
+
 import type {
   IImageProps,
   IKeyOfIcons,
+  ISizableTextProps,
+  IXStackProps,
   SizeTokens,
 } from '@onekeyhq/components';
-import { Icon, Image, Skeleton, Stack } from '@onekeyhq/components';
+import {
+  Badge,
+  Icon,
+  Image,
+  SizableText,
+  Skeleton,
+  Stack,
+  Tooltip,
+  XStack,
+} from '@onekeyhq/components';
+import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
+import { useAccountData } from '../../hooks/useAccountData';
 import { NetworkAvatar, NetworkAvatarBase } from '../NetworkAvatar';
 
 import type { ImageURISource } from 'react-native';
@@ -61,36 +79,38 @@ export function Token({
   if (fallbackIcon) {
     fallbackIconName = fallbackIcon;
   }
-
+  const borderRadius = useMemo(() => {
+    if (isNFT) {
+      return '$2';
+    }
+    return '$full';
+  }, [isNFT]);
   const tokenImage = (
     <Image
-      width={tokenImageSize}
-      height={tokenImageSize}
-      borderRadius={isNFT ? '$2' : '$full'}
+      size={tokenImageSize}
+      borderRadius={borderRadius}
+      source={tokenImageUri ? { uri: tokenImageUri } : undefined}
+      fallback={
+        <Stack
+          bg="$gray5"
+          ai="center"
+          jc="center"
+          borderRadius={borderRadius}
+          w={tokenImageSize}
+          h={tokenImageSize}
+        >
+          <Icon
+            size={fallbackIconSize}
+            name={fallbackIconName}
+            color="$iconSubdued"
+          />
+        </Stack>
+      }
+      skeleton={
+        <Skeleton w={tokenImageSize} h={tokenImageSize} radius="round" />
+      }
       {...rest}
-    >
-      <Image.Source
-        bg="$gray5"
-        source={{
-          uri: tokenImageUri,
-        }}
-      />
-      <Image.Fallback
-        alignItems="center"
-        justifyContent="center"
-        bg="$gray5"
-        delayMs={1000}
-      >
-        <Icon
-          size={fallbackIconSize}
-          name={fallbackIconName}
-          color="$iconSubdued"
-        />
-      </Image.Fallback>
-      <Image.Loading>
-        <Skeleton width="100%" height="100%" radius="round" />
-      </Image.Loading>
-    </Image>
+    />
   );
 
   if (networkImageUri) {
@@ -130,4 +150,51 @@ export function Token({
   }
 
   return tokenImage;
+}
+
+export function TokenName({
+  name,
+  isNative,
+  isAllNetworks,
+  withNetwork,
+  networkId,
+  textProps,
+  ...rest
+}: {
+  name: string;
+  isNative?: boolean;
+  isAllNetworks?: boolean;
+  withNetwork?: boolean;
+  networkId: string | undefined;
+  textProps?: ISizableTextProps;
+} & IXStackProps) {
+  const { network } = useAccountData({ networkId });
+  const intl = useIntl();
+  return (
+    <XStack alignItems="center" gap="$1" {...rest}>
+      <SizableText minWidth={0} numberOfLines={1} {...textProps}>
+        {name}
+      </SizableText>
+      {withNetwork && network ? (
+        <Badge flexShrink={1}>
+          <Badge.Text numberOfLines={1}>{network.name}</Badge.Text>
+        </Badge>
+      ) : null}
+      {isNative && !isAllNetworks ? (
+        <Tooltip
+          renderContent={intl.formatMessage({
+            id: ETranslations.native_token_tooltip,
+          })}
+          renderTrigger={
+            <Icon
+              flexShrink={0}
+              name="GasSolid"
+              color="$iconSubdued"
+              size="$5"
+            />
+          }
+        />
+      ) : null}
+    </XStack>
+  );
 }

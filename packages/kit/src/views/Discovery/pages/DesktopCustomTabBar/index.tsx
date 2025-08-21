@@ -66,9 +66,10 @@ function DesktopCustomTabBar() {
     setPinnedTab,
     closeAllWebTabs,
     setTabsByIds,
+    addBrowserHomeTab,
     reOpenLastClosedTab,
   } = useBrowserTabActions().current;
-  const { addBrowserBookmark, removeBrowserBookmark } =
+  const { addOrUpdateBrowserBookmark, removeBrowserBookmark } =
     useBrowserBookmarkAction().current;
 
   const { result, setResult, run } = usePromiseResult(async () => {
@@ -108,12 +109,17 @@ function DesktopCustomTabBar() {
   const handleBookmarkPress = useCallback(
     (bookmark: boolean, url: string, title: string) => {
       if (bookmark) {
-        void addBrowserBookmark({ url, title });
+        void addOrUpdateBrowserBookmark({
+          url,
+          title,
+          logo: undefined,
+          sortIndex: undefined,
+        });
       } else {
         void removeBrowserBookmark(url);
       }
     },
-    [addBrowserBookmark, removeBrowserBookmark],
+    [addOrUpdateBrowserBookmark, removeBrowserBookmark],
   );
 
   const handleDisconnect = useCallback(
@@ -175,8 +181,6 @@ function DesktopCustomTabBar() {
   const handleShortcuts = useCallback(
     (eventName: EShortcutEvents) => {
       switch (eventName) {
-        case EShortcutEvents.TabPin6:
-        case EShortcutEvents.TabPin7:
         case EShortcutEvents.TabPin8:
         case EShortcutEvents.TabPin9:
           if (result?.pinnedTabs?.length) {
@@ -306,7 +310,6 @@ function DesktopCustomTabBar() {
         renderItem={({
           item: t,
           dragProps,
-          index,
         }: {
           item: IWebTab;
           dragProps?: Record<string, any>;
@@ -376,18 +379,25 @@ function DesktopCustomTabBar() {
                 ) : null}
               </XStack>
               <DesktopTabItem
+                size="small"
                 key="AddTabButton"
                 label={intl.formatMessage({
                   id: ETranslations.explore_new_tab,
                 })}
-                shortcutKey={EShortcutEvents.NewTab}
+                shortcutKey={EShortcutEvents.NewTab2}
                 icon="PlusSmallOutline"
                 testID="browser-bar-add"
                 onPress={(e) => {
                   e.stopPropagation();
-                  navigation.pushModal(EModalRoutes.DiscoveryModal, {
-                    screen: EDiscoveryModalRoutes.SearchModal,
-                  });
+
+                  if (platformEnv.isDesktop) {
+                    addBrowserHomeTab();
+                    navigation.switchTab(ETabRoutes.MultiTabBrowser);
+                  } else {
+                    navigation.pushModal(EModalRoutes.DiscoveryModal, {
+                      screen: EDiscoveryModalRoutes.SearchModal,
+                    });
+                  }
                 }}
               />
             </>

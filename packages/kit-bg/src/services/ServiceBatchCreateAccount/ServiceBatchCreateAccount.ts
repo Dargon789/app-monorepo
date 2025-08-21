@@ -8,6 +8,7 @@ import {
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import { getNetworkIdsMap } from '@onekeyhq/shared/src/config/networkIds';
 import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import type { IOneKeyError } from '@onekeyhq/shared/src/errors/types/errorTypes';
 import { EOneKeyErrorClassNames } from '@onekeyhq/shared/src/errors/types/errorTypes';
 import {
@@ -27,6 +28,7 @@ import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { IBatchCreateAccount } from '@onekeyhq/shared/types/account';
+import { EHardwareCallContext } from '@onekeyhq/shared/types/device';
 
 import localDb from '../../dbs/local/localDb';
 import { vaultFactory } from '../../vaults/factory';
@@ -53,6 +55,8 @@ export type IBatchBuildAccountsBaseParams = {
   networkId: string;
   deriveType: IAccountDeriveTypes;
   showUIProgress?: boolean;
+  createAllDeriveTypes?: boolean;
+  errorMessage?: string;
 } & IWithHardwareProcessingControlParams;
 export type IBatchBuildAccountsParams = IBatchBuildAccountsBaseParams & {
   indexes: number[];
@@ -71,6 +75,7 @@ export type IBatchBuildAccountsNormalFlowParams =
   IBatchBuildAccountsBaseParams & {
     indexes: number[];
     saveToDb: boolean;
+    progressTotalCount?: number;
   };
 
 type IAdvancedModeFlowParamsBase = {
@@ -80,13 +85,16 @@ type IAdvancedModeFlowParamsBase = {
     [index: number]: true;
   };
   saveToDb: boolean;
+  progressTotalCount?: number;
 };
 export type IBatchBuildAccountsAdvancedFlowParams =
   IBatchBuildAccountsBaseParams & IAdvancedModeFlowParamsBase;
 export type IBatchBuildAccountsAdvancedFlowForAllNetworkParams = {
+  includingDefaultNetworks?: boolean;
   walletId: string;
   customNetworks?: { networkId: string; deriveType: IAccountDeriveTypes }[];
   autoHandleExitError?: boolean;
+  showUIProgress?: boolean;
 } & IAdvancedModeFlowParamsBase &
   IWithHardwareProcessingControlParams;
 
@@ -177,22 +185,47 @@ class ServiceBatchCreateAccount extends ServiceBase {
       indexes = payload.params.indexes;
     }
 
-    const deviceParams =
-      await this.backgroundApi.serviceAccount.getWalletDeviceParams({
+    const [deviceParams, vaultSettings] = await Promise.all([
+      this.backgroundApi.serviceAccount.getWalletDeviceParams({
         walletId: payload.params.walletId,
-      });
+        hardwareCallContext: EHardwareCallContext.USER_INTERACTION,
+      }),
+      this.backgroundApi.serviceNetwork.getVaultSettings({
+        networkId: payload.params.networkId,
+      }),
+    ]);
 
     return this.backgroundApi.serviceHardwareUI.withHardwareProcessing(
       async () => {
+        let customNetworks: {
+          networkId: string;
+          deriveType: IAccountDeriveTypes;
+        }[] = [
+          {
+            networkId: payload.params.networkId,
+            deriveType: payload.params.deriveType,
+          },
+        ];
+        if (
+          payload.params.createAllDeriveTypes &&
+          vaultSettings.mergeDeriveAssetsEnabled
+        ) {
+          const deriveInfoItems =
+            await this.backgroundApi.serviceNetwork.getDeriveInfoItemsOfNetwork(
+              {
+                networkId: payload.params.networkId,
+              },
+            );
+          customNetworks = deriveInfoItems.map((item) => ({
+            networkId: payload.params.networkId,
+            deriveType: item.value as IAccountDeriveTypes,
+          }));
+        }
+
         const networksParams =
           await this.buildBatchCreateAccountsNetworksParams({
             walletId: payload.params.walletId,
-            customNetworks: [
-              {
-                networkId: payload.params.networkId,
-                deriveType: payload.params.deriveType,
-              },
-            ],
+            customNetworks,
           });
         const hwAllNetworkPrepareAccountsResponse =
           await this.getHwAllNetworkPrepareAccountsResponse({
@@ -207,15 +240,44 @@ class ServiceBatchCreateAccount extends ServiceBase {
         this.progressInfo = this.buildProgressInfo({
           indexes,
           excludedIndexes,
+          progressTotalCount: payload.params.progressTotalCount,
         });
-        const result = await this.batchBuildAccounts({
-          ...payload.params,
-          indexes,
-          excludedIndexes,
-          saveToDb: true,
-          saveToCache: payload.saveToCache,
-          hwAllNetworkPrepareAccountsResponse,
-        });
+
+        const result: {
+          accountsForCreate: IBatchCreateAccount[];
+        } = {
+          accountsForCreate: [],
+        };
+
+        for (const networkParams of networksParams) {
+          try {
+            this.checkIfCancelled({
+              saveToDb,
+              showUIProgress: payload.params.showUIProgress,
+              errorMessage: payload.params.errorMessage,
+            });
+            const resp = await this.batchBuildAccounts({
+              ...payload.params,
+              ...networkParams,
+              indexes,
+              excludedIndexes,
+              saveToDb,
+              saveToCache: payload.saveToCache,
+              hwAllNetworkPrepareAccountsResponse,
+            });
+            result.accountsForCreate = result.accountsForCreate.concat(
+              resp.accountsForCreate,
+            );
+          } catch (error: any) {
+            this.forceExitFlowWhenErrorMatched({
+              error,
+              walletId: payload.params.walletId,
+              saveToDb,
+              showUIProgress: payload.params.showUIProgress,
+            });
+          }
+        }
+
         await this.emitBatchCreateDoneEvents({
           saveToDb,
           showUIProgress: payload.params.showUIProgress,
@@ -255,6 +317,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
     const deviceParams =
       await this.backgroundApi.serviceAccount.getWalletDeviceParams({
         walletId,
+        hardwareCallContext: EHardwareCallContext.USER_INTERACTION,
       });
 
     let hwAllNetworkPrepareAccountsResponse:
@@ -410,7 +473,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
       indexedAccountId,
     });
     if (!walletId) {
-      throw new Error('walletId is required');
+      throw new OneKeyLocalError('walletId is required');
     }
     if (
       accountUtils.isHdWallet({
@@ -424,7 +487,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
       })
     ) {
       if (!indexedAccountId) {
-        throw new Error('indexedAccountId is required');
+        throw new OneKeyLocalError('indexedAccountId is required');
       }
 
       const index = accountUtils.parseIndexedAccountId({
@@ -443,7 +506,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
         skipCloseHardwareUiStateDialog,
       });
     }
-    throw new Error('addDefaultNetworkAccounts unknown error');
+    throw new OneKeyLocalError('addDefaultNetworkAccounts unknown error');
   }
 
   async buildBatchCreateAccountsNetworksParams(params: {
@@ -477,7 +540,20 @@ class ServiceBatchCreateAccount extends ServiceBase {
     }
 
     const networksParamsFiltered: IBatchBuildAccountsBaseParams[] = [];
+    const evmNetworksMap: {
+      [implDeriveTypeWalletId: string]: boolean;
+    } = {};
     for (const p of networksParams) {
+      const isEvm = networkUtils.isEvmNetwork({ networkId: p.networkId });
+      if (isEvm) {
+        const impl = networkUtils.getNetworkImpl({ networkId: p.networkId });
+        const mapKey = `${impl}_${p.deriveType}_${p.walletId}`;
+        if (evmNetworksMap[mapKey]) {
+          // eslint-disable-next-line no-continue
+          continue;
+        }
+        evmNetworksMap[mapKey] = true;
+      }
       if (!networkUtils.isAllNetwork({ networkId: p.networkId })) {
         if (accountUtils.isQrWallet({ walletId: params.walletId })) {
           const settings = await getVaultSettings({ networkId: p.networkId });
@@ -526,6 +602,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
       const deviceParams =
         await this.backgroundApi.serviceAccount.getWalletDeviceParams({
           walletId: params.walletId,
+          hardwareCallContext: EHardwareCallContext.USER_INTERACTION,
         });
       await this.backgroundApi.serviceHardwareUI.withHardwareProcessing(
         async () => {
@@ -562,6 +639,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
                     path,
                     template: deriveInfo.template,
                     index: i,
+                    addressEncoding: deriveInfo.addressEncoding,
                   });
                 if (allNetworkPrepareParam) {
                   allNetworkPrepareParam.showOnOneKey =
@@ -572,28 +650,51 @@ class ServiceBatchCreateAccount extends ServiceBase {
             }
           }
           if (bundleParams.length && deviceParams?.dbDevice) {
-            const sdk =
-              await this.backgroundApi.serviceHardware.getSDKInstance();
+            const sdk = await this.backgroundApi.serviceHardware.getSDKInstance(
+              {
+                connectId: deviceParams.dbDevice?.connectId,
+              },
+            );
             hwAllNetworkPrepareAccountsResponse = (await convertDeviceResponse(
               async () => {
                 // throw new NewFirmwareForceUpdate({ payload: {} });
 
-                const sdkAllNetworkGetAddressResponse =
-                  await sdk.allNetworkGetAddress(
-                    deviceParams.dbDevice?.connectId || '',
-                    deviceParams.dbDevice?.deviceId || '',
-                    {
-                      ...deviceParams.deviceCommonParams,
-                      bundle: bundleParams,
-                    },
+                appEventBus.emit(
+                  EAppEventBusNames.SDKGetAllNetworkAddressesStart,
+                  undefined,
+                );
+                try {
+                  const compatibleConnectId =
+                    await this.backgroundApi.serviceHardware.getCompatibleConnectId(
+                      {
+                        connectId: deviceParams.dbDevice?.connectId || '',
+                        featuresDeviceId: deviceParams.dbDevice?.deviceId || '',
+                        hardwareCallContext:
+                          EHardwareCallContext.USER_INTERACTION,
+                      },
+                    );
+                  const sdkAllNetworkGetAddressResponse =
+                    await sdk.allNetworkGetAddress(
+                      compatibleConnectId,
+                      deviceParams.dbDevice?.deviceId || '',
+                      {
+                        ...deviceParams.deviceCommonParams,
+                        bundle: bundleParams,
+                      },
+                    );
+
+                  console.log('sdk.allNetworkGetAddress response', {
+                    bundle: bundleParams,
+                    response: sdkAllNetworkGetAddressResponse,
+                  });
+
+                  return sdkAllNetworkGetAddressResponse;
+                } finally {
+                  appEventBus.emit(
+                    EAppEventBusNames.SDKGetAllNetworkAddressesEnd,
+                    undefined,
                   );
-
-                console.log('sdk.allNetworkGetAddress response', {
-                  bundle: bundleParams,
-                  response: sdkAllNetworkGetAddressResponse,
-                });
-
-                return sdkAllNetworkGetAddressResponse;
+                }
               },
             )) as any; // TODO sdk type error
           }
@@ -617,21 +718,32 @@ class ServiceBatchCreateAccount extends ServiceBase {
   @toastIfError()
   async startBatchCreateAccountsFlowForAllNetwork(
     params: IBatchBuildAccountsAdvancedFlowForAllNetworkParams,
-  ) {
+  ): Promise<{
+    addedAccounts: {
+      networkId: string;
+      deriveType: IAccountDeriveTypes;
+    }[];
+    failedAccounts: {
+      networkId: string;
+      deriveType: IAccountDeriveTypes;
+      error: IOneKeyError;
+    }[];
+  }> {
     this.beforeStartFlow();
 
     const deviceParams =
       await this.backgroundApi.serviceAccount.getWalletDeviceParams({
         walletId: params.walletId,
+        hardwareCallContext: EHardwareCallContext.USER_INTERACTION,
       });
 
     return this.backgroundApi.serviceHardwareUI.withHardwareProcessing(
       async () => {
-        const networksParams =
+        const networksParams: IBatchBuildAccountsBaseParams[] =
           await this.buildBatchCreateAccountsNetworksParams({
             walletId: params.walletId,
             customNetworks: params.customNetworks,
-            includingDefaultNetworks: true,
+            includingDefaultNetworks: params.includingDefaultNetworks ?? true,
           });
 
         const { saveToDb } = params;
@@ -671,11 +783,15 @@ class ServiceBatchCreateAccount extends ServiceBase {
 
         for (const networkParams of networksParams) {
           try {
-            this.checkIfCancelled({ saveToDb });
+            this.checkIfCancelled({
+              saveToDb,
+            });
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { accountsForCreate } = await this.batchBuildAccounts({
               ...params,
               ...networkParams,
+              showUIProgress:
+                params.showUIProgress || networkParams.showUIProgress,
               indexes,
               excludedIndexes,
               saveToDb: true,
@@ -729,22 +845,22 @@ class ServiceBatchCreateAccount extends ServiceBase {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     saveToDb,
     autoHandleExitError,
+    showUIProgress,
   }: {
     walletId: string;
     error: any;
     saveToDb: boolean | undefined;
     autoHandleExitError?: boolean;
+    showUIProgress?: boolean;
   }) {
-    if (saveToDb) {
-      if (this.progressInfo) {
-        appEventBus.emit(EAppEventBusNames.BatchCreateAccount, {
-          totalCount: this.progressInfo.totalCount,
-          createdCount: this.progressInfo.createdCount,
-          progressTotal: this.progressInfo.progressTotal,
-          progressCurrent: this.progressInfo.progressCurrent,
-          error: errorUtils.toPlainErrorObject(error),
-        });
-      }
+    if (this.progressInfo && showUIProgress) {
+      appEventBus.emit(EAppEventBusNames.BatchCreateAccount, {
+        totalCount: this.progressInfo.totalCount,
+        createdCount: this.progressInfo.createdCount,
+        progressTotal: this.progressInfo.progressTotal,
+        progressCurrent: this.progressInfo.progressCurrent,
+        error: errorUtils.toPlainErrorObject(error),
+      });
     }
 
     if (!autoHandleExitError) {
@@ -808,18 +924,18 @@ class ServiceBatchCreateAccount extends ServiceBase {
     showUIProgress?: boolean;
   } = {}) {
     if (saveToDb) {
-      if (this.progressInfo && showUIProgress) {
-        appEventBus.emit(EAppEventBusNames.BatchCreateAccount, {
-          totalCount: this.progressInfo.totalCount,
-          createdCount: this.progressInfo.createdCount,
-          progressTotal: this.progressInfo.progressTotal,
-          progressCurrent: this.progressInfo.progressTotal,
-        });
-        await timerUtils.wait(600);
-      }
       appEventBus.emit(EAppEventBusNames.AccountUpdate, undefined);
       // TODO auto backup execute twice with EAppEventBusNames.AccountUpdate?
       void this.backgroundApi.serviceCloudBackup.requestAutoBackup();
+    }
+    if (this.progressInfo && showUIProgress) {
+      appEventBus.emit(EAppEventBusNames.BatchCreateAccount, {
+        totalCount: this.progressInfo.totalCount,
+        createdCount: this.progressInfo.createdCount,
+        progressTotal: this.progressInfo.progressTotal,
+        progressCurrent: this.progressInfo.progressTotal,
+      });
+      await timerUtils.wait(600);
     }
   }
 
@@ -829,12 +945,21 @@ class ServiceBatchCreateAccount extends ServiceBase {
     this.progressInfo = undefined;
   }
 
-  checkIfCancelled({ saveToDb }: { saveToDb: boolean | undefined }) {
-    if (saveToDb && this.isCreateFlowCancelled) {
-      throw new Error(
-        appLocale.intl.formatMessage({
-          id: ETranslations.global_bulk_accounts_loading_error,
-        }),
+  checkIfCancelled({
+    saveToDb,
+    showUIProgress,
+    errorMessage,
+  }: {
+    saveToDb: boolean | undefined;
+    showUIProgress?: boolean;
+    errorMessage?: string;
+  }) {
+    if ((saveToDb || showUIProgress) && this.isCreateFlowCancelled) {
+      throw new OneKeyLocalError(
+        errorMessage ||
+          appLocale.intl.formatMessage({
+            id: ETranslations.global_bulk_accounts_loading_error,
+          }),
       );
     }
   }
@@ -851,16 +976,16 @@ class ServiceBatchCreateAccount extends ServiceBase {
   }) {
     if (!indexes) {
       if (isNil(fromIndex)) {
-        throw new Error('fromIndex is required');
+        throw new OneKeyLocalError('fromIndex is required');
       }
       if (isNil(toIndex)) {
-        throw new Error('toIndex is required');
+        throw new OneKeyLocalError('toIndex is required');
       }
       // eslint-disable-next-line no-param-reassign
       indexes = range(fromIndex, toIndex + 1);
     }
     if (!indexes || !indexes?.length) {
-      throw new Error('indexes is required');
+      throw new OneKeyLocalError('indexes is required');
     }
     return indexes;
   }
@@ -868,14 +993,17 @@ class ServiceBatchCreateAccount extends ServiceBase {
   buildProgressInfo({
     indexes,
     excludedIndexes,
+    progressTotalCount,
   }: {
     indexes: number[];
     excludedIndexes?: {
       [index: number]: true;
     };
+    progressTotalCount?: number;
   }): IBatchCreateAccountProgressInfo {
     const totalCount = indexes.length;
     const progressTotal =
+      progressTotalCount ??
       totalCount - Object.values(excludedIndexes || {}).filter(Boolean).length;
     const progressCurrent = 0;
     const createdCount = 0;
@@ -899,10 +1027,10 @@ class ServiceBatchCreateAccount extends ServiceBase {
     saveToCache,
     hideCheckingDeviceLoading,
     skipCloseHardwareUiStateDialog,
-    skipDeviceCancel,
     showUIProgress,
     hwAllNetworkPrepareAccountsResponse,
     isVerifyAddressAction,
+    errorMessage,
   }: IBatchBuildAccountsParams): Promise<{
     accountsForCreate: IBatchCreateAccount[];
   }> {
@@ -917,10 +1045,14 @@ class ServiceBatchCreateAccount extends ServiceBase {
       isVerifyAddressAction,
     });
     if (networkUtils.isAllNetwork({ networkId })) {
-      throw new Error('Batch Create Accounts ERROR:  All network not support');
+      throw new OneKeyLocalError(
+        'Batch Create Accounts ERROR:  All network not support',
+      );
     }
     if (!this.progressInfo && saveToDb) {
-      throw new Error('Batch Create Accounts ERROR:  progressInfo is required');
+      throw new OneKeyLocalError(
+        'Batch Create Accounts ERROR:  progressInfo is required',
+      );
     }
 
     const accountsForCreate: IBatchCreateAccount[] = [];
@@ -934,7 +1066,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
       key: string;
       accountForCreate: IBatchCreateAccount;
     }) => {
-      this.checkIfCancelled({ saveToDb });
+      this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
       await this.updateAccountExistsInDb({ account: accountForCreate });
       if (saveToCache) {
         this.networkAccountsCache[key] = accountForCreate;
@@ -942,7 +1074,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
       accountsForCreate.push(accountForCreate);
       if (saveToDb) {
         if (!accountForCreate.existsInDb) {
-          this.checkIfCancelled({ saveToDb });
+          this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
           await this.backgroundApi.serviceAccount.addBatchCreatedHdOrHwAccount({
             walletId,
             networkId,
@@ -952,19 +1084,19 @@ class ServiceBatchCreateAccount extends ServiceBase {
             this.progressInfo.createdCount += 1;
           }
         }
-        if (this.progressInfo) {
-          this.progressInfo.progressCurrent += 1;
-          if (showUIProgress) {
-            appEventBus.emit(EAppEventBusNames.BatchCreateAccount, {
-              totalCount: this.progressInfo.totalCount,
-              createdCount: this.progressInfo.createdCount,
-              progressTotal: this.progressInfo.progressTotal,
-              progressCurrent: this.progressInfo.progressCurrent,
-              networkId,
-              deriveType,
-            });
-            await timerUtils.wait(100); // wait for UI refresh
-          }
+      }
+      if (this.progressInfo) {
+        this.progressInfo.progressCurrent += 1;
+        if (showUIProgress) {
+          appEventBus.emit(EAppEventBusNames.BatchCreateAccount, {
+            totalCount: this.progressInfo.totalCount,
+            createdCount: this.progressInfo.createdCount,
+            progressTotal: this.progressInfo.progressTotal,
+            progressCurrent: this.progressInfo.progressCurrent,
+            networkId,
+            deriveType,
+          });
+          await timerUtils.wait(100); // wait for UI refresh
         }
       }
     };
@@ -972,7 +1104,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
     // for loop indexes
     for (const index of indexes) {
       try {
-        this.checkIfCancelled({ saveToDb });
+        this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
         if (excludedIndexes?.[index] === true) {
           // eslint-disable-next-line no-continue
           continue;
@@ -985,7 +1117,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
         });
         const cacheAccount = this.networkAccountsCache[key];
         if (cacheAccount && saveToCache) {
-          this.checkIfCancelled({ saveToDb });
+          this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
           await processAccountForCreateFn({
             key,
             accountForCreate: cacheAccount,
@@ -998,6 +1130,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
           error,
           walletId,
           saveToDb,
+          showUIProgress,
         });
       }
     }
@@ -1008,7 +1141,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
       for (let i = 0; i < indexesChunks.length; i += 1) {
         const indexesForRebuildChunk = indexesChunks[i];
         try {
-          this.checkIfCancelled({ saveToDb });
+          this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
           defaultLogger.account.batchCreatePerf.prepareHdOrHwAccounts();
 
           const { vault, accounts } =
@@ -1036,9 +1169,9 @@ class ServiceBatchCreateAccount extends ServiceBase {
           const networkInfo = await vault.getNetworkInfo();
           for (const account of accounts) {
             try {
-              this.checkIfCancelled({ saveToDb });
+              this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
               if (isNil(account.pathIndex)) {
-                throw new Error(
+                throw new OneKeyLocalError(
                   'batchBuildNetworkAccounts ERROR: pathIndex is required',
                 );
               }
@@ -1052,7 +1185,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
                 deriveType,
                 index: account.pathIndex,
               });
-              this.checkIfCancelled({ saveToDb });
+              this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
 
               defaultLogger.account.batchCreatePerf.buildAccountAddressDetail();
 
@@ -1072,7 +1205,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
                   '',
               };
 
-              this.checkIfCancelled({ saveToDb });
+              this.checkIfCancelled({ saveToDb, showUIProgress, errorMessage });
 
               defaultLogger.account.batchCreatePerf.processAccountForCreate();
               await processAccountForCreateFn({
@@ -1085,6 +1218,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
                 error,
                 walletId,
                 saveToDb,
+                showUIProgress,
               });
             }
           }
@@ -1093,6 +1227,7 @@ class ServiceBatchCreateAccount extends ServiceBase {
             error,
             walletId,
             saveToDb,
+            showUIProgress,
           });
         }
       }

@@ -2,9 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useRoute } from '@react-navigation/core';
 import { useIntl } from 'react-intl';
-import { StyleSheet } from 'react-native';
 
-import type { IButtonProps, IDialogInstance } from '@onekeyhq/components';
+import type { IDialogInstance } from '@onekeyhq/components';
 import {
   Button,
   Dialog,
@@ -18,6 +17,7 @@ import {
   Toast,
   XStack,
 } from '@onekeyhq/components';
+import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfile';
 import { useOnboardingConnectWalletLoadingAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { WALLET_TYPE_EXTERNAL } from '@onekeyhq/shared/src/consts/dbConsts';
 import {
@@ -33,6 +33,7 @@ import type {
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import externalWalletLogoUtils from '@onekeyhq/shared/src/utils/externalWalletLogoUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
+import type { IConnectExternalWalletPayload } from '@onekeyhq/shared/types/analytics/onboarding';
 import type { IExternalConnectionInfo } from '@onekeyhq/shared/types/externalWallet.types';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
@@ -283,8 +284,53 @@ function WalletItem({
     };
   }, [hideLoading, loading]);
 
+  const getExternalWalletConnectionDetails = (params: {
+    externalConnectionInfo: IExternalConnectionInfo;
+  }): Pick<
+    IConnectExternalWalletPayload,
+    'protocol' | 'walletName' | 'network'
+  > => {
+    const { externalConnectionInfo } = params;
+    const protocol: IConnectExternalWalletPayload['protocol'] = (() => {
+      if (externalConnectionInfo?.walletConnect) return 'WalletConnect';
+      if (externalConnectionInfo?.evmEIP6963) return 'EIP6963';
+      if (externalConnectionInfo?.evmInjected) return 'EVMInjected';
+      return 'unknown';
+    })();
+
+    const walletName = (() => {
+      if (externalConnectionInfo?.walletConnect?.peerMeta?.name) {
+        return externalConnectionInfo.walletConnect.peerMeta.name;
+      }
+      if (externalConnectionInfo?.evmEIP6963?.info?.name) {
+        return externalConnectionInfo.evmEIP6963.info.name;
+      }
+      if (externalConnectionInfo?.evmInjected) {
+        return 'Injected';
+      }
+      return 'unknown';
+    })();
+
+    const network = 'evm';
+
+    return { protocol, walletName: walletName || 'unknown', network };
+  };
+
+  const { isSoftwareWalletOnlyUser } = useUserWalletProfile();
   const connectToWallet = useCallback(async () => {
     try {
+      const beforeConnectInfo = getExternalWalletConnectionDetails({
+        externalConnectionInfo: connectionInfo,
+      });
+      defaultLogger.account.wallet.addWalletStarted({
+        addMethod: 'Connect3rdPartyWallet',
+        details: {
+          protocol: beforeConnectInfo.protocol,
+          network: beforeConnectInfo.network,
+          walletName: beforeConnectInfo.walletName,
+        },
+        isSoftwareWalletOnlyUser,
+      });
       showLoading();
       const connectResult =
         await backgroundApiProxy.serviceDappSide.connectExternalWallet({
@@ -315,10 +361,28 @@ function WalletItem({
       navigation.popStack();
       await dialogRef.current?.close();
 
-      // Currently, there are only walletconnect and evm.
-      defaultLogger.account.wallet.connect3rdPartyWallet({
-        '3rdpartyConnectNetwork': 'evm',
-        '3rdpartyConnectType': 'walletconnect',
+      let finalConnectionInfo: IExternalConnectionInfo;
+      try {
+        if (r.accounts?.[0]?.connectionInfoRaw) {
+          finalConnectionInfo = JSON.parse(r.accounts?.[0]?.connectionInfoRaw);
+        } else {
+          finalConnectionInfo = connectionInfo;
+        }
+      } catch {
+        finalConnectionInfo = connectionInfo;
+      }
+      const afterConnectInfo = getExternalWalletConnectionDetails({
+        externalConnectionInfo: finalConnectionInfo,
+      });
+      defaultLogger.account.wallet.walletAdded({
+        addMethod: 'Connect3rdPartyWallet',
+        status: 'success',
+        details: {
+          protocol: afterConnectInfo.protocol,
+          network: afterConnectInfo.network,
+          walletName: afterConnectInfo.walletName,
+        },
+        isSoftwareWalletOnlyUser,
       });
     } finally {
       hideLoading();
@@ -331,6 +395,7 @@ function WalletItem({
     navigation,
     selectedAccount.networkId,
     showLoading,
+    isSoftwareWalletOnlyUser,
   ]);
 
   const connectToWalletWithDialog = useCallback(async () => {

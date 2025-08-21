@@ -24,11 +24,15 @@ import type {
   IMarketTokenDetail,
 } from '@onekeyhq/shared/types/market';
 import { getNetworkIdBySymbol } from '@onekeyhq/shared/types/market/marketProvider.constants';
-import { ESwapTabSwitchType } from '@onekeyhq/shared/types/swap/types';
+import {
+  ESwapSource,
+  ESwapTabSwitchType,
+} from '@onekeyhq/shared/types/swap/types';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
 import useAppNavigation from '../../../hooks/useAppNavigation';
 import { useActiveAccount } from '../../../states/jotai/contexts/accountSelector';
+import { showProtocolListDialog } from '../../Earn/components/showProtocolListDialog';
 
 export const useMarketTradeNetwork = (token: IMarketTokenDetail | null) => {
   const { detailPlatforms, platforms = {} } = token || {};
@@ -69,11 +73,6 @@ export const useMarketTradeActions = (token: IMarketTokenDetail | null) => {
     useAppNavigation<IPageNavigationProp<IModalSwapParamList>>();
 
   const { activeAccount } = useActiveAccount({ num: 0 });
-
-  const contractAddress = useMemo(
-    () => network?.contract_address ?? '',
-    [network],
-  );
 
   const { isNative = false, tokenAddress: realContractAddress = '' } =
     network || {};
@@ -175,6 +174,8 @@ export const useMarketTradeActions = (token: IMarketTokenDetail | null) => {
       const navigateToSwapPage = (
         params: IModalSwapParamList[EModalSwapRoutes.SwapMainLand],
       ) => {
+        params.swapSource = ESwapSource.MARKET;
+
         if (mode === 'modal') {
           navigation.replace(EModalSwapRoutes.SwapMainLand, params);
         } else {
@@ -250,20 +251,22 @@ export const useMarketTradeActions = (token: IMarketTokenDetail | null) => {
       return;
     }
     const normalizedSymbol = normalizeToEarnSymbol(symbol);
-    if (!normalizedSymbol) {
+    if (!normalizedSymbol || !networkId) {
       return;
     }
-    if (networkId && networkAccount && normalizedSymbol) {
-      navigation.pushModal(EModalRoutes.StakingModal, {
-        screen: EModalStakingRoutes.AssetProtocolList,
-        params: {
-          networkId,
-          accountId: networkAccount.id,
-          indexedAccountId: networkAccount.indexedAccountId,
-          symbol: normalizedSymbol,
-        },
-      });
-    }
+
+    // Use dialog for multiple protocols, pass minimal required fields
+    showProtocolListDialog({
+      symbol: normalizedSymbol,
+      accountId: networkAccount.id,
+      indexedAccountId: networkAccount.indexedAccountId,
+      onProtocolSelect: async (params) => {
+        navigation.pushModal(EModalRoutes.StakingModal, {
+          screen: EModalStakingRoutes.ProtocolDetailsV2,
+          params,
+        });
+      },
+    });
   }, [createAccountIfNotExists, navigation, networkId, symbol]);
   const canStaking = useMemo(() => isSupportStaking(symbol), [symbol]);
 

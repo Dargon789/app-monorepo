@@ -10,6 +10,7 @@ import {
   Stack,
   XStack,
   YStack,
+  useIsModalPage,
   useMedia,
 } from '@onekeyhq/components';
 import useFormatDate from '@onekeyhq/kit/src/hooks/useFormatDate';
@@ -45,10 +46,12 @@ export function PriceChart({
 }: IPriceChartProps) {
   const { formatDate } = useFormatDate();
   const intl = useIntl();
+  const isModalPage = useIsModalPage();
 
   const [price, setPrice] = useState<string | number | undefined>();
   const [time, setTime] = useState('');
-  const { gtMd } = useMedia();
+  const { gtMd: gtMdMedia } = useMedia();
+  const gtMd = isModalPage ? false : gtMdMedia;
   const basePrice = data?.length ? data[0][1] : 0;
   const latestPrice = data?.length ? data[data.length - 1][1] : 0;
   const currentPrice = useMemo(() => {
@@ -136,7 +139,14 @@ export function PriceChart({
   const chartViewWithSpinner = isFetching ? <Spinner /> : chartView;
   return gtMd ? (
     <>
-      <XStack justifyContent="space-between" h="$10">
+      <XStack
+        position="absolute"
+        top={0}
+        left="$5"
+        right="$5"
+        justifyContent="space-between"
+        h="$10"
+      >
         {isFetching ? (
           <YStack gap="$2">
             <Skeleton w="$10" h="$3" />
@@ -147,21 +157,18 @@ export function PriceChart({
         )}
         {children}
       </XStack>
-      <Stack
-        mt={32}
-        $gtMd={{ mt: '$1' }}
-        justifyContent="center"
-        alignItems="center"
-      >
+
+      <Stack justifyContent="center" alignItems="center">
         {chartViewWithSpinner}
       </Stack>
     </>
   ) : (
     <>
-      {priceLabel}
-      <Stack h={mdViewHeight} justifyContent="center" alignItems="center">
+      <YStack mt="$4" h={mdViewHeight} justifyContent="center">
+        {priceLabel}
+
         {platformEnv.isNative ? chartView : chartViewWithSpinner}
-      </Stack>
+      </YStack>
     </>
   );
 }

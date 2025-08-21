@@ -7,7 +7,10 @@ import type {
   ISignedMessagePro,
   ISignedTxPro,
 } from '@onekeyhq/core/src/types';
-import { OneKeyInternalError } from '@onekeyhq/shared/src/errors';
+import {
+  OneKeyInternalError,
+  OneKeyLocalError,
+} from '@onekeyhq/shared/src/errors';
 import { convertDeviceResponse } from '@onekeyhq/shared/src/errors/utils/deviceErrorUtils';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { checkIsDefined } from '@onekeyhq/shared/src/utils/assertUtils';
@@ -54,12 +57,12 @@ export class KeyringHardware extends KeyringHardwareBase {
           params,
           usedIndexes,
           sdkGetAddressFn: async ({
-            connectId,
-            deviceId,
-            pathPrefix,
-            pathSuffix,
+            connectId: _connectId,
+            deviceId: _deviceId,
+            pathPrefix: _pathPrefix,
+            pathSuffix: _pathSuffix,
             template,
-            showOnOnekeyFn,
+            showOnOnekeyFn: _showOnOnekeyFn,
           }) => {
             const buildFullPath = (p: { index: number }) =>
               accountUtils.buildPathFromTemplate({
@@ -81,7 +84,7 @@ export class KeyringHardware extends KeyringHardwareBase {
               return allNetworkAccounts;
             }
 
-            throw new Error('use sdk allNetworkGetAddress instead');
+            throw new OneKeyLocalError('use sdk allNetworkGetAddress instead');
 
             // const sdk = await this.getHardwareSDKInstance();
             // const bundle = usedIndexes.map((index, arrIndex) => ({
@@ -126,7 +129,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     const { unsignedTx, deviceParams } = params;
     const { dbDevice, deviceCommonParams } = checkIsDefined(deviceParams);
     const { connectId, deviceId } = checkIsDefined(dbDevice);
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: deviceParams?.dbDevice?.connectId || '',
+    });
     const account = await this.vault.getAccount();
     const encodedTx = unsignedTx.encodedTx as IEncodedTxScdo;
     const signingTx = serializeUnsignedTransaction(encodedTx);
@@ -168,7 +173,9 @@ export class KeyringHardware extends KeyringHardwareBase {
     const { messages, deviceParams } = params;
     const { dbDevice, deviceCommonParams } = checkIsDefined(deviceParams);
     const { connectId, deviceId } = checkIsDefined(dbDevice);
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: deviceParams?.dbDevice?.connectId || '',
+    });
     const account = await this.vault.getAccount();
     const messageHex = Buffer.from(messages[0].message).toString('hex');
     const res = await convertDeviceResponse(() =>

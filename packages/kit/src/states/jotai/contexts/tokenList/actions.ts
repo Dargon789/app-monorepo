@@ -11,11 +11,17 @@ import {
   sortTokensByFiatValue,
   sortTokensByOrder,
 } from '@onekeyhq/shared/src/utils/tokenUtils';
-import type { IAccountToken, ITokenFiat } from '@onekeyhq/shared/types/token';
+import type {
+  ETokenListSortType,
+  IAccountToken,
+  ITokenFiat,
+} from '@onekeyhq/shared/types/token';
 
 import { ContextJotaiActionsBase } from '../../utils/ContextJotaiActionsBase';
 
 import {
+  activeAccountTokenListAtom,
+  activeAccountTokenListStateAtom,
   allTokenListAtom,
   allTokenListMapAtom,
   contextAtomMethod,
@@ -30,6 +36,7 @@ import {
   smallBalanceTokensFiatValueAtom,
   tokenListAtom,
   tokenListMapAtom,
+  tokenListSortAtom,
   tokenListStateAtom,
 } from './atoms';
 
@@ -70,9 +77,12 @@ class ContextJotaiActionsTokenList extends ContextJotaiActionsBase {
           [key: string]: ITokenFiat;
         };
         mergeDerive?: boolean;
+        accountId?: string;
+        networkId?: string;
       },
     ) => {
-      const { keys, tokens, merge, mergeDerive } = payload;
+      const { keys, tokens, merge, mergeDerive, accountId, networkId } =
+        payload;
       const allTokenList = get(allTokenListAtom());
 
       if (merge) {
@@ -98,12 +108,16 @@ class ContextJotaiActionsTokenList extends ContextJotaiActionsBase {
           set(allTokenListAtom(), {
             tokens: newTokens,
             keys: `${allTokenList.keys}_${keys}`,
+            accountId,
+            networkId,
           });
         }
       } else if (!isEqual(allTokenList.keys, keys)) {
         set(allTokenListAtom(), {
           tokens: uniqBy(tokens, (item) => item.$key),
           keys,
+          accountId,
+          networkId,
         });
       }
     },
@@ -238,6 +252,22 @@ class ContextJotaiActionsTokenList extends ContextJotaiActionsBase {
           keys,
         });
       }
+    },
+  );
+
+  refreshActiveAccountTokenList = contextAtomMethod(
+    (
+      get,
+      set,
+      payload: {
+        tokens: IAccountToken[];
+        keys: string;
+      },
+    ) => {
+      set(activeAccountTokenListAtom(), {
+        tokens: uniqBy(payload.tokens, (item) => item.$key),
+        keys: payload.keys,
+      });
     },
   );
 
@@ -464,6 +494,22 @@ class ContextJotaiActionsTokenList extends ContextJotaiActionsBase {
     },
   );
 
+  updateActiveAccountTokenListState = contextAtomMethod(
+    (
+      get,
+      set,
+      payload: {
+        isRefreshing?: boolean;
+        initialized?: boolean;
+      },
+    ) => {
+      set(activeAccountTokenListStateAtom(), (v) => ({
+        ...v,
+        ...payload,
+      }));
+    },
+  );
+
   updateCreateAccountState = contextAtomMethod(
     (
       get,
@@ -479,10 +525,36 @@ class ContextJotaiActionsTokenList extends ContextJotaiActionsBase {
       });
     },
   );
+
+  updateTokenListSort = contextAtomMethod(
+    (
+      get,
+      set,
+      payload: {
+        sortType: ETokenListSortType;
+        sortDirection?: 'desc' | 'asc';
+      },
+    ) => {
+      const { sortType } = get(tokenListSortAtom());
+
+      if (payload.sortType !== sortType) {
+        set(tokenListSortAtom(), {
+          sortType: payload.sortType,
+          sortDirection: 'desc',
+        });
+        return;
+      }
+
+      set(tokenListSortAtom(), (v) => ({
+        ...v,
+        ...payload,
+      }));
+    },
+  );
 }
 
 const createActions = memoFn(() => {
-  console.log('new ContextJotaiActionsTokenList()', Date.now());
+  // console.log('new ContextJotaiActionsTokenList()', Date.now());
   return new ContextJotaiActionsTokenList();
 });
 
@@ -512,6 +584,14 @@ export function useTokenListActions() {
 
   const updateCreateAccountState = actions.updateCreateAccountState.use();
 
+  const refreshActiveAccountTokenList =
+    actions.refreshActiveAccountTokenList.use();
+
+  const updateActiveAccountTokenListState =
+    actions.updateActiveAccountTokenListState.use();
+
+  const updateTokenListSort = actions.updateTokenListSort.use();
+
   return useRef({
     refreshSearchTokenList,
     refreshAllTokenList,
@@ -527,5 +607,8 @@ export function useTokenListActions() {
     updateTokenListState,
     updateSearchTokenState,
     updateCreateAccountState,
+    refreshActiveAccountTokenList,
+    updateActiveAccountTokenListState,
+    updateTokenListSort,
   });
 }

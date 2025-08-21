@@ -13,7 +13,7 @@ import type {
 } from '@onekeyhq/core/src/chains/nexa/types';
 import coreChainApi from '@onekeyhq/core/src/instance/coreChainApi';
 import type { ISignedMessagePro, ISignedTxPro } from '@onekeyhq/core/src/types';
-import { NotImplemented } from '@onekeyhq/shared/src/errors';
+import { NotImplemented, OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import { convertDeviceError } from '@onekeyhq/shared/src/errors/utils/deviceErrorUtils';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { checkIsDefined } from '@onekeyhq/shared/src/utils/assertUtils';
@@ -88,7 +88,7 @@ export class KeyringHardware extends KeyringHardwareBase {
               return allNetworkAccounts;
             }
 
-            throw new Error('use sdk allNetworkGetAddress instead');
+            throw new OneKeyLocalError('use sdk allNetworkGetAddress instead');
 
             // const paths = usedIndexes.map(
             //   (index) => `${pathPrefix}/${index}'/0/0`,
@@ -150,7 +150,9 @@ export class KeyringHardware extends KeyringHardwareBase {
           scheme: SIGN_TYPE,
         }));
 
-        const sdk = await this.getHardwareSDKInstance();
+        const sdk = await this.getHardwareSDKInstance({
+          connectId,
+        });
 
         const response = await sdk.nexaGetAddress(connectId, deviceId, {
           ...params.deviceParams.deviceCommonParams,
@@ -169,7 +171,9 @@ export class KeyringHardware extends KeyringHardwareBase {
   override async signTransaction(
     params: ISignTransactionParams,
   ): Promise<ISignedTxPro> {
-    const sdk = await this.getHardwareSDKInstance();
+    const sdk = await this.getHardwareSDKInstance({
+      connectId: params.deviceParams?.dbDevice?.connectId || '',
+    });
     const encodedTx = params.unsignedTx.encodedTx as IEncodedTxNexa;
     const deviceParams = checkIsDefined(params.deviceParams);
     const { connectId, deviceId } = deviceParams.dbDevice;
@@ -177,7 +181,7 @@ export class KeyringHardware extends KeyringHardwareBase {
     const chainId = await this.getNetworkChainId();
 
     const { inputSignatures, outputSignatures, signatureBuffer } =
-      buildSignatureBuffer(encodedTx, dbAccount.address);
+      await buildSignatureBuffer(encodedTx, dbAccount.address);
 
     const response = await sdk.nexaSignTransaction(connectId, deviceId, {
       ...params.deviceParams?.deviceCommonParams,
@@ -203,7 +207,7 @@ export class KeyringHardware extends KeyringHardwareBase {
         }),
       );
 
-      const txid = buildTxid(inputSigs, outputSignatures);
+      const txid = await buildTxid(inputSigs, outputSignatures);
       const rawTx = buildRawTx(inputSigs, outputSignatures, 0, true);
 
       return {

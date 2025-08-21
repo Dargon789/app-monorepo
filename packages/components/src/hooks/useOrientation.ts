@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { Dimensions } from 'react-native';
+import { useMedia } from 'tamagui';
+
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 export const useOrientation = () => {
   const [isLandscape, setIsLandscape] = useState(
@@ -29,4 +32,20 @@ export const useOrientation = () => {
   }, []);
 
   return isLandscape;
+};
+
+export const useIsIpadLandscape = platformEnv.isNativeIOSPad
+  ? () => {
+      const isLandscape = useOrientation();
+      return isLandscape;
+    }
+  : () => false;
+
+export const useIsHorizontalLayout = () => {
+  const { gtMd } = useMedia();
+  const isLandscape = useIsIpadLandscape();
+  return (
+    !platformEnv.isNativeAndroid &&
+    ((!platformEnv.isNative && gtMd) || isLandscape)
+  );
 };

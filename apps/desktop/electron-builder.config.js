@@ -1,5 +1,6 @@
 const baseElectronBuilderConfig = require('./electron-builder-base.config');
 const DLLs = require('./electron-dll.config');
+const { getPath } = require('./scripts/utils');
 
 module.exports = {
   ...baseElectronBuilderConfig,
@@ -40,10 +41,10 @@ module.exports = {
     'darkModeSupport': false,
     'category': 'productivity',
     'target': [
-      { target: 'dmg', arch: ['x64', 'arm64'] },
-      { target: 'zip', arch: ['x64', 'arm64'] },
+      { target: 'dmg', arch: ['x64', 'arm64', 'universal'] },
+      { target: 'zip', arch: ['x64', 'arm64', 'universal'] },
     ],
-    'entitlements': 'entitlements.mac.plist',
+    'entitlements': getPath('entitlements.mac.plist'),
     'extendInfo': {
       'NSCameraUsageDescription': 'Please allow OneKey to use your camera',
     },
@@ -55,7 +56,7 @@ module.exports = {
         'to': 'bin/bridge',
       },
     ],
-    'extraFiles': [...DLLs],
+    'extraFiles': DLLs,
     'icon': 'app/build/static/images/icons/512x512.png',
     'artifactName': 'OneKey-Wallet-${version}-win-${arch}.${ext}',
     'verifyUpdateCodeSignature': false,

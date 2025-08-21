@@ -1,11 +1,16 @@
 import type { ReactElement } from 'react';
-import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 
 import { useIntl } from 'react-intl';
 
-import { RefreshControl, Stack, Tab, useMedia } from '@onekeyhq/components';
-import type { IDeferredPromise, ITabPageProps } from '@onekeyhq/components';
-import type { ITabInstance } from '@onekeyhq/components/src/layouts/TabView/StickyTabComponent/types';
+import {
+  Stack,
+  Tabs,
+  YStack,
+  useIsModalPage,
+  useMedia,
+} from '@onekeyhq/components';
+import type { IDeferredPromise } from '@onekeyhq/components';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type { IMarketTokenDetail } from '@onekeyhq/shared/types/market';
 
@@ -14,13 +19,9 @@ import { MarketDetailOverview } from './MarketDetailOverview';
 import { MarketDetailPools } from './MarketDetailPools';
 import { TokenPriceChart } from './TokenPriceChart';
 
-import type { LayoutChangeEvent } from 'react-native';
-
 function BasicTokenDetailTabs({
   token,
   listHeaderComponent,
-  isRefreshing,
-  onRefresh,
   defer,
   coinGeckoId,
 }: {
@@ -32,7 +33,9 @@ function BasicTokenDetailTabs({
   coinGeckoId: string;
 }) {
   const intl = useIntl();
-  const { md } = useMedia();
+  const isModalPage = useIsModalPage();
+  const { md: mdMedia, gtMd: gtMdMedia } = useMedia();
+  const md = isModalPage ? true : mdMedia;
 
   useEffect(() => {
     setTimeout(() => {
@@ -40,7 +43,7 @@ function BasicTokenDetailTabs({
     }, 100);
   }, [defer]);
 
-  const tabConfig = useMemo(
+  const tabConfigs = useMemo(
     () =>
       [
         md && token
@@ -49,17 +52,18 @@ function BasicTokenDetailTabs({
                 id: ETranslations.market_chart,
               }),
               // eslint-disable-next-line react/no-unstable-nested-components
-              page: (props: ITabPageProps) => (
-                <TokenPriceChart
-                  {...props}
-                  fallbackToChart={!!token?.fallbackToChart}
-                  tvPlatform={token?.tvPlatform}
-                  isFetching={!token}
-                  tickers={token?.tickers}
-                  coinGeckoId={coinGeckoId}
-                  defer={defer}
-                  symbol={token?.symbol}
-                />
+              page: (
+                <Stack flex={1}>
+                  <TokenPriceChart
+                    fallbackToChart={!!token?.fallbackToChart}
+                    tvPlatform={token?.tvPlatform}
+                    isFetching={!token}
+                    tickers={token?.tickers}
+                    coinGeckoId={coinGeckoId}
+                    defer={defer}
+                    symbol={token?.symbol}
+                  />
+                </Stack>
               ),
             }
           : undefined,
@@ -69,18 +73,15 @@ function BasicTokenDetailTabs({
                 id: ETranslations.global_overview,
               }),
               // eslint-disable-next-line react/no-unstable-nested-components
-              page: (props: ITabPageProps) => (
-                <MarketDetailOverview {...props} token={token} />
-              ),
+              page: <MarketDetailOverview token={token} />,
             }
           : undefined,
         token?.tickers?.length && token
           ? {
               title: intl.formatMessage({ id: ETranslations.global_pools }),
               // eslint-disable-next-line react/no-unstable-nested-components
-              page: (props: ITabPageProps) => (
+              page: (
                 <MarketDetailPools
-                  {...props}
                   tickers={token.tickers}
                   detailPlatforms={token.detailPlatforms}
                 />
@@ -92,77 +93,40 @@ function BasicTokenDetailTabs({
             id: ETranslations.global_links,
           }),
           // eslint-disable-next-line react/no-unstable-nested-components
-          page: (props: ITabPageProps) => (
-            <MarketDetailLinks {...props} token={token} />
-          ),
+          page: <MarketDetailLinks token={token} />,
         },
       ].filter(Boolean),
     [coinGeckoId, defer, intl, md, token],
   );
 
-  const tabRef = useRef<ITabInstance | null>(null);
-
-  const changeTabVerticalScrollEnabled = useCallback(
-    ({ enabled }: { enabled: boolean }) => {
-      tabRef?.current?.setVerticalScrollEnabled(enabled);
-    },
-    [],
-  );
-
-  const prevSelectedPageIndex = useRef(0);
-  const onSelectedPageIndex = useCallback(
-    (index: number) => {
-      if (!md) {
-        return;
-      }
-      if (index === 0) {
-        tabRef.current?.scrollToTop();
-        setTimeout(() => {
-          changeTabVerticalScrollEnabled({ enabled: false });
-        }, 50);
-      } else if (prevSelectedPageIndex.current === 0) {
-        changeTabVerticalScrollEnabled({ enabled: true });
-      }
-      prevSelectedPageIndex.current = index;
-    },
-    [changeTabVerticalScrollEnabled, md],
-  );
-
-  const handleMount = useCallback(
-    (e: LayoutChangeEvent) => {
-      if (!md) {
-        return;
-      }
-      if (e.nativeEvent.layout.height > 0) {
-        setTimeout(() => {
-          tabRef.current?.scrollToTop();
-          changeTabVerticalScrollEnabled({ enabled: false });
-        }, 100);
-      }
-    },
-    [changeTabVerticalScrollEnabled, md],
-  );
-
   return (
-    <Tab
-      ref={tabRef}
-      refreshControl={
-        <RefreshControl refreshing={!!isRefreshing} onRefresh={onRefresh} />
-      }
-      $gtMd={{ pr: '$5' }}
-      $md={{ mt: '$5' }}
-      data={tabConfig}
-      disableRefresh
-      ListHeaderComponent={
-        <Stack mb="$5" onLayout={handleMount} h={150} $gtMd={{ h: 450 }}>
+    <Tabs.Container
+      containerStyle={{
+        ...(gtMdMedia ? { paddingRight: isModalPage ? 0 : 20 } : undefined),
+        ...(md ? { marginTop: 20 } : undefined),
+        ...(isModalPage ? { marginTop: 20 } : undefined),
+      }}
+      renderHeader={() => (
+        <YStack
+          bg="$bgApp"
+          pb="$5"
+          h={170}
+          $gtMd={{
+            ...(isModalPage ? null : { h: 450 }),
+          }}
+        >
           {listHeaderComponent}
-          {/* {pools ? null : (
-            <YStack $gtMd={{ px: '$5' }}>{renderPoolSkeleton}</YStack>
-          )} */}
-        </Stack>
-      }
-      onSelectedPageIndex={onSelectedPageIndex}
-    />
+        </YStack>
+      )}
+      renderTabBar={(props) => <Tabs.TabBar {...props} />}
+      key={tabConfigs.length}
+    >
+      {tabConfigs.map((tab) => (
+        <Tabs.Tab key={tab.title} name={tab.title}>
+          <Tabs.ScrollView>{tab.page}</Tabs.ScrollView>
+        </Tabs.Tab>
+      ))}
+    </Tabs.Container>
   );
 }
 

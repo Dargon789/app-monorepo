@@ -29,13 +29,11 @@ import {
   successDark,
 } from './colors';
 
-import type { Variable } from '@tamagui/web/types/createVariable';
+import type { Variable } from '@tamagui/web';
 
 const isTamaguiNative = process.env.TAMAGUI_TARGET === 'native';
-const font = createFont({
-  family: isTamaguiNative
-    ? 'System'
-    : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
+
+const basicFontVariants = {
   size: {
     bodySm: 12,
     bodySmMedium: 12,
@@ -131,10 +129,31 @@ const font = createFont({
     heading4xl: 0,
     heading5xl: 0,
   },
+} as const;
+
+const font = createFont({
+  family: isTamaguiNative
+    ? 'System'
+    : 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji"',
+  ...basicFontVariants,
+});
+
+const monoRegularFont = createFont({
+  family: 'GeistMono-Regular',
+  ...basicFontVariants,
+});
+
+const monoMediumFont = createFont({
+  family: 'GeistMono-Medium',
+  ...basicFontVariants,
 });
 
 // https://docs.swmansion.com/react-native-reanimated/docs/2.x/api/animations/withSpring/
 const animations = createAnimations({
+  '0ms': {
+    type: 'timing',
+    duration: 0,
+  },
   '50ms': {
     type: 'timing',
     duration: 50,
@@ -170,6 +189,12 @@ const animations = createAnimations({
     damping: 20,
     stiffness: 60,
   },
+  switch: {
+    type: 'spring',
+    damping: 30,
+    mass: 1,
+    stiffness: 300,
+  },
 });
 
 const { whiteA } = primitiveWhiteA;
@@ -187,11 +212,9 @@ const lightColors = {
   ...critical,
   ...purple,
   ...pink,
-  bgApp: '#FFFFFF',
   bg: '#FFFFFF',
-  bgReverse: '#1b1b1b',
-  bgHover: neutral.neutral3,
   bgActive: neutral.neutral4,
+  bgApp: '#FFFFFF',
   bgBackdrop: grayA.grayA8,
   bgCaution: caution.caution3,
   bgCautionStrong: caution.caution9,
@@ -202,6 +225,7 @@ const lightColors = {
   bgCriticalStrongHover: critical.critical10,
   bgCriticalSubdued: critical.critical2,
   bgDisabled: neutral.neutral3,
+  bgHover: neutral.neutral3,
   bgInfo: info.info3,
   bgInfoStrong: info.info9,
   bgInfoSubdued: info.info2,
@@ -209,16 +233,19 @@ const lightColors = {
   bgInverseActive: whiteA.whiteA5,
   bgInverseHover: whiteA.whiteA4,
   bgPrimary: primary.primary12,
-  bgPrimaryActive: primary.primary10,
-  bgPrimaryHover: primary.primary11,
-  bgSubdued: gray.gray2,
+  bgPrimaryActive: primary.primary11,
+  bgPrimaryHover: blackA.blackA10,
+  bgReverse: '#1b1b1b',
+  bgSidebar: gray.gray2,
   bgStrong: neutral.neutral3,
-  bgStrongHover: neutral.neutral4,
   bgStrongActive: neutral.neutral5,
+  bgStrongHover: neutral.neutral4,
+  bgSubdued: gray.gray2,
   bgSuccess: success.success3,
   bgSuccessStrong: success.success9,
   bgSuccessSubdued: success.success2,
-  bgSidebar: gray.gray2,
+  buttonSuccess: success.success9,
+  buttonCritical: critical.critical9,
   border: neutral.neutral6,
   borderActive: primary.primary12,
   borderCaution: caution.caution7,
@@ -251,6 +278,7 @@ const lightColors = {
   iconStrong: neutral.neutral12,
   iconSubdued: neutral.neutral9,
   iconSuccess: success.success11,
+  popoverShadowColor: grayA.grayA8,
   text: neutral.neutral12,
   textCaution: caution.caution11,
   textCautionStrong: caution.caution12,
@@ -282,12 +310,10 @@ const darkColors: typeof lightColors = {
   ...criticalDark,
   ...purpleDark,
   ...pinkDark,
-  bgApp: '#0f0f0f',
   bg: '#1b1b1b',
-  bgReverse: '#ffffff',
-  bgHover: neutralDark.neutral3,
   bgActive: neutralDark.neutral4,
-  bgBackdrop: grayA.grayA8,
+  bgApp: '#0f0f0f',
+  bgBackdrop: grayA.grayA11,
   bgCaution: cautionDark.caution3,
   bgCautionStrong: cautionDark.caution9,
   bgCautionSubdued: cautionDark.caution2,
@@ -297,6 +323,7 @@ const darkColors: typeof lightColors = {
   bgCriticalStrongHover: criticalDark.critical10,
   bgCriticalSubdued: criticalDark.critical2,
   bgDisabled: neutralDark.neutral3,
+  bgHover: neutralDark.neutral3,
   bgInfo: infoDark.info3,
   bgInfoStrong: infoDark.info9,
   bgInfoSubdued: infoDark.info2,
@@ -306,14 +333,17 @@ const darkColors: typeof lightColors = {
   bgPrimary: primaryDark.primary12,
   bgPrimaryActive: primaryDark.primary10,
   bgPrimaryHover: primaryDark.primary11,
-  bgSubdued: grayDark.gray2,
+  bgReverse: '#ffffff',
+  bgSidebar: grayDark.gray2,
   bgStrong: neutralDark.neutral3,
-  bgStrongHover: neutralDark.neutral4,
   bgStrongActive: neutralDark.neutral5,
+  bgStrongHover: neutralDark.neutral4,
+  bgSubdued: grayDark.gray2,
   bgSuccess: successDark.success3,
   bgSuccessStrong: successDark.success9,
   bgSuccessSubdued: successDark.success2,
-  bgSidebar: grayDark.gray2,
+  buttonSuccess: successDark.success9,
+  buttonCritical: criticalDark.critical9,
   border: neutralDark.neutral6,
   borderActive: primaryDark.primary12,
   borderCaution: cautionDark.caution7,
@@ -346,6 +376,7 @@ const darkColors: typeof lightColors = {
   iconStrong: neutralDark.neutral12,
   iconSubdued: neutralDark.neutral9,
   iconSuccess: successDark.success11,
+  popoverShadowColor: grayA.grayA8,
   text: neutralDark.neutral12,
   textCaution: cautionDark.caution11,
   textCautionStrong: cautionDark.caution12,
@@ -519,6 +550,8 @@ const config = createTamagui({
   fonts: {
     body: font,
     heading: font,
+    monoRegular: monoRegularFont,
+    monoMedium: monoMediumFont,
   },
 
   themes: {

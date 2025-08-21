@@ -6,6 +6,7 @@ import {
   backgroundMethod,
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
@@ -69,7 +70,7 @@ class ServiceWalletConnect extends ServiceBase {
     walletConnectChainId?: IWalletConnectChainString,
   ): Promise<IWalletConnectChainInfo | undefined> {
     if (!walletConnectChainId || !walletConnectChainId.includes(':')) {
-      throw new Error(
+      throw new OneKeyLocalError(
         `WalletConnect ChainId not valid: ${walletConnectChainId || ''}`,
       );
     }
@@ -154,7 +155,7 @@ class ServiceWalletConnect extends ServiceBase {
     });
     const wcChain = chainData?.wcChain;
     if (!wcChain) {
-      throw new Error(
+      throw new OneKeyLocalError(
         `getWcChainByNetworkId ERROR: wcChain not found ${networkId}`,
       );
     }
@@ -245,7 +246,7 @@ class ServiceWalletConnect extends ServiceBase {
     for (const namespace of Object.keys(requiredNamespaces)) {
       const impl = namespaceToImplsMap[namespace as INamespaceUnion];
       if (!impl) {
-        throw new Error('Namespace not supported');
+        throw new OneKeyLocalError('Namespace not supported');
       }
       // Generate networkIds by merging supported networks from both required and optional namespaces
       const networkIds = await this.getAvailableNetworkIdsForNamespace(
@@ -310,12 +311,24 @@ class ServiceWalletConnect extends ServiceBase {
 
         const filteredChains =
           chains?.filter((chain) => !notSupportedChains.includes(chain)) ?? [];
+
+        // Merge with existing chains instead of overwriting
+        const existingNamespace = supportedNamespaces[namespace];
+        const mergedChains = existingNamespace
+          ? [
+              ...new Set([
+                ...(existingNamespace.chains || []),
+                ...filteredChains,
+              ]),
+            ]
+          : filteredChains;
+
         supportedNamespaces[namespace] = {
-          chains: filteredChains,
+          chains: mergedChains,
           methods: supportMethodsMap[namespace] ?? [],
           events: supportEventsMap[namespace],
           accounts:
-            filteredChains.map((c) => `${c}:${account?.address ?? ''}`) ?? [],
+            mergedChains.map((c) => `${c}:${account?.address ?? ''}`) ?? [],
         };
       }
     };

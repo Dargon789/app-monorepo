@@ -24,6 +24,7 @@ import type {
   EModalSignatureConfirmRoutes,
   IModalSignatureConfirmParamList,
 } from '@onekeyhq/shared/src/routes';
+import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { EDAppModalPageStatus } from '@onekeyhq/shared/types/dappConnection';
 import { ESendFeeStatus } from '@onekeyhq/shared/types/fee';
 import { ESendPreCheckTimingEnum } from '@onekeyhq/shared/types/send';
@@ -35,11 +36,12 @@ import { TxAdvancedSettings } from '../../components/SignatureConfirmAdvanced';
 import { TxConfirmAlert } from '../../components/SignatureConfirmAlert';
 import { TxConfirmDetails } from '../../components/SignatureConfirmDetails';
 import { TxConfirmExtraInfo } from '../../components/SignatureConfirmExtraInfo';
+import { TxConfirmHeaderRight } from '../../components/SignatureConfirmHeader';
 import { SignatureConfirmLoading } from '../../components/SignatureConfirmLoading';
 import { SignatureConfirmProviderMirror } from '../../components/SignatureConfirmProvider/SignatureConfirmProviderMirror';
 import StakingInfo from '../../components/StakingInfo';
 import SwapInfo from '../../components/SwapInfo';
-import { usePreCheckNativeBalance } from '../../hooks/usePreCheckNativeBalance';
+import { usePreCheckTokenBalance } from '../../hooks/usePreCheckTokenBalance';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -217,7 +219,7 @@ function TxConfirm() {
     }
   };
 
-  usePreCheckNativeBalance({
+  usePreCheckTokenBalance({
     networkId,
     transferPayload,
   });
@@ -232,6 +234,17 @@ function TxConfirm() {
       updateSendFeeStatus({ status: ESendFeeStatus.Idle, errMessage: '' });
     };
   }, [unsignedTxs, updateSendFeeStatus, updateUnsignedTxs]);
+
+  useEffect(() => {
+    if (sourceInfo) {
+      const walletId = accountUtils.getWalletIdFromAccountId({
+        accountId,
+      });
+      void backgroundApiProxy.serviceAccount.checkIsWalletNotBackedUp({
+        walletId,
+      });
+    }
+  }, [sourceInfo, accountId]);
 
   const renderTxConfirmContent = useCallback(() => {
     if ((isBuildingDecodedTxs || !decodedTxs) && !decodedTxsInit.current) {
@@ -275,9 +288,16 @@ function TxConfirm() {
     stakingInfo,
   ]);
 
+  const renderHeaderRight = useCallback(
+    () => (
+      <TxConfirmHeaderRight decodedTxs={decodedTxs} unsignedTxs={unsignedTxs} />
+    ),
+    [decodedTxs, unsignedTxs],
+  );
+
   return (
     <Page scrollEnabled onClose={handleOnClose} safeAreaEnabled>
-      <Page.Header title={txConfirmTitle} />
+      <Page.Header title={txConfirmTitle} headerRight={renderHeaderRight} />
       <Page.Body testID="tx-confirmation-body" px="$5">
         {renderTxConfirmContent()}
       </Page.Body>

@@ -16,11 +16,10 @@ import Svg, {
 import { Theme, getTokenValue } from 'tamagui';
 
 import { type IAirGapUrJson, airGapUrUtils } from '@onekeyhq/qr-wallet-sdk';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 
-import { useThemeValue } from '../../hooks';
 import { Icon, Stack } from '../../primitives';
 
-import type { IThemeColorKeys } from '../../hooks';
 import type { IIconProps } from '../../primitives';
 import type { ImageProps, ImageURISource } from 'react-native';
 
@@ -292,7 +291,7 @@ export function QRCode({
     let timerId: ReturnType<typeof setInterval>;
     if (isAnimatedCode) {
       if (!valueUr) {
-        throw new Error('valueUr is required for animated QRCode');
+        throw new OneKeyLocalError('valueUr is required for animated QRCode');
       }
       const { nextPart, encodeWhole } = airGapUrUtils.createAnimatedUREncoder({
         ur: valueUr,

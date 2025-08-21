@@ -1,5 +1,12 @@
 import type { ICustomTokenDBStruct } from '@onekeyhq/kit-bg/src/dbs/simple/entity/SimpleDbEntityCustomTokens';
+import type { IRiskTokenManagementDBStruct } from '@onekeyhq/kit-bg/src/dbs/simple/entity/SimpleDbEntityRiskTokenManagement';
 import type { IAccountDeriveTypes } from '@onekeyhq/kit-bg/src/vaults/types';
+
+export enum ETokenListSortType {
+  Name = 'name',
+  Price = 'price',
+  Value = 'value',
+}
 
 export type IToken = {
   decimals: number;
@@ -17,7 +24,6 @@ export type IToken = {
   order?: number;
   networkId?: string;
   accountId?: string;
-  allNetworkAccountId?: string;
   mergeAssets?: boolean;
 };
 
@@ -35,7 +41,20 @@ export type ITokenFiat = {
   price24h?: number;
 };
 
+export enum ECustomTokenStatus {
+  Hidden = 'hidden',
+  Custom = 'custom',
+}
+
 export type IAccountToken = { $key: string } & IToken;
+export type IAccountTokenWithAccountId = IAccountToken & {
+  accountId: string;
+};
+export type ICloudSyncCustomTokenInfo = Omit<IAccountToken, 'accountId'>;
+export type ICloudSyncCustomToken = ICloudSyncCustomTokenInfo & {
+  accountXpubOrAddress: string;
+  tokenStatus: ECustomTokenStatus;
+};
 export type ICustomTokenItem = IAccountToken;
 
 export type IFetchAccountTokensParams = {
@@ -47,6 +66,8 @@ export type IFetchAccountTokensParams = {
   hideRiskTokens?: boolean;
   contractList?: string[];
   hiddenTokens?: string[];
+  unblockedTokens?: string[];
+  blockedTokens?: string[];
   flag?: string;
   isAllNetworks?: boolean;
   isManualRefresh?: boolean;
@@ -55,6 +76,8 @@ export type IFetchAccountTokensParams = {
   allNetworksNetworkId?: string;
   saveToLocal?: boolean;
   customTokensRawData?: ICustomTokenDBStruct;
+  blockedTokensRawData?: IRiskTokenManagementDBStruct['blockedTokens'];
+  unblockedTokensRawData?: IRiskTokenManagementDBStruct['unblockedTokens'];
 };
 
 export type ITokenData = {

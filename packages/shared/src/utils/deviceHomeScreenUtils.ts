@@ -1,13 +1,18 @@
-/* eslint-disable spellcheck/spell-checker */
+import { EDeviceType } from '@onekeyfe/hd-shared';
+
+import { OneKeyLocalError } from '../errors/errors/localError';
+import { defaultLogger } from '../logger/logger';
 
 import imageUtils from './imageUtils';
 
+import type { IResizeImageResult } from './imageUtils';
 import type { IDeviceType } from '@onekeyfe/hd-core';
 
 const HAS_MONOCHROME_SCREEN: Partial<Record<IDeviceType, boolean>> = {
-  classic: true,
-  classic1s: true,
-  mini: true,
+  [EDeviceType.Classic]: true,
+  [EDeviceType.Classic1s]: true,
+  [EDeviceType.ClassicPure]: true,
+  [EDeviceType.Mini]: true,
 };
 
 export const T1_HOME_SCREEN_DEFAULT_IMAGES = [
@@ -43,9 +48,10 @@ const deviceModelInformation: Partial<
     { width: number; height: number; supports: Array<'png' | 'jpeg'> }
   >
 > = {
-  classic: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
-  classic1s: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
-  mini: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
+  [EDeviceType.Classic]: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
+  [EDeviceType.Classic1s]: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
+  [EDeviceType.ClassicPure]: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
+  [EDeviceType.Mini]: { ...DEFAULT_T1_HOME_SCREEN_INFORMATION },
 };
 
 function isMonochromeScreen(deviceModelInternal: IDeviceType): boolean {
@@ -54,7 +60,7 @@ function isMonochromeScreen(deviceModelInternal: IDeviceType): boolean {
 
 // const toig = (imageData: ImageData, deviceModelInternal: IDeviceType) => {
 //   if (!deviceModelInformation[deviceModelInternal]) {
-//     throw new Error(
+//     throw new OneKeyLocalError(
 //       `imageToCanvas ERROR: Device model not supported: ${deviceModelInternal}`,
 //     );
 //   }
@@ -68,7 +74,7 @@ function isMonochromeScreen(deviceModelInternal: IDeviceType): boolean {
 //         const g = imageData.data[4 * i + 1];
 //         const b = imageData.data[4 * i + 2];
 
-//         return toGrayscale(r, g, b);
+//         return toGrayScale(r, g, b);
 //       }),
 //     )
 //     .flat();
@@ -109,7 +115,7 @@ async function imagePathToHex(
   deviceType: IDeviceType,
 ): Promise<string> {
   if (!deviceModelInformation[deviceType]) {
-    throw new Error(
+    throw new OneKeyLocalError(
       `imagePathToHex ERROR: Device model not supported: ${deviceType}`,
     );
   }
@@ -121,7 +127,7 @@ async function imagePathToHex(
     uri: base64OrUri,
   });
   if (!base64) {
-    throw new Error('imagePathToHex ERROR: base64 is null');
+    throw new OneKeyLocalError('imagePathToHex ERROR: base64 is null');
   }
 
   // image can be loaded to device without modifications -> it is in original quality
@@ -155,7 +161,91 @@ async function imagePathToHex(
   });
 }
 
+type IDeviceHomeScreenSizeInfo = {
+  width: number;
+  height: number;
+  radius?: number;
+};
+type IDeviceHomeScreenConfig = {
+  names: string[];
+  size?: IDeviceHomeScreenSizeInfo;
+  thumbnailSize?: IDeviceHomeScreenSizeInfo;
+};
+
+async function buildCustomScreenHex(
+  dbDeviceId: string,
+  url: string | undefined,
+  deviceType: IDeviceType,
+  isUserUpload?: boolean,
+  config?: IDeviceHomeScreenConfig,
+) {
+  const imgUri =
+    (await imageUtils.getBase64FromRequiredImageSource(url, (...args) => {
+      defaultLogger.hardware.homescreen.getBase64FromRequiredImageSource(
+        ...args,
+      );
+    })) || '';
+  if (!imgUri) {
+    throw new OneKeyLocalError('Error imgUri not defined');
+  }
+
+  if (isMonochromeScreen(deviceType)) {
+    const customHex = await imagePathToHex(imgUri, deviceType);
+    return {
+      screenHex: customHex,
+      thumbnailHex: undefined,
+    };
+  }
+
+  if (!config || !config.size) {
+    return {
+      screenHex: '',
+      thumbnailHex: undefined,
+    };
+  }
+
+  let imgThumb: IResizeImageResult | undefined;
+  if (config.thumbnailSize) {
+    imgThumb = await imageUtils.resizeImage({
+      uri: imgUri,
+
+      width: config.thumbnailSize?.width ?? config.size?.width,
+      height: config.thumbnailSize?.height ?? config.size?.height,
+
+      originW: config.size?.width,
+      originH: config.size?.height,
+      isMonochrome: false,
+    });
+  }
+
+  let screenHex = '';
+  if (!isUserUpload) {
+    const imgScreen = await imageUtils.resizeImage({
+      uri: imgUri,
+
+      width: config.size?.width,
+      height: config.size?.height,
+
+      originW: config.size?.width,
+      originH: config.size?.height,
+      isMonochrome: false,
+    });
+    screenHex = imgScreen.hex;
+  } else {
+    screenHex = Buffer.from(
+      imageUtils.stripBase64UriPrefix(imgUri),
+      'base64',
+    ).toString('hex');
+  }
+
+  return {
+    screenHex,
+    thumbnailHex: imgThumb?.hex,
+  };
+}
+
 export default {
   imagePathToHex,
   isMonochromeScreen,
+  buildCustomScreenHex,
 };
