@@ -1,6 +1,8 @@
 import type { IResponseAppUpdateInfo } from '@onekeyhq/shared/src/appUpdate';
 import {
   EAppUpdateStatus,
+  EUpdateStrategy,
+  gtVersion,
   isFirstLaunchAfterUpdated,
 } from '@onekeyhq/shared/src/appUpdate';
 import {
@@ -8,9 +10,10 @@ import {
   backgroundMethod,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import type { IUpdateDownloadedEvent } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
 import {
-  type IUpdateDownloadedEvent,
-  clearPackage,
+  AppUpdate,
+  BundleUpdate,
 } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
@@ -74,9 +77,11 @@ class ServiceAppUpdate extends ServiceBase {
     if (isFirstLaunchAfterUpdated(appInfo)) {
       await appUpdatePersistAtom.set((prev) => ({
         ...prev,
-        isForceUpdate: false,
+        updateStrategy: EUpdateStrategy.manual,
         errorText: undefined,
         status: EAppUpdateStatus.done,
+        jsBundleVersion: undefined,
+        jsBundle: undefined,
       }));
     }
   }
@@ -276,11 +281,13 @@ class ServiceAppUpdate extends ServiceBase {
     clearTimeout(downloadTimeoutId);
     await appUpdatePersistAtom.set({
       latestVersion: '0.0.0',
-      isForceUpdate: false,
+      updateStrategy: EUpdateStrategy.manual,
       updateAt: 0,
       summary: '',
       status: EAppUpdateStatus.done,
       isShowUpdateDialog: false,
+      jsBundleVersion: undefined,
+      jsBundle: undefined,
     });
     await this.backgroundApi.serviceApp.resetLaunchTimesAfterUpdate();
   }
@@ -306,7 +313,8 @@ class ServiceAppUpdate extends ServiceBase {
   @backgroundMethod()
   public async clearCache() {
     clearTimeout(downloadTimeoutId);
-    await clearPackage();
+    await AppUpdate.clearPackage();
+    await BundleUpdate.clearBundle();
     await this.reset();
   }
 
@@ -328,19 +336,33 @@ class ServiceAppUpdate extends ServiceBase {
     }
 
     const releaseInfo = await this.getAppLatestInfo(forceUpdate);
-    if (releaseInfo?.version) {
-      await appUpdatePersistAtom.set((prev) => ({
-        ...prev,
-        ...releaseInfo,
-        summary: releaseInfo?.summary || '',
-        latestVersion: releaseInfo.version || prev.latestVersion,
-        updateAt: Date.now(),
-        status:
-          releaseInfo?.version && releaseInfo.version !== prev.latestVersion
-            ? EAppUpdateStatus.notify
-            : prev.status,
-        isShowUpdateDialog: platformEnv.version !== releaseInfo.version,
-      }));
+    if (releaseInfo?.version || releaseInfo?.jsBundleVersion) {
+      const shouldUpdate = gtVersion(
+        releaseInfo.version,
+        releaseInfo.jsBundleVersion,
+      );
+      await appUpdatePersistAtom.set((prev) => {
+        const isUpdating = releaseInfo.jsBundleVersion
+          ? prev.jsBundleVersion === releaseInfo.jsBundleVersion &&
+            prev.latestVersion === releaseInfo.version
+          : prev.latestVersion === releaseInfo.version;
+        return {
+          ...prev,
+          ...releaseInfo,
+          jsBundleVersion: releaseInfo.jsBundleVersion || undefined,
+          jsBundle: releaseInfo.jsBundle || undefined,
+          summary: releaseInfo?.summary || '',
+          latestVersion: releaseInfo.version || prev.latestVersion,
+          updateAt: Date.now(),
+          status:
+            shouldUpdate && !isUpdating ? EAppUpdateStatus.notify : prev.status,
+          isShowUpdateDialog:
+            releaseInfo.updateStrategy === EUpdateStrategy.force ||
+            releaseInfo.updateStrategy === EUpdateStrategy.manual
+              ? shouldUpdate
+              : false,
+        };
+      });
     } else {
       await this.reset();
     }

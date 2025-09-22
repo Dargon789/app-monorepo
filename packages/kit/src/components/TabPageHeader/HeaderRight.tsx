@@ -1,10 +1,14 @@
 import { type ReactNode, useCallback, useMemo } from 'react';
 
 import { useIntl } from 'react-intl';
+import { StyleSheet } from 'react-native';
 
 import {
+  Button,
   SizableText,
   Stack,
+  XStack,
+  YStack,
   useIsHorizontalLayout,
   useMedia,
 } from '@onekeyhq/components';
@@ -55,14 +59,17 @@ function NotificationsButton() {
     });
   }, [navigation]);
   return (
-    <Stack key="notifications" testID="headerRightNotificationsButton">
+    <Stack
+      key="notifications"
+      testID="headerRightNotificationsButton"
+      onPress={openNotificationsModal}
+    >
       <HeaderIconButton
         title={intl.formatMessage({
           id: ETranslations.global_notifications,
         })}
         trackID="header-right-notifications"
         icon="BellOutline"
-        onPress={openNotificationsModal}
       />
       {!firstTimeGuideOpened || badge ? (
         <Stack
@@ -135,6 +142,36 @@ function PeopleAction() {
       onPress={handlePress}
       testID="header-right-onekey-id"
     />
+  );
+}
+
+function DepositAction() {
+  const { gtMd } = useMedia();
+  const intl = useIntl();
+  return gtMd ? null : (
+    <Button
+      icon="WalletCryptoOutline"
+      size="small"
+      gap="$1.5"
+      onPress={() => {
+        alert('Deposit');
+      }}
+    >
+      <XStack alignItems="center" gap="$1.5">
+        <YStack
+          bg="rgba(0, 0, 0, 0.11)"
+          width={StyleSheet.hairlineWidth}
+          height="$4"
+        />
+        <SizableText
+          textBreakStrategy="simple"
+          size="$bodySmMedium"
+          color="$textSubdued"
+        >
+          {intl.formatMessage({ id: ETranslations.earn_deposit })}
+        </SizableText>
+      </XStack>
+    </Button>
   );
 }
 
@@ -212,6 +249,8 @@ export function HeaderRight({
             {fixedItems}
           </>
         );
+      case ETabRoutes.Perp:
+        return <DepositAction />;
       default:
         break;
     }

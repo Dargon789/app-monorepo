@@ -29,6 +29,7 @@ export interface IDevSettings {
   showDevExportPrivateKey?: boolean;
   // disable Solana priority fee
   disableSolanaPriorityFee?: boolean;
+  enableMockHighTxFee?: boolean;
   disableAllShortcuts?: boolean;
   disableWebEmbedApi?: boolean; // Do not render webembedApi Webview
   webviewDebuggingEnabled?: boolean;
@@ -51,8 +52,6 @@ export interface IDevSettings {
   showPerformanceMonitor?: boolean;
   // use local trading view URL for development
   useLocalTradingViewUrl?: boolean;
-  // enable market V2 (new version), default false uses V1
-  enableMarketV2?: boolean;
 }
 
 export type IDevSettingsKeys = keyof IDevSettings;
@@ -73,6 +72,7 @@ export const {
       enableTestEndpoint: !!platformEnv.isDev || !!platformEnv.isE2E,
       showDevOverlayWindow: platformEnv.isE2E ? true : undefined,
       disableSolanaPriorityFee: false,
+      enableMockHighTxFee: false,
       disableAllShortcuts: false,
       webviewDebuggingEnabled: false,
       strictSignatureAlert: false,
@@ -85,7 +85,6 @@ export const {
         selectedTab: ETabRoutes.Discovery,
       },
       useLocalTradingViewUrl: false,
-      enableMarketV2: false,
     },
   },
 });

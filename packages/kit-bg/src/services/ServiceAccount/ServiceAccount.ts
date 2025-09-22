@@ -1,4 +1,5 @@
 import { Semaphore } from 'async-mutex';
+import { ethers } from 'ethers';
 import { debounce, isEmpty, isNil, uniq, uniqBy } from 'lodash';
 
 import { convertLtcXpub } from '@onekeyhq/core/src/chains/btc/sdkBtc';
@@ -42,6 +43,7 @@ import {
   WALLET_TYPE_WATCHING,
 } from '@onekeyhq/shared/src/consts/dbConsts';
 import type { EHyperLiquidAgentName } from '@onekeyhq/shared/src/consts/perp';
+import { PERPS_NETWORK_ID } from '@onekeyhq/shared/src/consts/perp';
 import { EPrimeCloudSyncDataType } from '@onekeyhq/shared/src/consts/primeConsts';
 import {
   COINTYPE_ALLNETWORKS,
@@ -113,6 +115,7 @@ import { ELocalDBStoreNames } from '../../dbs/local/localDBStoreNames';
 import {
   EIndexedDBBucketNames,
   type IDBAccount,
+  type IDBAddress,
   type IDBCreateHwWalletParams,
   type IDBCreateHwWalletParamsBase,
   type IDBCreateQRWalletParams,
@@ -214,6 +217,7 @@ class ServiceAccount extends ServiceBase {
   @backgroundMethod()
   async clearAccountCache() {
     this.getIndexedAccountWithMemo.clear();
+    this.getAccountNameFromAddressMemo.clear();
     localDb.clearStoreCachedData();
   }
 
@@ -468,8 +472,14 @@ class ServiceAccount extends ServiceBase {
         }
       }
       if (accountUtils.isImportedAccount({ accountId: credential.id })) {
+        let accountId = credential.id;
+        if (accountUtils.isTonMnemonicCredentialId(credential.id)) {
+          accountId = accountUtils.getAccountIdFromTonMnemonicCredentialId({
+            credentialId: credential.id,
+          });
+        }
         const account = await this.getDBAccountSafe({
-          accountId: credential.id,
+          accountId,
         });
         if (!account) {
           isRemoved = true;
@@ -780,10 +790,14 @@ class ServiceAccount extends ServiceBase {
     walletId,
     networkId,
     account,
+    indexedAccountNames,
   }: {
     walletId: string;
     networkId: string;
     account: IBatchCreateAccount;
+    indexedAccountNames?: {
+      [index: number]: string;
+    };
   }) {
     const {
       addressDetail: _addressDetail,
@@ -800,6 +814,7 @@ class ServiceAccount extends ServiceBase {
       walletId,
       indexes: [dbAccount.pathIndex],
       skipIfExists: true,
+      names: indexedAccountNames,
     });
     await localDb.addAccountsToWallet({
       allAccountsBelongToNetworkId: networkId,
@@ -1230,18 +1245,20 @@ class ServiceAccount extends ServiceBase {
     });
   }
 
-  async prepareHyperLiquidAgentCredential({
-    userAddress,
-    agentName,
-    privateKey,
-  }: ICoreHyperLiquidAgentCredential) {
-    ensureSensitiveTextEncoded(privateKey);
+  async prepareHyperLiquidAgentCredential(
+    params: ICoreHyperLiquidAgentCredential,
+  ) {
+    ensureSensitiveTextEncoded(params.privateKey);
+    const decodedPrivateKey = await decodeSensitiveTextAsync({
+      encodedText: params.privateKey,
+    });
+    const agentWallet = new ethers.Wallet(decodedPrivateKey);
     const credential: ICoreHyperLiquidAgentCredential = {
-      userAddress,
-      agentName,
-      privateKey: await decodeSensitiveTextAsync({
-        encodedText: privateKey,
-      }),
+      userAddress: params.userAddress,
+      agentName: params.agentName,
+      privateKey: decodedPrivateKey,
+      agentAddress: agentWallet.address,
+      validUntil: params.validUntil,
     };
     const { password } =
       await this.backgroundApi.servicePassword.promptPasswordVerify({
@@ -1255,19 +1272,27 @@ class ServiceAccount extends ServiceBase {
 
   @backgroundMethod()
   @toastIfError()
-  async addHyperLiquidAgentCredential({
-    userAddress,
-    agentName,
-    privateKey,
-  }: ICoreHyperLiquidAgentCredential): Promise<{
+  async addOrUpdateHyperLiquidAgentCredential(
+    params: ICoreHyperLiquidAgentCredential,
+  ): Promise<{
+    credentialId: string;
+  }> {
+    try {
+      return await this.addHyperLiquidAgentCredential(params);
+    } catch (error) {
+      return this.updateHyperLiquidAgentCredential(params);
+    }
+  }
+
+  @backgroundMethod()
+  @toastIfError()
+  async addHyperLiquidAgentCredential(
+    params: ICoreHyperLiquidAgentCredential,
+  ): Promise<{
     credentialId: string;
   }> {
     const { credential, password } =
-      await this.prepareHyperLiquidAgentCredential({
-        userAddress,
-        agentName,
-        privateKey,
-      });
+      await this.prepareHyperLiquidAgentCredential(params);
     const { credentialId } = await localDb.addHyperLiquidAgentCredential({
       credential,
       password,
@@ -1279,19 +1304,13 @@ class ServiceAccount extends ServiceBase {
 
   @backgroundMethod()
   @toastIfError()
-  async updateHyperLiquidAgentCredential({
-    userAddress,
-    agentName,
-    privateKey,
-  }: ICoreHyperLiquidAgentCredential): Promise<{
+  async updateHyperLiquidAgentCredential(
+    params: ICoreHyperLiquidAgentCredential,
+  ): Promise<{
     credentialId: string;
   }> {
     const { credential, password } =
-      await this.prepareHyperLiquidAgentCredential({
-        userAddress,
-        agentName,
-        privateKey,
-      });
+      await this.prepareHyperLiquidAgentCredential(params);
     const { credentialId } = await localDb.updateHyperLiquidAgentCredential({
       credential,
       password,
@@ -1319,6 +1338,101 @@ class ServiceAccount extends ServiceBase {
       agentName,
       password,
     });
+  }
+
+  private extractUserAddressFromCredentialId(credentialId: string): string {
+    // Format: hyperliquid-agent--{userAddress}--{agentName}
+    const parts = credentialId.split('--');
+    if (
+      parts.length !== 3 ||
+      parts[0] !==
+        accountUtils.HYPERLIQUID_AGENT_CREDENTIAL_PREFIX.replace('--', '')
+    ) {
+      throw new OneKeyLocalError(
+        `Invalid HyperLiquid agent credential ID format: ${credentialId}`,
+      );
+    }
+    return parts[1]; // userAddress
+  }
+
+  private async shouldDeleteCredential(
+    addressRecord: IDBAddress | null,
+    deletedInfo: {
+      walletId?: string;
+      indexedAccountId?: string;
+      accountId?: string;
+    },
+  ): Promise<boolean> {
+    if (!addressRecord) {
+      return false;
+    }
+
+    // Check if the deleted wallet is in the address record's wallets
+    if (deletedInfo.walletId && addressRecord.wallets[deletedInfo.walletId]) {
+      return true;
+    }
+
+    // Check if any of the wallet values match deleted account/indexedAccount IDs
+    if (deletedInfo.accountId || deletedInfo.indexedAccountId) {
+      const walletValues = Object.values(addressRecord.wallets);
+      if (
+        (deletedInfo.accountId &&
+          walletValues.includes(deletedInfo.accountId)) ||
+        (deletedInfo.indexedAccountId &&
+          walletValues.includes(deletedInfo.indexedAccountId))
+      ) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  @backgroundMethod()
+  async cleanupOrphanedHyperLiquidAgentCredentials(deletedInfo: {
+    walletId?: string;
+    indexedAccountId?: string;
+    accountId?: string;
+  }): Promise<void> {
+    try {
+      // Get all HyperLiquid agent credentials
+      const allCredentials = await localDb.getAllHyperLiquidAgentCredentials();
+
+      const credentialsToDelete: IDBCredentialBase[] = [];
+      // Process each credential
+      for (const credential of allCredentials) {
+        try {
+          // Extract userAddress from credential ID
+          const userAddress = this.extractUserAddressFromCredentialId(
+            credential.id,
+          );
+
+          // Use existing address lookup table to check if address still exists
+          const addressRecord = await localDb.getAddressByNetworkImpl({
+            networkId: PERPS_NETWORK_ID,
+            normalizedAddress: userAddress.toLowerCase(),
+          });
+
+          // Check if this credential should be deleted
+          if (await this.shouldDeleteCredential(addressRecord, deletedInfo)) {
+            credentialsToDelete.push(credential);
+          }
+        } catch (error) {
+          // Log error but continue processing other credentials
+          console.warn(
+            `Failed to process HyperLiquid agent credential ${credential.id}:`,
+            error,
+          );
+        }
+      }
+
+      if (credentialsToDelete.length) {
+        await localDb.removeCredentials({ credentials: credentialsToDelete });
+      }
+    } catch (error) {
+      // Log error but don't throw to avoid breaking main deletion flow
+      console.error('Failed to cleanup HyperLiquid agent credentials:', error);
+    }
   }
 
   @backgroundMethod()
@@ -3043,6 +3157,13 @@ class ServiceAccount extends ServiceBase {
     appEventBus.emit(EAppEventBusNames.AccountUpdate, undefined);
     appEventBus.emit(EAppEventBusNames.AccountRemove, undefined);
 
+    // Cleanup orphaned HyperLiquid agent credentials
+    void this.cleanupOrphanedHyperLiquidAgentCredentials({
+      walletId,
+      accountId: account?.id,
+      indexedAccountId: indexedAccount?.id,
+    });
+
     if (
       account &&
       accountUtils.isExternalAccount({
@@ -3095,6 +3216,12 @@ class ServiceAccount extends ServiceBase {
     await this.backgroundApi.serviceDApp.removeDappConnectionAfterWalletRemove({
       walletId,
     });
+
+    // Cleanup orphaned HyperLiquid agent credentials
+    void this.cleanupOrphanedHyperLiquidAgentCredentials({
+      walletId,
+    });
+
     if (!skipBackupWalletRemove) {
       void this.backgroundApi.serviceDBBackup.removeBackupHDWallet({
         walletId,
@@ -3234,14 +3361,38 @@ class ServiceAccount extends ServiceBase {
     accountId: string;
     networkId: string;
   }) {
+    const info = await this.getAccountAddressInfoForApi({
+      dbAccount,
+      accountId,
+      networkId,
+    });
+    return info.address;
+  }
+
+  @backgroundMethod()
+  async getAccountAddressInfoForApi({
+    dbAccount,
+    accountId,
+    networkId,
+  }: {
+    dbAccount?: IDBAccount;
+    accountId: string;
+    networkId: string;
+  }): Promise<{ address: string; account: INetworkAccount }> {
+    const account: INetworkAccount = await this.getAccount({
+      accountId,
+      networkId,
+      dbAccount,
+    });
+
     if (networkUtils.isAllNetwork({ networkId })) {
-      return ALL_NETWORK_ACCOUNT_MOCK_ADDRESS;
+      return { address: ALL_NETWORK_ACCOUNT_MOCK_ADDRESS, account };
     }
-    const account = await this.getAccount({ accountId, networkId, dbAccount });
+
     if (networkUtils.isLightningNetworkByNetworkId(networkId)) {
-      return account.addressDetail.normalizedAddress;
+      return { address: account.addressDetail.normalizedAddress, account };
     }
-    return account.address;
+    return { address: account.address, account };
   }
 
   @backgroundMethod()

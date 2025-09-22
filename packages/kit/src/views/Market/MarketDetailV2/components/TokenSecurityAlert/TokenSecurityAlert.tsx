@@ -3,20 +3,23 @@ import { useIntl } from 'react-intl';
 import { Dialog, Icon, SizableText, XStack } from '@onekeyhq/components';
 import { NATIVE_HIT_SLOP } from '@onekeyhq/components/src/utils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 
 import { useTokenDetail } from '../../hooks/useTokenDetail';
 
 import { TokenSecurityAlertDialogContent } from './components';
 import { useTokenSecurity } from './hooks';
+import { getTotalSecurityDisplayInfo } from './utils/utils';
 
 function TokenSecurityAlert() {
   const intl = useIntl();
-  const { tokenAddress, networkId } = useTokenDetail();
+  const { tokenAddress, networkId, tokenDetail } = useTokenDetail();
 
-  const { securityData, securityStatus, warningCount } = useTokenSecurity({
-    tokenAddress,
-    networkId,
-  });
+  const { securityData, securityStatus, riskCount, cautionCount } =
+    useTokenSecurity({
+      tokenAddress,
+      networkId,
+    });
 
   const handlePress = () => {
     Dialog.show({
@@ -25,18 +28,31 @@ function TokenSecurityAlert() {
       renderContent: (
         <TokenSecurityAlertDialogContent
           securityData={securityData}
-          warningCount={warningCount}
+          riskCount={riskCount}
+          cautionCount={cautionCount}
         />
       ),
     });
+    // Dex analytics
+    if (networkId && tokenAddress && tokenDetail) {
+      defaultLogger.dex.actions.dexCheckRisk({
+        network: networkId,
+        tokenSymbol: tokenDetail.symbol || '',
+        tokenContract: tokenAddress,
+      });
+    }
   };
 
-  // Don't render if no security data or if should be hidden due to trust_list being false
+  // Always execute the status check, but don't render UI if no security data
   if (!securityData) {
     return null;
   }
 
-  const color = securityStatus === 'warning' ? '$iconCaution' : '$iconSuccess';
+  const { count, color } = getTotalSecurityDisplayInfo(
+    securityStatus,
+    riskCount,
+    cautionCount,
+  );
 
   return (
     <XStack
@@ -47,11 +63,9 @@ function TokenSecurityAlert() {
       hitSlop={NATIVE_HIT_SLOP}
     >
       <Icon name="BugOutline" size="$4" color={color} />
-      {warningCount > 0 ? (
-        <SizableText size="$bodySmMedium" color={color}>
-          {warningCount}
-        </SizableText>
-      ) : null}
+      <SizableText size="$bodySmMedium" color={color}>
+        {count}
+      </SizableText>
     </XStack>
   );
 }

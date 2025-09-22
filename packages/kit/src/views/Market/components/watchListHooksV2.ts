@@ -24,7 +24,13 @@ export const useWatchListV2Action = () => {
   );
 
   const addIntoWatchListV2 = useCallback(
-    (items: Array<{ chainId: string; contractAddress: string }>) => {
+    (
+      items: Array<{
+        chainId: string;
+        contractAddress: string;
+        isNative?: boolean;
+      }>,
+    ) => {
       // Calculate sortIndex to make new items appear at the top
       const firstSortIndex =
         isMounted && watchListData.length > 0
@@ -35,12 +41,13 @@ export const useWatchListV2Action = () => {
         (item, index) => ({
           chainId: item.chainId,
           contractAddress: item.contractAddress,
-          sortIndex: firstSortIndex - (index + 1) - Math.random(),
+          sortIndex: firstSortIndex - (index + 1),
+          isNative: item.isNative ?? false,
         }),
       );
 
       try {
-        actions.current.addIntoWatchListV2(watchListItems);
+        void actions.current.addIntoWatchListV2(watchListItems);
 
         Toast.success({
           title: intl.formatMessage({

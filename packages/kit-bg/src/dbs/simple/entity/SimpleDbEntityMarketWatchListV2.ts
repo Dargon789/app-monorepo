@@ -1,4 +1,5 @@
 import sortUtils from '@onekeyhq/shared/src/utils/sortUtils';
+import { equalTokenNoCaseSensitive } from '@onekeyhq/shared/src/utils/tokenUtils';
 import type {
   IMarketWatchListDataV2,
   IMarketWatchListItemV2,
@@ -20,6 +21,33 @@ export class SimpleDbEntityMarketWatchListV2 extends SimpleDbEntityBase<IMarketW
       };
     }
     return { data: [] };
+  }
+
+  async getMarketWatchListItemV2({
+    chainId,
+    contractAddress,
+  }: {
+    chainId: string;
+    contractAddress: string;
+  }): Promise<IMarketWatchListItemV2 | undefined> {
+    try {
+      const watchList = await this.getMarketWatchListV2();
+      return watchList.data.find((item) =>
+        equalTokenNoCaseSensitive({
+          token1: {
+            networkId: chainId,
+            contractAddress,
+          },
+          token2: {
+            networkId: item.chainId,
+            contractAddress: item.contractAddress,
+          },
+        }),
+      );
+    } catch (error) {
+      console.error('Failed to get market watch list item:', error);
+      return undefined;
+    }
   }
 
   // addOrEdit
@@ -50,16 +78,37 @@ export class SimpleDbEntityMarketWatchListV2 extends SimpleDbEntityBase<IMarketW
     items: Array<{ chainId: string; contractAddress: string }>;
   }) {
     await this.setRawData((data) => {
+      const oldList = data?.data ?? [];
+
+      // Fixed: Use equalTokenNoCaseSensitive from shared utils for proper token matching
+      const filteredData = oldList.filter(
+        (i) =>
+          !items.some((item) =>
+            equalTokenNoCaseSensitive({
+              token1: {
+                networkId: item.chainId,
+                contractAddress: item.contractAddress,
+              },
+              token2: {
+                networkId: i.chainId,
+                contractAddress: i.contractAddress,
+              },
+            }),
+          ),
+      );
+
       const newData: IMarketWatchListDataV2 | undefined | null = {
-        data:
-          data?.data.filter(
-            (i) =>
-              !items.some(
-                (item) =>
-                  item.chainId === i.chainId &&
-                  item.contractAddress === i.contractAddress,
-              ),
-          ) ?? [],
+        data: filteredData,
+      };
+
+      return newData;
+    });
+  }
+
+  async clearAllMarketWatchListV2() {
+    await this.setRawData(() => {
+      const newData: IMarketWatchListDataV2 = {
+        data: [],
       };
       return newData;
     });

@@ -7,6 +7,7 @@ import { validateAmountInput } from '@onekeyhq/kit/src/utils/validateAmountInput
 import type { useSwapPanel } from '@onekeyhq/kit/src/views/Market/MarketDetailV2/components/SwapPanel/hooks/useSwapPanel';
 import type { IToken } from '@onekeyhq/kit/src/views/Market/MarketDetailV2/components/SwapPanel/types';
 import type { ISwapNativeTokenReserveGas } from '@onekeyhq/shared/types/swap/types';
+import { ESwapSlippageSegmentKey } from '@onekeyhq/shared/types/swap/types';
 
 import { ActionButton } from './components/ActionButton';
 import { ApproveButton } from './components/ApproveButton';
@@ -19,6 +20,7 @@ import {
 } from './components/TokenInputSection';
 import { TradeTypeSelector } from './components/TradeTypeSelector';
 import { UnsupportedSwapWarning } from './components/UnsupportedSwapWarning';
+import { useSwapAnalytics } from './hooks/useSwapAnalytics';
 import { ESwapDirection } from './hooks/useTradeType';
 
 export type ISwapPanelContentProps = {
@@ -26,7 +28,10 @@ export type ISwapPanelContentProps = {
   isLoading: boolean;
   balanceLoading: boolean;
   slippageAutoValue?: number;
-  supportSpeedSwap: boolean;
+  supportSpeedSwap: {
+    enabled: boolean;
+    warningMessage?: string;
+  };
   isApproved: boolean;
   defaultTokens: IToken[];
   balance: BigNumber;
@@ -78,6 +83,9 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
 
   const tokenInputRef = useRef<ITokenInputSectionRef>(null);
   const paymentAmountRef = useRef(paymentAmount);
+
+  // Initialize analytics hook
+  const swapAnalytics = useSwapAnalytics();
   if (paymentAmount !== paymentAmountRef.current) {
     paymentAmountRef.current = paymentAmount;
   }
@@ -138,6 +146,7 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
           selectableTokens={defaultTokens}
           onTokenChange={(token) => setPaymentToken(token)}
           balance={balance}
+          onAmountEnterTypeChange={swapAnalytics.setAmountEnterType}
         />
 
         {/* Rate display */}
@@ -158,13 +167,17 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
       </YStack>
 
       {/* Unsupported swap warning */}
-      {!isLoading && !supportSpeedSwap ? <UnsupportedSwapWarning /> : null}
+      {!isLoading && !supportSpeedSwap.enabled ? (
+        <UnsupportedSwapWarning
+          customMessage={supportSpeedSwap.warningMessage}
+        />
+      ) : null}
 
       {!isApproved ? (
         <ApproveButton onApprove={onApprove} loading={isLoading} />
       ) : (
         <ActionButton
-          disabled={!supportSpeedSwap}
+          disabled={!supportSpeedSwap.enabled}
           loading={isLoading}
           tradeType={tradeType}
           onPress={isWrapped ? onWrappedSwap : onSwap}
@@ -176,6 +189,14 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
           isWrapped={isWrapped}
           paymentToken={paymentToken}
           networkId={networkId}
+          onSwapAction={() =>
+            swapAnalytics.logSwapAction({
+              tradeType,
+              networkId,
+              paymentToken,
+              balanceToken,
+            })
+          }
         />
       )}
 
@@ -184,7 +205,12 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
         <SlippageSetting
           autoDefaultValue={slippageAutoValue}
           isMEV={swapMevNetConfig?.includes(swapPanel.networkId ?? '')}
-          onSlippageChange={(item) => setSlippage(item.value)}
+          onSlippageChange={(item) => {
+            setSlippage(item.value);
+            swapAnalytics.setSlippageSetting(
+              item.key === ESwapSlippageSegmentKey.CUSTOM,
+            );
+          }}
         />
       )}
     </YStack>

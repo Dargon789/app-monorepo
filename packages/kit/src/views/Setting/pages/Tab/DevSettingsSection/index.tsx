@@ -5,27 +5,29 @@ import { useIntl } from 'react-intl';
 import { I18nManager } from 'react-native';
 
 import {
+  Button,
   Dialog,
   ESwitchSize,
   Input,
+  SizableText,
   Switch,
+  TextAreaInput,
   Toast,
   YStack,
   useClipboard,
 } from '@onekeyhq/components';
 import type { IDialogButtonProps } from '@onekeyhq/components/src/composite/Dialog/type';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { Section } from '@onekeyhq/kit/src/components/Section';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
+import { useSignatureConfirm } from '@onekeyhq/kit/src/hooks/useSignatureConfirm';
+import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
 import { WebEmbedDevConfig } from '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/WebEmbed';
-import {
-  appUpdatePersistAtom,
-  useSettingsPersistAtom,
-} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { useDevSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms/devSettings';
 import appDeviceInfo from '@onekeyhq/shared/src/appDeviceInfo/appDeviceInfo';
-import { EAppUpdateStatus } from '@onekeyhq/shared/src/appUpdate';
 import type { IBackgroundMethodWithDevOnlyPassword } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import { isCorrectDevOnlyPassword } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import {
@@ -34,6 +36,7 @@ import {
 } from '@onekeyhq/shared/src/config/appConfig';
 import { presetNetworksMap } from '@onekeyhq/shared/src/config/presetNetworks';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { BundleUpdate } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
 import {
   requestPermissionsAsync,
   setBadgeCountAsync,
@@ -57,16 +60,21 @@ import {
   switchWebDappMode,
 } from '@onekeyhq/shared/src/utils/devModeUtils';
 import { stableStringify } from '@onekeyhq/shared/src/utils/stringUtils';
+import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
+import { EMessageTypesBtc } from '@onekeyhq/shared/types/message';
 
 import { AddressBookDevSetting } from './AddressBookDevSetting';
 import { AsyncStorageDevSettings } from './AsyncStorageDevSettings';
 import { AutoJumpSetting } from './AutoJumpSetting';
+import { AutoUpdateDevSettings } from './AutoUpdateDevSettings';
 import { AutoUpdateSection } from './AutoUpdateSection';
 import { CrashDevSettings } from './CrashDevSettings';
+import { DeviceToken } from './DeviceToken';
 import { HapticsPanel } from './HapticsPanel';
 import { ImagePanel } from './ImagePanel';
 import { NetInfo } from './NetInfo';
 import { NotificationDevSettings } from './NotificationDevSettings';
+import { RegistrationID } from './RegistrationID';
 import { SectionFieldItem } from './SectionFieldItem';
 import { SectionPressItem } from './SectionPressItem';
 import { SentryCrashSettings } from './SentryCrashSettings';
@@ -76,8 +84,6 @@ let correctDevOnlyPwd = '';
 if (process.env.NODE_ENV !== 'production') {
   correctDevOnlyPwd = `${formatDateFns(new Date(), 'yyyyMMdd')}-onekey-debug`;
 }
-
-const APP_VERSION = platformEnv.version ?? '1.0.0';
 
 export function showDevOnlyPasswordDialog({
   title,
@@ -128,7 +134,7 @@ export function showDevOnlyPasswordDialog({
   });
 }
 
-export const DevSettingsSection = () => {
+const BaseDevSettingsSection = () => {
   const [settings] = useSettingsPersistAtom();
   const [devSettings] = useDevSettingsPersistAtom();
   const intl = useIntl();
@@ -160,6 +166,64 @@ export const DevSettingsSection = () => {
     I18nManager.forceRTL(!I18nManager.isRTL);
     void backgroundApiProxy.serviceApp.restartApp();
   }, []);
+
+  const { activeAccount } = useActiveAccount({ num: 0 });
+
+  const { navigationToMessageConfirmAsync } = useSignatureConfirm({
+    accountId: activeAccount.account?.id ?? '',
+    networkId: activeAccount.network?.id ?? '',
+  });
+  const handleSignMessage = useCallback(() => {
+    Dialog.show({
+      title: 'Sign Message',
+      description: 'Sign Message',
+      renderContent: (
+        <Dialog.Form formProps={{ values: { message: '123' } }}>
+          <Dialog.FormField
+            name="message"
+            rules={{
+              required: { value: true, message: 'message is required.' },
+            }}
+          >
+            <TextAreaInput placeholder="message" />
+          </Dialog.FormField>
+        </Dialog.Form>
+      ),
+      onConfirm: async ({ getForm, close }) => {
+        const form = getForm();
+        const unsignedMessage = form?.getValues()?.message;
+        await close();
+        const signedMessage = await navigationToMessageConfirmAsync({
+          accountId: activeAccount.account?.id ?? '',
+          networkId: activeAccount.network?.id ?? '',
+          unsignedMessage: {
+            type: EMessageTypesBtc.ECDSA,
+            message: unsignedMessage,
+            sigOptions: {
+              noScriptType: true,
+            },
+            payload: {
+              isFromDApp: false,
+            },
+          },
+          walletInternalSign: true,
+          sameModal: false,
+          skipBackupCheck: true,
+        });
+        copyText(signedMessage);
+        console.log(signedMessage);
+        Dialog.show({
+          title: 'Signed Message',
+          description: signedMessage,
+        });
+      },
+    });
+  }, [
+    activeAccount.account?.id,
+    activeAccount.network?.id,
+    copyText,
+    navigationToMessageConfirmAsync,
+  ]);
 
   if (!devSettings.enabled) {
     return null;
@@ -199,7 +263,12 @@ export const DevSettingsSection = () => {
           />
         </>
       ) : null}
-
+      <SectionPressItem
+        icon="SignatureOutline"
+        title="Sign Message"
+        subtitle="Sign Message"
+        onPress={handleSignMessage}
+      />
       <SectionPressItem
         icon="InfoCircleOutline"
         copyable
@@ -214,6 +283,25 @@ export const DevSettingsSection = () => {
           subtitle="BuildHash"
         />
       ) : null}
+      <SectionPressItem
+        icon="CodeOutline"
+        title="Envs"
+        onPress={() => {
+          Dialog.debugMessage({
+            debugMessage: {
+              deskChannel: globalThis?.desktopApi?.deskChannel,
+              arch: globalThis?.desktopApi?.arch,
+              platform: globalThis?.desktopApi?.platform,
+              channel: globalThis?.desktopApi?.channel,
+              isMas: globalThis?.desktopApi?.isMas,
+              systemVersion: globalThis?.desktopApi?.systemVersion,
+              ...platformEnv,
+            },
+          });
+        }}
+      />
+      <RegistrationID />
+      <DeviceToken />
       <SectionFieldItem
         icon="ServerOutline"
         name="enableTestEndpoint"
@@ -230,11 +318,11 @@ export const DevSettingsSection = () => {
             console.error(error);
           }
         }}
-        onValueChange={(enabled: boolean) => {
+        onValueChange={async (enabled: boolean) => {
           if (platformEnv.isDesktop) {
-            globalThis.desktopApi?.setAutoUpdateSettings?.({
-              useTestFeedUrl: enabled,
-            });
+            await globalThis.desktopApiProxy?.appUpdate?.useTestUpdateFeedUrl?.(
+              enabled,
+            );
           }
           setTimeout(() => {
             void backgroundApiProxy.serviceApp.restartApp();
@@ -256,6 +344,36 @@ export const DevSettingsSection = () => {
           titleProps={{ color: '$textCritical' }}
         />
       ) : null}
+
+      <SectionPressItem
+        icon="BookmarkOutline"
+        title="清空Market收藏数据"
+        subtitle="清空所有Market页面的收藏/WatchList数据"
+        onPress={() => {
+          Dialog.confirm({
+            title: '清空Market收藏数据',
+            description:
+              '确定要清空所有Market页面的收藏数据吗？此操作不可恢复。',
+            confirmButtonProps: { variant: 'destructive' },
+            onConfirm: async () => {
+              try {
+                await backgroundApiProxy.serviceMarketV2.clearAllMarketWatchListV2();
+                Toast.success({
+                  title: '成功清空Market收藏数据',
+                });
+                setTimeout(() => {
+                  void backgroundApiProxy.serviceApp.restartApp();
+                }, 1000);
+              } catch (error) {
+                Toast.error({
+                  title: '清空失败',
+                  message: String(error),
+                });
+              }
+            },
+          });
+        }}
+      />
       <SectionFieldItem
         icon="ChartTrendingOutline"
         name="enableAnalyticsRequest"
@@ -297,6 +415,23 @@ export const DevSettingsSection = () => {
             );
           }}
           value={devSettings.settings?.disableSolanaPriorityFee}
+        />
+      </SectionFieldItem>
+      <SectionFieldItem
+        icon="GasIllus"
+        name="enableMockHighTxFee"
+        title="模拟交易费过高"
+        subtitle="强制交易费用检测判定为过高"
+      >
+        <Switch
+          size={ESwitchSize.small}
+          onChange={() => {
+            void backgroundApiProxy.serviceDevSetting.updateDevSetting(
+              'enableMockHighTxFee',
+              !devSettings.settings?.enableMockHighTxFee,
+            );
+          }}
+          value={devSettings.settings?.enableMockHighTxFee}
         />
       </SectionFieldItem>
       <SectionPressItem
@@ -400,23 +535,6 @@ export const DevSettingsSection = () => {
             ? 'http://localhost:5173/'
             : 'https://tradingview.onekeytest.com/'
         }
-      >
-        <Switch size={ESwitchSize.small} />
-      </SectionFieldItem>
-      <SectionFieldItem
-        icon="Layers2Outline"
-        name="enableMarketV2"
-        title="启用市场模块 V2 版本"
-        subtitle={
-          devSettings.settings?.enableMarketV2
-            ? '使用新版本市场模块 (V2)'
-            : '使用旧版本市场模块 (V1)'
-        }
-        onValueChange={() => {
-          setTimeout(() => {
-            void backgroundApiProxy.serviceApp.restartApp();
-          }, 300);
-        }}
       >
         <Switch size={ESwitchSize.small} />
       </SectionFieldItem>
@@ -842,6 +960,13 @@ export const DevSettingsSection = () => {
           navigation.push(EModalSettingRoutes.SettingDevPerpGalleryModal);
         }}
       />
+      <SectionPressItem
+        icon="LockOutline"
+        title="CryptoGallery"
+        onPress={() => {
+          navigation.push(EModalSettingRoutes.SettingDevCryptoGalleryModal);
+        }}
+      />
       <AutoJumpSetting />
 
       <SectionPressItem
@@ -860,7 +985,7 @@ export const DevSettingsSection = () => {
           });
         }}
       />
-
+      <AutoUpdateDevSettings />
       <ListItem
         icon="PerformanceOutline"
         title="Performance Monitor(UI FPS/JS FPS)"
@@ -933,5 +1058,16 @@ export const DevSettingsSection = () => {
         />
       ) : null}
     </Section>
+  );
+};
+
+export const DevSettingsSection = () => {
+  return (
+    <AccountSelectorProviderMirror
+      config={{ sceneName: EAccountSelectorSceneName.home }}
+      enabledNum={[0]}
+    >
+      <BaseDevSettingsSection />
+    </AccountSelectorProviderMirror>
   );
 };

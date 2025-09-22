@@ -64,7 +64,7 @@ export function PerpApiTests() {
   // Load stored perp configuration
   const loadPerpConfig = async () => {
     try {
-      const config = await backgroundApiProxy.simpleDb.perp.getPerpConfig();
+      const config = await backgroundApiProxy.simpleDb.perp.getPerpData();
       setStoredBuilderAddress(config.hyperliquidBuilderAddress || '');
       setStoredMaxBuilderFee(config.hyperliquidMaxBuilderFee?.toString() || '');
       setNewBuilderAddress(config.hyperliquidBuilderAddress || '');
@@ -79,12 +79,16 @@ export function PerpApiTests() {
     try {
       if (newBuilderAddress) {
         await backgroundApiProxy.serviceWebviewPerp.updatePerpConfig({
-          address: newBuilderAddress,
+          referrerConfig: {
+            referrerAddress: newBuilderAddress,
+          },
         });
       }
       if (newMaxBuilderFee) {
         await backgroundApiProxy.serviceWebviewPerp.updatePerpConfig({
-          fee: Number(newMaxBuilderFee),
+          referrerConfig: {
+            referrerRate: Number(newMaxBuilderFee),
+          },
         });
       }
       await loadPerpConfig(); // Reload to confirm changes
@@ -496,7 +500,7 @@ export function PerpApiTests() {
 
 const PerpGallery = () => (
   <Layout
-    filePath={__CURRENT_FILE_PATH__}
+    getFilePath={() => __CURRENT_FILE_PATH__}
     componentName="PerpGallery"
     elements={[
       {

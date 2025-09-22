@@ -74,6 +74,13 @@ const PerpGallery = LazyLoadPage(
     ),
 );
 
+const CryptoGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CryptoGallery'
+    ),
+);
+
 const ExportCustomNetworkConfig = LazyLoadPage(
   () =>
     import('@onekeyhq/kit/src/views/Setting/pages/ExportCustomNetworkConfig'),
@@ -99,6 +106,10 @@ const AlignPrimaryAccountModal = LazyLoadPage(
 
 const CustomTransactionModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/CustomTransaction'),
+);
+
+const PerpUserConfigModal = LazyLoadPage(
+  () => import('@onekeyhq/kit/src/views/Setting/pages/PerpUserConfig'),
 );
 
 export const BasicModalSettingStack: IModalFlowNavigatorConfig<
@@ -163,6 +174,10 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
     component: PerpGallery,
   },
   {
+    name: EModalSettingRoutes.SettingDevCryptoGalleryModal,
+    component: CryptoGallery,
+  },
+  {
     name: EModalSettingRoutes.SettingExportCustomNetworkConfig,
     component: ExportCustomNetworkConfig,
   },
@@ -185,6 +200,10 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
   {
     name: EModalSettingRoutes.SettingFloatingIconModal,
     component: FloatingIconModal,
+  },
+  {
+    name: EModalSettingRoutes.SettingPerpUserConfig,
+    component: PerpUserConfigModal,
   },
   ...(ModalAddressBookRouter as IModalFlowNavigatorConfig<
     EModalSettingRoutes | EModalAddressBookRoutes,

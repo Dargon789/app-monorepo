@@ -46,6 +46,7 @@ export enum EAtomNames {
   primePersistAtom = 'primePersistAtom',
   primeCloudSyncPersistAtom = 'primeCloudSyncPersistAtom',
   primeMasterPasswordPersistAtom = 'primeMasterPasswordPersistAtom',
+  primeServerMasterPasswordStatusAtom = 'primeServerMasterPasswordStatusAtom',
   primeInitAtom = 'primeInitAtom',
   primeLoginDialogAtom = 'primeLoginDialogAtom',
   primeTransferAtom = 'primeTransferAtom',
@@ -54,6 +55,14 @@ export enum EAtomNames {
   allNetworksPersistAtom = 'allNetworksPersistAtom',
   desktopBluetoothAtom = 'desktopBluetoothAtom',
   hardwareForceTransportAtom = 'hardwareForceTransportAtom',
+  // perps
+  perpsSelectedAccountAtom = 'perpsSelectedAccountAtom',
+  perpsAccountLoadingInfoAtom = 'perpsAccountLoadingInfoAtom',
+  perpsSelectedAccountStatusAtom = 'perpsSelectedAccountStatusAtom',
+  perpsSelectedSymbolAtom = 'perpsSelectedSymbolAtom',
+  perpsCustomSettingsAtom = 'perpsCustomSettingsAtom',
+  perpsCommonConfigPersistAtom = 'perpsCommonConfigPersistAtom',
+  perpsUserConfigPersistAtom = 'perpsUserConfigPersistAtom',
 }
 export type IAtomNameKeys = keyof typeof EAtomNames;
 export const atomsConfig: Partial<

@@ -17,6 +17,7 @@ import {
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 
 import { ALL_NETWORK_ACCOUNT_MOCK_ADDRESS } from '../consts/addresses';
+import { AGGREGATE_TOKEN_MOCK_NETWORK_ID } from '../consts/networkConsts';
 import {
   type EHyperLiquidAgentName,
   HYPERLIQUID_AGENT_CREDENTIAL_PREFIX,
@@ -552,6 +553,10 @@ function isAccountCompatibleWithNetwork({
     );
   }
 
+  if (networkId === AGGREGATE_TOKEN_MOCK_NETWORK_ID) {
+    return true;
+  }
+
   const impl = networkUtils.getNetworkImpl({ networkId });
   // check if impl matched
   if (impl !== account.impl && account.impl) {
@@ -773,6 +778,14 @@ function isTonMnemonicCredentialId(credentialId: string): boolean {
   return credentialId.endsWith('--ton_credential');
 }
 
+function getAccountIdFromTonMnemonicCredentialId({
+  credentialId,
+}: {
+  credentialId: string;
+}) {
+  return credentialId.replace(/--ton_credential$/, '');
+}
+
 function buildHyperLiquidAgentCredentialId({
   userAddress,
   agentName,
@@ -904,6 +917,7 @@ export default {
   buildAccountLocalAssetsKey,
   buildTonMnemonicCredentialId,
   isTonMnemonicCredentialId,
+  getAccountIdFromTonMnemonicCredentialId,
   buildHyperLiquidAgentCredentialId,
   HYPERLIQUID_AGENT_CREDENTIAL_PREFIX,
   buildCustomEvmNetworkId,

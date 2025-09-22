@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import type { ReactNode } from 'react';
 
-import { Spinner, Stack, Table, useMedia } from '@onekeyhq/components';
+import {
+  ETableSortType,
+  Spinner,
+  Stack,
+  Table,
+  useMedia,
+} from '@onekeyhq/components';
 import type { ITableColumn } from '@onekeyhq/components';
 import {
   EAppEventBusNames,
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
+import { ESortWay } from '@onekeyhq/shared/src/logger/scopes/dex/types';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { useMarketTokenColumns } from './hooks/useMarketTokenColumns';
@@ -20,6 +28,13 @@ const SORTABLE_COLUMNS = {
   turnover: 'v24hUSD',
 } as const;
 
+// Map sort keys to ESortWay enum values for logging
+const SORT_KEY_TO_ENUM: Record<string, ESortWay> = {
+  liquidity: ESortWay.Liquidity,
+  mc: ESortWay.MC,
+  v24hUSD: ESortWay.Volume,
+};
+
 export type IMarketTokenListResult = {
   data: IMarketToken[];
   isLoading: boolean | undefined;
@@ -29,6 +44,8 @@ export type IMarketTokenListResult = {
   loadMore?: () => void | Promise<void>;
   setSortBy: (sortBy: string | undefined) => void;
   setSortType: (sortType: 'asc' | 'desc' | undefined) => void;
+  initialSortBy?: string;
+  initialSortType?: 'asc' | 'desc';
 };
 
 type IMarketTokenListBaseProps = {
@@ -60,6 +77,8 @@ function MarketTokenListBase({
     loadMore,
     setSortBy,
     setSortType,
+    initialSortBy,
+    initialSortType,
   } = result;
 
   // Listen to MarketWatchlistOnlyChanged event to update sort settings
@@ -93,10 +112,28 @@ function MarketTokenListBase({
 
   const handleSortChange = useCallback(
     (sortBy: string, sortType: 'asc' | 'desc' | undefined) => {
-      setSortBy(sortBy);
-      setSortType(sortType);
+      console.log('handleSortChange', sortBy, sortType);
+
+      // Log sort action
+      const sortWay =
+        sortType === undefined
+          ? ESortWay.Default
+          : SORT_KEY_TO_ENUM[sortBy] || ESortWay.Default;
+
+      defaultLogger.dex.list.dexSort({
+        sortWay,
+        sortDirection: sortType,
+      });
+
+      if (sortType === undefined) {
+        setSortBy(initialSortBy);
+        setSortType(initialSortType);
+      } else {
+        setSortBy(sortBy);
+        setSortType(sortType);
+      }
     },
-    [setSortBy, setSortType],
+    [setSortBy, setSortType, initialSortBy, initialSortType],
   );
 
   const handleHeaderRow = useCallback(
@@ -110,12 +147,13 @@ function MarketTokenListBase({
           onSortTypeChange: (order: 'asc' | 'desc' | undefined) => {
             handleSortChange(sortKey, order);
           },
+          disableSort: isWatchlistMode ? [] : [ETableSortType.ASC],
         };
       }
 
       return undefined;
     },
-    [handleSortChange],
+    [handleSortChange, isWatchlistMode],
   );
 
   const handleEndReached = useCallback(() => {
@@ -190,11 +228,7 @@ function MarketTokenListBase({
               columns={marketTokenColumns}
               onEndReached={handleEndReached}
               dataSource={data}
-              keyExtractor={(item) =>
-                `${item.address}${item.chainId ?? ''}${item.name ?? ''}${
-                  item.networkId ?? ''
-                }${item.symbol ?? ''}${item.tokenImageUri ?? ''}`
-              }
+              keyExtractor={(item) => JSON.stringify(item)}
               extraData={networkId}
               onHeaderRow={handleHeaderRow}
               TableFooterComponent={TableFooterComponent}
@@ -210,6 +244,7 @@ function MarketTokenListBase({
                           symbol: item.symbol,
                           tokenAddress: item.address,
                           networkId: item.networkId,
+                          isNative: item.isNative,
                         }),
                     })
               }

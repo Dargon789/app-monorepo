@@ -12,7 +12,10 @@ import type {
 import { Dialog, SizableText, Stack, useClipboard } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import PasswordUpdateContainer from '@onekeyhq/kit/src/components/Password/container/PasswordUpdateContainer';
-import { useAppUpdateInfo } from '@onekeyhq/kit/src/components/UpdateReminder/hooks';
+import {
+  isShowAppUpdateUIWhenUpdating,
+  useAppUpdateInfo,
+} from '@onekeyhq/kit/src/components/UpdateReminder/hooks';
 import type useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { useBiometricAuthInfo } from '@onekeyhq/kit/src/hooks/useBiometricAuthInfo';
 import { useHelpLink } from '@onekeyhq/kit/src/hooks/useHelpLink';
@@ -22,6 +25,7 @@ import {
   usePasswordBiologyAuthInfoAtom,
   usePasswordPersistAtom,
   usePasswordWebAuthInfoAtom,
+  usePerpsCommonConfigPersistAtom,
   useSettingsPersistAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
@@ -42,7 +46,8 @@ import {
   EModalRoutes,
   EModalSettingRoutes,
 } from '@onekeyhq/shared/src/routes';
-import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
+import { EManualBackupRoutes } from '@onekeyhq/shared/src/routes/manualBackup';
+import { EPrimeFeatures, EPrimePages } from '@onekeyhq/shared/src/routes/prime';
 import { EModalShortcutsRoutes } from '@onekeyhq/shared/src/routes/shortcuts';
 import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
 import { EHardwareTransportType } from '@onekeyhq/shared/types';
@@ -115,6 +120,12 @@ export type ISettingsConfig = (
 )[];
 export const useSettingsConfig: () => ISettingsConfig = () => {
   const appUpdateInfo = useAppUpdateInfo();
+  const isShowAppUpdateUI = useMemo(() => {
+    return isShowAppUpdateUIWhenUpdating({
+      updateStrategy: appUpdateInfo.data.updateStrategy,
+      updateStatus: appUpdateInfo.data.status,
+    });
+  }, [appUpdateInfo.data.updateStrategy, appUpdateInfo.data.status]);
   const intl = useIntl();
   const onPressAddressBook = useShowAddressBook({
     useNewModal: false,
@@ -131,6 +142,7 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
   const [devSettings] = useDevSettingsPersistAtom();
   const { isPrimeAvailable } = usePrimeAvailable();
   const { isLoggedIn } = usePrimeAuthV2();
+  const [{ perpConfigCommon }] = usePerpsCommonConfigPersistAtom();
   const [settings] = useSettingsPersistAtom();
   return useMemo(
     () => [
@@ -163,6 +175,11 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
                     id: ETranslations.global_onekey_cloud,
                   }),
                   onPress: (navigation) => {
+                    defaultLogger.prime.subscription.primeEntryClick({
+                      featureName: EPrimeFeatures.OneKeyCloud,
+                      entryPoint: 'settingsPage',
+                    });
+
                     navigation?.pushModal(EModalRoutes.PrimeModal, {
                       screen: EPrimePages.PrimeCloudSync,
                     });
@@ -188,6 +205,17 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
             },
           ],
           [
+            {
+              icon: 'SignatureOutline',
+              title: intl.formatMessage({
+                id: ETranslations.manual_backup,
+              }),
+              onPress: (navigation) => {
+                navigation?.pushModal(EModalRoutes.ManualBackupModal, {
+                  screen: EManualBackupRoutes.ManualBackupSelectWallet,
+                });
+              },
+            },
             platformEnv.isNative
               ? {
                   icon: 'OnekeyLiteOutline',
@@ -345,6 +373,17 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
                 );
               },
             },
+          ],
+          [
+            !perpConfigCommon.disablePerp && !perpConfigCommon.usePerpWeb
+              ? {
+                  icon: 'LabOutline',
+                  title: 'Perp Config',
+                  onPress: (navigation) => {
+                    navigation?.push(EModalSettingRoutes.SettingPerpUserConfig);
+                  },
+                }
+              : null,
           ],
         ],
       },
@@ -562,7 +601,7 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
         title: intl.formatMessage({
           id: ETranslations.global_about,
         }),
-        showDot: !!appUpdateInfo.isNeedUpdate,
+        showDot: isShowAppUpdateUI && !!appUpdateInfo.isNeedUpdate,
         configs: [
           [
             {
@@ -760,12 +799,16 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
     [
       intl,
       isPrimeAvailable,
-      isLoggedIn,
+      perpConfigCommon.disablePerp,
+      perpConfigCommon.usePerpWeb,
       isPasswordSet,
       biologyAuthIsSupport,
       webAuthIsSupport,
       biometricAuthInfo.title,
       biometricAuthInfo.icon,
+      isLoggedIn,
+      settings.hardwareTransportType,
+      isShowAppUpdateUI,
       appUpdateInfo.isNeedUpdate,
       devSettings.enabled,
       onPressAddressBook,
@@ -773,7 +816,6 @@ export const useSettingsConfig: () => ISettingsConfig = () => {
       userAgreementUrl,
       privacyPolicyUrl,
       copyText,
-      settings.hardwareTransportType,
     ],
   );
 };

@@ -4,6 +4,7 @@ import { useIntl } from 'react-intl';
 
 import {
   Divider,
+  ESectionLayoutType,
   Icon,
   SizableText,
   SortableSectionList,
@@ -11,7 +12,10 @@ import {
   XStack,
   useShortcuts,
 } from '@onekeyhq/components';
-import type { ISortableSectionListRef } from '@onekeyhq/components';
+import type {
+  ISectionLayoutItem,
+  ISortableSectionListRef,
+} from '@onekeyhq/components';
 import type { IPageNavigationProp } from '@onekeyhq/components/src/layouts/Navigation';
 import { DesktopTabItem } from '@onekeyhq/components/src/layouts/Navigation/Tab/TabBar/DesktopTabItem';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
@@ -102,9 +106,13 @@ function DesktopCustomTabBar() {
   );
   const handleCloseTab = useCallback(
     (id: string) => {
-      void closeWebTab({ tabId: id, entry: 'Menu' });
+      void closeWebTab({
+        tabId: id,
+        entry: 'Menu',
+        navigation,
+      });
     },
-    [closeWebTab],
+    [closeWebTab, navigation],
   );
   const handleBookmarkPress = useCallback(
     (bookmark: boolean, url: string, title: string) => {
@@ -334,6 +342,13 @@ function DesktopCustomTabBar() {
         SectionSeparatorComponent={null}
         onDragEnd={onDragEnd}
         allowCrossSection
+        getItemDragDisabled={(layoutItem) => {
+          // Disable dragging for section headers (which includes the new tab button)
+          return (
+            (layoutItem as ISectionLayoutItem).type ===
+            ESectionLayoutType.Header
+          );
+        }}
         renderSectionHeader={({ index }) =>
           index === 1 ? (
             <>

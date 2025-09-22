@@ -67,6 +67,7 @@ export type IServerNetwork = {
   isAllNetworks?: boolean;
   explorerURL?: string;
   isCustomNetwork?: boolean;
+  isAggregateNetwork?: boolean;
 };
 
 export enum EOnekeyDomain {
@@ -77,6 +78,7 @@ export enum EAccountSelectorSceneName {
   home = 'home',
   homeUrlAccount = 'homeUrlAccount',
   swap = 'swap',
+  perp = 'perp',
   discover = 'discover',
   addressInput = 'addressInput', // test Gallery AddressInput test
   market = 'market',
@@ -96,6 +98,7 @@ export enum EHomeTab {
   NFT = 'nft',
   HISTORY = 'history',
   TOOLS = 'tools',
+  APPROVALS = 'approvals',
 }
 
 export enum EAssetType {

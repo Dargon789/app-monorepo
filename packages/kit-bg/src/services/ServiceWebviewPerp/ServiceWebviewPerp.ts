@@ -9,6 +9,7 @@ import {
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import {
+  HYPER_LIQUID_CUSTOM_LOCAL_STORAGE_V2_PRESET,
   HYPER_LIQUID_ORIGIN,
   HYPER_LIQUID_WEBVIEW_TRADE_URL,
 } from '@onekeyhq/shared/src/consts/perp';
@@ -18,6 +19,7 @@ import thirdpartyLocaleConverter from '@onekeyhq/shared/src/locale/thirdpartyLoc
 import type { ILocaleSymbol } from '@onekeyhq/shared/src/locale/type';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import cacheUtils from '@onekeyhq/shared/src/utils/cacheUtils';
+import perfUtils from '@onekeyhq/shared/src/utils/debug/perfUtils';
 import extUtils from '@onekeyhq/shared/src/utils/extUtils';
 import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
@@ -28,14 +30,20 @@ import type {
   IHyperLiquidTypedDataApproveBuilderFee,
   IHyperLiquidUserBuilderFeeStatus,
 } from '@onekeyhq/shared/types/hyperliquid';
+import type { EPerpUserType } from '@onekeyhq/shared/types/hyperliquid/types';
 
-import { settingsPersistAtom } from '../../states/jotai/atoms';
+import {
+  perpsCommonConfigPersistAtom,
+  perpsUserConfigPersistAtom,
+  settingsPersistAtom,
+} from '../../states/jotai/atoms';
 import ServiceBase from '../ServiceBase';
 
 import type {
   IHyperliquidCustomSettings,
-  ISimpleDbPerpConfig,
+  ISimpleDbPerpData,
 } from '../../dbs/simple/entity/SimpleDbEntityPerp';
+import type { IPerpsCommonConfigPersistAtom } from '../../states/jotai/atoms';
 import type {
   IJsBridgeMessagePayload,
   IJsonRpcRequest,
@@ -141,6 +149,45 @@ export interface IHyperliquidExchangeResponse {
   };
 }
 
+export enum EPerpDefaultTabType {
+  Native = 'native',
+  Web = 'web',
+}
+export interface IPerpServerBannerConfig {
+  id: string;
+  title: string;
+  description: string;
+  canClose?: boolean;
+}
+
+export interface IPerpServerReferrerConfig {
+  referrerAddress?: string;
+  referrerRate?: number;
+  agentTTL?: number;
+  referralCode?: string;
+}
+
+export interface IPerpServerCommonConfig {
+  usePerpWeb?: boolean;
+  disablePerp?: boolean;
+  disablePerpActionPerp?: boolean;
+  ipDisablePerp?: boolean;
+}
+
+export interface IPerpServerConfigResponse {
+  referrerConfig: IPerpServerReferrerConfig;
+  customSettings?: IHyperliquidCustomSettings;
+  customLocalStorage?: Record<string, any>;
+  customLocalStorageV2?: Record<
+    string,
+    {
+      value: any;
+      skipIfExists?: boolean;
+    }
+  >;
+  commonConfig?: IPerpServerCommonConfig;
+  bannerConfig?: IPerpServerBannerConfig;
+}
 @backgroundClass()
 class ServiceWebviewPerp extends ServiceBase {
   constructor({ backgroundApi }: { backgroundApi: any }) {
@@ -154,39 +201,62 @@ class ServiceWebviewPerp extends ServiceBase {
 
   @backgroundMethod()
   async updatePerpConfig({
-    address,
-    fee,
+    referrerConfig,
     customSettings,
     customLocalStorage,
-  }: {
-    address?: string;
-    fee?: number;
-    customSettings?: IHyperliquidCustomSettings;
-    customLocalStorage?: Record<string, any>;
-  }) {
+    customLocalStorageV2,
+    commonConfig,
+    bannerConfig,
+  }: IPerpServerConfigResponse) {
     let shouldNotifyToDapp = false;
-    await this.backgroundApi.simpleDb.perp.setPerpConfig(
-      (prev): ISimpleDbPerpConfig => {
-        const newConfig: ISimpleDbPerpConfig = {
+    await perpsCommonConfigPersistAtom.set(
+      (prev): IPerpsCommonConfigPersistAtom => {
+        const newVal = perfUtils.buildNewValueIfChanged(prev, {
           ...prev,
-          hyperliquidBuilderAddress: address || prev?.hyperliquidBuilderAddress,
-          hyperliquidMaxBuilderFee: isNil(fee)
+          perpConfigCommon: {
+            ...prev.perpConfigCommon,
+            // usePerpWeb: true,
+            usePerpWeb: commonConfig?.usePerpWeb,
+            disablePerp: commonConfig?.disablePerp,
+            disablePerpActionPerp: commonConfig?.disablePerpActionPerp,
+            perpBannerConfig: bannerConfig,
+            ipDisablePerp: commonConfig?.ipDisablePerp,
+          },
+        });
+        return newVal;
+      },
+    );
+    await this.backgroundApi.simpleDb.perp.setPerpData(
+      (prev): ISimpleDbPerpData => {
+        const newConfig: ISimpleDbPerpData = {
+          tradingUniverse: prev?.tradingUniverse,
+          marginTables: prev?.marginTables,
+          ...prev,
+          hyperliquidBuilderAddress:
+            referrerConfig?.referrerAddress || prev?.hyperliquidBuilderAddress,
+          hyperliquidMaxBuilderFee: isNil(referrerConfig?.referrerRate)
             ? prev?.hyperliquidMaxBuilderFee
-            : fee,
+            : referrerConfig?.referrerRate,
+          agentTTL: referrerConfig.agentTTL ?? prev?.agentTTL,
+          referralCode: referrerConfig.referralCode || prev?.referralCode,
           hyperliquidCustomSettings:
             customSettings || prev?.hyperliquidCustomSettings,
           hyperliquidCustomLocalStorage:
             customLocalStorage || prev?.hyperliquidCustomLocalStorage,
+          hyperliquidCustomLocalStorageV2:
+            customLocalStorageV2 || prev?.hyperliquidCustomLocalStorageV2,
         };
         if (isEqual(newConfig, prev)) {
-          return prev || {};
+          return (
+            prev || { tradingUniverse: undefined, marginTables: undefined }
+          );
         }
         shouldNotifyToDapp = true;
         return newConfig;
       },
     );
     if (shouldNotifyToDapp) {
-      const config = await this.backgroundApi.simpleDb.perp.getPerpConfig();
+      const config = await this.backgroundApi.simpleDb.perp.getPerpData();
       await this.backgroundApi.serviceDApp.notifyHyperliquidPerpConfigChanged({
         hyperliquidBuilderAddress: config.hyperliquidBuilderAddress,
         hyperliquidMaxBuilderFee: config.hyperliquidMaxBuilderFee,
@@ -598,31 +668,26 @@ class ServiceWebviewPerp extends ServiceBase {
   async updateBuilderFeeConfigByServer() {
     const client = await this.getClient(EServiceEndpointEnum.Utility);
     const resp = await client.get<
-      IApiClientResponse<{
-        referrerAddress: string;
-        referrerRate: number;
-        customSettings: IHyperliquidCustomSettings;
-        customLocalStorage: Record<string, any>;
-      }>
+      IApiClientResponse<IPerpServerConfigResponse>
     >('/utility/v1/perp-config');
     const resData = resp.data;
-    // TODO remove
-    // if (resData.data) {
-    //   resData.data.customSettings = {
-    //     hideNavBar: false,
-    //     hideNavBarConnectButton: false,
-    //     hideNotOneKeyWalletConnectButton: false,
-    //   };
-    //   resData.data.customLocalStorage = {
-    //     'hyperliquid.coin_selector.tab': `"spot"`, // "perps", "all", "spot"
-    //     'activeCoin': 'AAA', // do not use `"BTC"`
-    //   };
-    // }
+
+    if (process.env.NODE_ENV !== 'production') {
+      // TODO devSettings ignore server config 11
+      // TODO remove
+      // resData.data.referrerRate = 65;
+    }
+
     await this.updatePerpConfig({
-      address: resData?.data?.referrerAddress,
-      fee: resData?.data?.referrerRate,
+      referrerConfig: resData?.data?.referrerConfig,
       customSettings: resData?.data?.customSettings,
       customLocalStorage: resData?.data?.customLocalStorage,
+      customLocalStorageV2: {
+        ...HYPER_LIQUID_CUSTOM_LOCAL_STORAGE_V2_PRESET,
+        ...resData?.data?.customLocalStorageV2,
+      },
+      commonConfig: resData?.data?.commonConfig,
+      bannerConfig: resData?.data?.bannerConfig,
     });
     return resData;
   }
@@ -652,16 +717,19 @@ class ServiceWebviewPerp extends ServiceBase {
     //   console.error(error);
     // }
     const shouldModifyPlaceOrderPayload = true;
-    // Get builderAddress and builderFeeValue from simpleDB
-    const expectBuilderAddress =
-      (await this.backgroundApi.simpleDb.perp.getExpectBuilderAddress()) || '';
-    // Need to check this formula returns an integer in the browser: 1e5 * (num/1e5)
-    let expectMaxBuilderFee =
-      (await this.backgroundApi.simpleDb.perp.getExpectMaxBuilderFee()) || 0; // 1e5 * (num/1e5)
-    const { hyperliquidCustomSettings, hyperliquidCustomLocalStorage } =
-      await this.backgroundApi.simpleDb.perp.getPerpConfig();
-    if (expectMaxBuilderFee < 0) {
+
+    let {
+      hyperliquidCustomSettings,
+      hyperliquidCustomLocalStorage,
+      hyperliquidCustomLocalStorageV2,
+      hyperliquidBuilderAddress: expectBuilderAddress,
+      hyperliquidMaxBuilderFee: expectMaxBuilderFee,
+    } = await this.backgroundApi.simpleDb.perp.getPerpData();
+    if (!expectMaxBuilderFee || expectMaxBuilderFee < 0) {
       expectMaxBuilderFee = 0;
+    }
+    if (!expectBuilderAddress) {
+      expectBuilderAddress = '';
     }
     let locale: ILocaleSymbol | undefined;
     let storedLocale: ILocaleSymbol | undefined;
@@ -688,6 +756,10 @@ class ServiceWebviewPerp extends ServiceBase {
       locale: localeStr,
       storedLocale,
       customLocalStorage,
+      customLocalStorageV2: {
+        ...HYPER_LIQUID_CUSTOM_LOCAL_STORAGE_V2_PRESET,
+        ...hyperliquidCustomLocalStorageV2,
+      },
       expectBuilderAddress,
       expectMaxBuilderFee,
       shouldModifyPlaceOrderPayload,
@@ -770,6 +842,14 @@ class ServiceWebviewPerp extends ServiceBase {
         },
       );
     }
+  }
+
+  @backgroundMethod()
+  async setPerpUserConfig(type: EPerpUserType) {
+    await perpsUserConfigPersistAtom.set((prev) => ({
+      ...prev,
+      perpUserConfig: { ...prev.perpUserConfig, currentUserType: type },
+    }));
   }
 }
 

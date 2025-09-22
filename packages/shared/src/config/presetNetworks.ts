@@ -1,11 +1,34 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 /* eslint-disable spellcheck/spell-checker */
+import { AGGREGATE_TOKEN_MOCK_NETWORK_ID } from '@onekeyhq/shared/src/consts/networkConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import { memoFn } from '@onekeyhq/shared/src/utils/cacheUtils';
 import type { IServerNetwork } from '@onekeyhq/shared/types';
 import { ENetworkStatus } from '@onekeyhq/shared/types';
 
 import platformEnv from '../platformEnv';
+
+export const dangerAggregateTokenNetworkRepresent: IServerNetwork = {
+  'chainId': '0',
+  'code': 'aggregate',
+  'decimals': 0,
+  'id': AGGREGATE_TOKEN_MOCK_NETWORK_ID,
+  'impl': 'aggregate',
+  'isTestnet': false,
+  'isAllNetworks': false,
+  'name': 'Aggregate Token Network',
+  'logoURI': '',
+  'shortcode': 'aggregate',
+  'shortname': 'aggregate',
+  'symbol': 'AGGREGATE',
+  'feeMeta': {
+    'decimals': 0,
+    'symbol': '0',
+  },
+  'defaultEnabled': false,
+  'isAggregateNetwork': true,
+  'status': ENetworkStatus.LISTED,
+};
 
 // dangerNetwork represents a virtual network
 export const dangerAllNetworkRepresent: IServerNetwork = {
@@ -59,7 +82,7 @@ const eth: IServerNetwork = {
 };
 const bsc: IServerNetwork = {
   'impl': 'evm',
-  'chainId': '56',
+  'chainId': '56', // 0x38
   'id': 'evm--56',
   'name': 'BNB Chain',
   'symbol': 'BNB',
@@ -3208,5 +3231,17 @@ export const getNetworksSupportMevProtection = memoFn(
       name: 'Shio',
       logoURI: 'https://uni.onekey-asset.com/static/logo/shio.png',
     },
+  }),
+);
+
+export const getNetworksSupportBulkRevokeApproval = memoFn(
+  (): Record<string, boolean> => ({
+    [eth.id]: true,
+    [bsc.id]: true,
+    [polygon.id]: true,
+    [arbitrum.id]: true,
+    [avalanche.id]: true,
+    [optimism.id]: true,
+    [base.id]: true,
   }),
 );

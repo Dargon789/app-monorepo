@@ -1,6 +1,7 @@
+/* eslint-disable dot-notation */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 import { EventEmitter } from 'events';
-import * as path from 'path';
+import path from 'path';
 import { format as formatUrl } from 'url';
 
 import { initNobleBleSupport } from '@onekeyfe/hd-transport-electron';
@@ -37,12 +38,13 @@ import type {
   IDesktopSubModuleInitParams,
 } from '@onekeyhq/shared/types/desktop';
 
+import { checkFileSha512, getBundleIndexHtmlPath, getMetadata } from './bundle';
 import { ipcMessageKeys } from './config';
 import { ETranslations, i18nText, initLocale } from './i18n';
 import { registerShortcuts, unregisterShortcuts } from './libs/shortcuts';
 import * as store from './libs/store';
 import initProcess from './process';
-import { resourcesPath, staticPath } from './resoucePath';
+import { getResourcesPath, getStaticPath } from './resoucePath';
 import { initSentry } from './sentry';
 import { startServices } from './service';
 
@@ -54,6 +56,23 @@ initSentry();
 // https://github.com/sindresorhus/electron-context-menu
 let disposeContextMenu: ReturnType<typeof contextMenu> | undefined;
 
+globalThis.$desktopMainAppFunctions = {
+  getBundleIndexHtmlPath: () => {
+    const bundleData = store.getUpdateBundleData();
+    return getBundleIndexHtmlPath({
+      appVersion: bundleData.appVersion,
+      bundleVersion: bundleData.bundleVersion,
+    });
+  },
+  useJsBundle: () => {
+    const bundleData = store.getUpdateBundleData();
+    return !!getBundleIndexHtmlPath({
+      appVersion: bundleData.appVersion,
+      bundleVersion: bundleData.bundleVersion,
+    });
+  },
+} as typeof globalThis.$desktopMainAppFunctions;
+
 // WARNING: This name cannot be changed as it affects Electron data storage.
 // Changing it will cause the system to generate new storage, preventing users from accessing their existing data.
 const APP_NAME = 'OneKey Wallet';
@@ -61,8 +80,11 @@ const APP_TITLE_NAME = 'OneKey';
 app.name = APP_NAME;
 let mainWindow: BrowserWindow | null;
 
+const staticPath = getStaticPath();
+const resourcesPath = getResourcesPath();
 // static path
 const preloadJsUrl = path.join(staticPath, 'preload.js');
+// const preloadJsUrl = path.join(staticPath, 'preload-webview-test.js');
 
 const sdkConnectSrc = isDev
   ? `file://${path.join(staticPath, 'js-sdk/')}`
@@ -410,7 +432,7 @@ const ratio = 16 / 9;
 const defaultSize = 1200;
 const minWidth = 1024;
 const minHeight = 800;
-function createMainWindow() {
+async function createMainWindow() {
   // https://github.com/electron/electron/issues/16168
   const { screen } = require('electron');
   // eslint-disable-next-line @typescript-eslint/no-unsafe-call
@@ -477,6 +499,10 @@ function createMainWindow() {
     return undefined;
   };
 
+  const bundleData = store.getUpdateBundleData();
+  const bundleIndexHtmlPath = getBundleIndexHtmlPath(bundleData);
+  logger.info('bundleIndexHtmlPath >>>> ', bundleIndexHtmlPath);
+
   globalThis.$desktopMainAppFunctions = {
     getSafelyMainWindow,
     getSafelyBrowserWindow,
@@ -485,6 +511,8 @@ function createMainWindow() {
     showMainWindow,
     refreshMenu,
     getAppName: () => APP_NAME,
+    getBundleIndexHtmlPath: () => bundleIndexHtmlPath,
+    useJsBundle: () => !!bundleIndexHtmlPath,
   };
 
   if (isMac) {
@@ -500,7 +528,7 @@ function createMainWindow() {
   const src = isDev
     ? 'http://localhost:3001/'
     : formatUrl({
-        pathname: 'index.html',
+        pathname: bundleIndexHtmlPath || 'index.html',
         protocol: 'file',
         slashes: true,
       });
@@ -710,6 +738,38 @@ function createMainWindow() {
   );
 
   if (!isDev) {
+    const indexHtmlPath =
+      globalThis.$desktopMainAppFunctions?.getBundleIndexHtmlPath?.();
+    const useJsBundle = globalThis.$desktopMainAppFunctions?.useJsBundle?.();
+    const bundleDirPath = indexHtmlPath
+      ? path.dirname(indexHtmlPath)
+      : undefined;
+    const metadata = bundleDirPath
+      ? await getMetadata({
+          bundleDir: bundleDirPath,
+          appVersion: bundleData.appVersion,
+          bundleVersion: bundleData.bundleVersion,
+          signature: bundleData.signature,
+        })
+      : {};
+    const checkFileHash = (url: string) => {
+      if (!bundleDirPath) {
+        throw new OneKeyLocalError('Bundle directory path not found');
+      }
+      const key = url.replace(/^\/+/, '');
+      if (!key) {
+        throw new OneKeyLocalError(`File ${url} not found in metadata.json`);
+      }
+      const sha512 = metadata[key];
+      const filePath = path.join(bundleDirPath, key);
+      if (!sha512) {
+        throw new OneKeyLocalError(`File ${url} not found in metadata.json`);
+      }
+      if (!checkFileSha512(filePath, sha512)) {
+        throw new OneKeyLocalError(`File ${url} sha512 mismatch`);
+      }
+      return filePath;
+    };
     const PROTOCOL = 'file';
     session.defaultSession.protocol.interceptFileProtocol(
       PROTOCOL,
@@ -720,6 +780,16 @@ function createMainWindow() {
 
         // resolve iframe path
         if (isJsSdkFile && isIFrameHtml) {
+          if (useJsBundle && indexHtmlPath && bundleDirPath) {
+            const key = path.join('static', 'js-sdk', 'iframe.html');
+            const filePath = path.join(bundleDirPath, key);
+            const sha512 = metadata[key];
+            if (!checkFileSha512(filePath, sha512)) {
+              throw new OneKeyLocalError(`File ${key} sha512 mismatch`);
+            }
+            callback(filePath);
+            return;
+          }
           callback({
             path: path.join(
               __dirname,
@@ -734,9 +804,18 @@ function createMainWindow() {
         }
 
         // move to parent folder
-        let url = request.url.substr(PROTOCOL.length + 1);
-        url = path.join(__dirname, '..', 'build', url);
-        callback(url);
+        const url = request.url.substring(PROTOCOL.length + 1);
+        if (useJsBundle && indexHtmlPath && bundleDirPath) {
+          const decodedUrl = decodeURIComponent(url);
+          if (!decodedUrl.includes(bundleDirPath)) {
+            const filePath = checkFileHash(decodedUrl);
+            callback(filePath);
+            return;
+          }
+          callback(indexHtmlPath);
+        } else {
+          callback(path.join(__dirname, '..', 'build', url));
+        }
       },
     );
     const safelyBrowserWindow = getSafelyBrowserWindow();
@@ -772,7 +851,7 @@ function createMainWindow() {
 }
 
 function initChildProcess() {
-  return initProcess({ mainWindow: mainWindow as BrowserWindow, store });
+  return initProcess();
 }
 
 const singleInstance = app.requestSingleInstanceLock();
@@ -798,13 +877,14 @@ if (!singleInstance && !process.mas) {
     }
   });
 
-  app.on('ready', async () => {
+  app.on('ready', async (_, launchInfo) => {
+    logger.info('launchInfo >>>> ', launchInfo);
     const locale = await initLocale();
     logger.info('locale >>>> ', locale);
     startServices();
 
     if (!mainWindow) {
-      mainWindow = createMainWindow();
+      mainWindow = await createMainWindow();
       initMenu();
     }
     void initChildProcess();
@@ -817,7 +897,7 @@ if (!singleInstance && !process.mas) {
 app.on('activate', async () => {
   await app.whenReady();
   if (!mainWindow) {
-    mainWindow = createMainWindow();
+    mainWindow = await createMainWindow();
   }
   showMainWindow();
 });

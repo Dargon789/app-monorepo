@@ -10,8 +10,13 @@ import {
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { memoFn } from '@onekeyhq/shared/src/utils/cacheUtils';
 import sortUtils from '@onekeyhq/shared/src/utils/sortUtils';
+import { equalTokenNoCaseSensitive } from '@onekeyhq/shared/src/utils/tokenUtils';
 import type { IMarketWatchListItemV2 } from '@onekeyhq/shared/types/market';
-import type { IMarketTokenDetail } from '@onekeyhq/shared/types/marketV2';
+import type {
+  IMarketTokenDetail,
+  IMarketTokenDetailResponse,
+  IMarketTokenDetailWebsocket,
+} from '@onekeyhq/shared/types/marketV2';
 
 import {
   contextAtomMethod,
@@ -21,6 +26,7 @@ import {
   tokenAddressAtom,
   tokenDetailAtom,
   tokenDetailLoadingAtom,
+  tokenDetailWebsocketAtom,
 } from './atoms';
 
 export const homeResettingFlags: Record<string, number> = {};
@@ -45,6 +51,20 @@ class ContextJotaiActionsMarketV2 extends ContextJotaiActionsBase {
     set(networkIdAtom(), payload);
   });
 
+  setTokenDetailWebsocket = contextAtomMethod(
+    (_, set, payload: IMarketTokenDetailWebsocket | undefined) => {
+      set(tokenDetailWebsocketAtom(), payload);
+    },
+  );
+
+  clearTokenDetail = contextAtomMethod((_, set) => {
+    set(tokenDetailAtom(), undefined);
+    set(tokenDetailLoadingAtom(), false);
+    set(tokenAddressAtom(), '');
+    set(networkIdAtom(), '');
+    set(tokenDetailWebsocketAtom(), undefined);
+  });
+
   // ShowWatchlistOnly Actions
   setShowWatchlistOnly = contextAtomMethod((_, set, payload: boolean) => {
     set(showWatchlistOnlyAtom(), payload);
@@ -65,7 +85,7 @@ class ContextJotaiActionsMarketV2 extends ContextJotaiActionsBase {
   });
 
   fetchTokenDetail = contextAtomMethod(
-    async (_, set, tokenAddress: string, networkId: string) => {
+    async (get, set, tokenAddress: string, networkId: string) => {
       try {
         set(tokenDetailLoadingAtom(), true);
 
@@ -75,11 +95,41 @@ class ContextJotaiActionsMarketV2 extends ContextJotaiActionsBase {
             networkId,
           );
 
-        set(tokenDetailAtom(), response);
-        return response;
+        // Assume new format with data.token and data.websocket
+        const responseData = response as unknown as IMarketTokenDetailResponse;
+
+        if (
+          typeof responseData?.data?.token?.name === 'undefined' ||
+          responseData.data.token.name === ''
+        ) {
+          console.warn('Token detail is not available');
+          return;
+        }
+
+        // Extract token and websocket data from new response format
+        const tokenData = responseData.data.token;
+        const websocketConfig = responseData.data.websocket;
+
+        // Always preserve K-line updated price if it exists, fallback to API price
+        const currentTokenDetail = get(tokenDetailAtom());
+        const hasKLinePrice = currentTokenDetail?.lastUpdated;
+
+        const finalTokenData = hasKLinePrice
+          ? {
+              ...tokenData,
+              price: currentTokenDetail.price, // Always use K-line price
+              lastUpdated: currentTokenDetail.lastUpdated,
+            }
+          : tokenData;
+
+        set(tokenDetailAtom(), finalTokenData);
+        set(tokenDetailWebsocketAtom(), websocketConfig);
+
+        return finalTokenData;
       } catch (error) {
         console.error('Failed to fetch token detail:', error);
         set(tokenDetailAtom(), undefined);
+        set(tokenDetailWebsocketAtom(), undefined);
         throw error;
       } finally {
         set(tokenDetailLoadingAtom(), false);
@@ -95,23 +145,31 @@ class ContextJotaiActionsMarketV2 extends ContextJotaiActionsBase {
     },
   );
 
-  refreshWatchListV2 = contextAtomMethod(async (get, set) => {
+  // ------------------------------------------------------------
+  refreshWatchListV2 = contextAtomMethod(async (_get, set) => {
     const data =
       await backgroundApiProxy.serviceMarketV2.getMarketWatchListV2();
     return this.flushWatchListV2Atom.call(set, data.data);
   });
 
   isInWatchListV2 = contextAtomMethod(
-    (get, set, chainId: string, contractAddress: string) => {
+    (get, _set, chainId: string, contractAddress: string) => {
       const prev = get(marketWatchListV2Atom());
-      return !!prev.data?.find(
-        (i) => i.chainId === chainId && i.contractAddress === contractAddress,
+      return !!prev.data?.find((i) =>
+        equalTokenNoCaseSensitive({
+          token1: { networkId: chainId, contractAddress },
+          token2: { networkId: i.chainId, contractAddress: i.contractAddress },
+        }),
       );
     },
   );
 
   addIntoWatchListV2 = contextAtomMethod(
-    (get, set, payload: IMarketWatchListItemV2 | IMarketWatchListItemV2[]) => {
+    async (
+      get,
+      set,
+      payload: IMarketWatchListItemV2 | IMarketWatchListItemV2[],
+    ) => {
       const params: IMarketWatchListItemV2[] = !Array.isArray(payload)
         ? [payload]
         : payload;
@@ -120,37 +178,47 @@ class ContextJotaiActionsMarketV2 extends ContextJotaiActionsBase {
         return;
       }
 
-      // Immediately update local state
-      const newData = [...prev.data, ...params];
-      set(marketWatchListV2Atom(), { ...prev, data: newData });
+      // Immediately update local state with proper sorting
+      const sortedNewData = sortUtils.buildSortedList({
+        oldList: prev.data,
+        saveItems: params,
+        uniqByFn: (i) => `${i.chainId}:${i.contractAddress}`,
+      });
+      set(marketWatchListV2Atom(), { ...prev, data: sortedNewData });
 
       // Asynchronously call API without waiting for result
-      void backgroundApiProxy.serviceMarketV2.addMarketWatchListV2({
+      await backgroundApiProxy.serviceMarketV2.addMarketWatchListV2({
         watchList: params,
       });
+      await this.refreshWatchListV2.call(set);
     },
   );
 
   removeFromWatchListV2 = contextAtomMethod(
-    (get, set, chainId: string, contractAddress: string) => {
+    async (get, set, chainId: string, contractAddress: string) => {
       const prev = get(marketWatchListV2Atom());
       if (!prev.isMounted) {
         return;
       }
 
-      // Immediately update local state
+      // Immediately update local state using proper token matching
       const newData = prev.data.filter(
         (item) =>
-          !(
-            item.chainId === chainId && item.contractAddress === contractAddress
-          ),
+          !equalTokenNoCaseSensitive({
+            token1: { networkId: chainId, contractAddress },
+            token2: {
+              networkId: item.chainId,
+              contractAddress: item.contractAddress,
+            },
+          }),
       );
       set(marketWatchListV2Atom(), { ...prev, data: newData });
 
       // Asynchronously call API without waiting for result
-      void backgroundApiProxy.serviceMarketV2.removeMarketWatchListV2({
+      await backgroundApiProxy.serviceMarketV2.removeMarketWatchListV2({
         items: [{ chainId, contractAddress }],
       });
+      await this.refreshWatchListV2.call(set);
     },
   );
 
@@ -198,10 +266,23 @@ class ContextJotaiActionsMarketV2 extends ContextJotaiActionsBase {
   );
 
   saveWatchListV2 = contextAtomMethod(
-    (get, set, payload: IMarketWatchListItemV2[]) => {
-      void this.addIntoWatchListV2.call(set, payload);
+    async (_get, set, payload: IMarketWatchListItemV2[]) => {
+      await this.addIntoWatchListV2.call(set, payload);
     },
   );
+
+  clearAllWatchListV2 = contextAtomMethod(async (get, set) => {
+    const prev = get(marketWatchListV2Atom());
+    if (!prev.isMounted) {
+      return;
+    }
+
+    // Immediately update local state
+    set(marketWatchListV2Atom(), { ...prev, data: [] });
+
+    // Asynchronously call API without waiting for result
+    await backgroundApiProxy.serviceMarketV2.clearAllMarketWatchListV2();
+  });
 }
 
 const createActions = memoFn(() => new ContextJotaiActionsMarketV2());
@@ -214,6 +295,7 @@ export function useWatchListV2Actions() {
   const saveWatchListV2 = actions.saveWatchListV2.use();
   const refreshWatchListV2 = actions.refreshWatchListV2.use();
   const sortWatchListV2Items = actions.sortWatchListV2Items.use();
+  const clearAllWatchListV2 = actions.clearAllWatchListV2.use();
   return useRef({
     isInWatchListV2,
     addIntoWatchListV2,
@@ -221,6 +303,7 @@ export function useWatchListV2Actions() {
     saveWatchListV2,
     refreshWatchListV2,
     sortWatchListV2Items,
+    clearAllWatchListV2,
   });
 }
 
@@ -230,14 +313,18 @@ export function useTokenDetailActions() {
   const setTokenDetailLoading = actions.setTokenDetailLoading.use();
   const setTokenAddress = actions.setTokenAddress.use();
   const setNetworkId = actions.setNetworkId.use();
+  const setTokenDetailWebsocket = actions.setTokenDetailWebsocket.use();
   const fetchTokenDetail = actions.fetchTokenDetail.use();
+  const clearTokenDetail = actions.clearTokenDetail.use();
 
   return useRef({
     setTokenDetail,
     setTokenDetailLoading,
     setTokenAddress,
     setNetworkId,
+    setTokenDetailWebsocket,
     fetchTokenDetail,
+    clearTokenDetail,
   });
 }
 

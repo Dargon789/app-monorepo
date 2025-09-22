@@ -1,11 +1,8 @@
 import { backgroundClass } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import appStorage from '@onekeyhq/shared/src/storage/appStorage';
-import { EAppSyncStorageKeys } from '@onekeyhq/shared/src/storage/syncStorageKeys';
 import systemTimeUtils from '@onekeyhq/shared/src/utils/systemTimeUtils';
 
 import localDb from '../dbs/local/localDb';
-import { devSettingsPersistAtom } from '../states/jotai/atoms';
 
 import ServiceBase from './ServiceBase';
 
@@ -32,6 +29,8 @@ class ServiceBootstrap extends ServiceBase {
         this.backgroundApi.servicePassword.addExtIntervalCheckLockStatusListener(),
         this.backgroundApi.serviceNotification.init(),
         this.backgroundApi.serviceReferralCode.getPostConfig(),
+        this.backgroundApi.serviceSetting.syncWalletConfig(),
+        this.backgroundApi.serviceWebviewPerp.updateBuilderFeeConfigByServerWithCache(),
       ]);
     } catch (error) {
       console.error(error);

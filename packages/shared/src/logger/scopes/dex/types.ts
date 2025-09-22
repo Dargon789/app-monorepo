@@ -1,4 +1,5 @@
 // Common enums and interfaces for DEX analytics
+import type { IDBWalletType } from '@onekeyhq/kit-bg/src/dbs/local/types';
 
 export enum EEnterWay {
   HomeTab = 'HomeTab',
@@ -13,14 +14,16 @@ export enum EDexListName {
 }
 
 export enum ESortWay {
-  Liquidity = 'Liquidity',
-  Volume = 'Volume',
-  MC = 'MC',
+  Liquidity = 'liquidity',
+  Volume = 'v24hUSD',
+  MC = 'mc',
+  Default = 'default',
 }
 
 export enum ECopyFrom {
   Homepage = 'Homepage',
   Detail = 'Detail',
+  Search = 'Search',
   Others = 'Others',
 }
 
@@ -33,12 +36,6 @@ export enum EVisitTarget {
 export enum ESwapType {
   Buy = 'Buy',
   Sell = 'Sell',
-}
-
-export enum EWalletType {
-  HD = 'HD',
-  Hardware = 'Hardware',
-  Watch = 'Watch',
 }
 
 export enum EAmountEnterType {
@@ -54,30 +51,16 @@ export enum ESlippageSetting {
   Manual = 'Manual',
 }
 
-export enum EAddFrom {
-  Homepage = 'Homepage',
-  Detail = 'Detail',
-  Onboard = 'Onboard',
-  Search = 'Search',
-  Others = 'Others',
-}
-
-export enum ERemoveFrom {
+export enum EWatchlistFrom {
   Homepage = 'Homepage',
   Detail = 'Detail',
   Search = 'Search',
+  Recommend = 'Recommend',
   Others = 'Others',
 }
 
 export enum ERouter {
   OKX = 'OKX',
-}
-
-export enum EIntervalSelect {
-  OneHour = '1h',
-  FourHour = '4h',
-  EightHour = '8h',
-  TwentyFourHour = '24h',
 }
 
 export enum ETabSelect {
@@ -121,22 +104,24 @@ export interface IDexAddToWatchlistParams {
   network: string;
   tokenSymbol: string;
   tokenContract: string;
-  addFrom: EAddFrom;
+  addFrom: EWatchlistFrom;
 }
 
 export interface IDexRemoveFromWatchlistParams {
   network: string;
   tokenSymbol: string;
   tokenContract: string;
-  removeFrom: ERemoveFrom;
+  removeFrom: EWatchlistFrom;
 }
 
 export interface IDexSortParams {
   sortWay: ESortWay;
+  sortDirection?: 'asc' | 'desc';
 }
 
 export interface IDexCopyCAParams {
   copyFrom: ECopyFrom;
+  copiedContent: string;
 }
 
 export interface IDexCheckRiskParams {
@@ -150,7 +135,7 @@ export interface IDexVisitSiteParams {
 }
 
 export interface IDexSwapParams {
-  walletType: EWalletType;
+  walletType: IDBWalletType;
   amountEnterType: EAmountEnterType;
   slippageSetting: ESlippageSetting;
   sourceTokenSymbol: string;
@@ -160,16 +145,12 @@ export interface IDexSwapParams {
   router: ERouter;
 }
 
-export interface IDexIntervalParams {
-  intervalSelect: EIntervalSelect;
-}
-
-export interface IDexButtonTabParams {
+export interface IDexBottomTabParams {
   tabSelect: ETabSelect;
 }
 
 export interface IDexTVIntervalParams {
-  tvIntervalSelect: ETVIntervalSelect;
+  tvIntervalSelect: string;
 }
 
 export interface IDexTVLineParams {
@@ -182,4 +163,8 @@ export interface IDexTVIndicatorParams {
 
 export interface IDexTVPriceMCParams {
   tvPriceMCSelect: ETVPriceMCSelect;
+}
+
+export interface IDexTVTimeframeParams {
+  tvTimeframeSelect: string;
 }

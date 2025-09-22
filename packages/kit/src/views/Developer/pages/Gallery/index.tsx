@@ -36,6 +36,12 @@ const BadgeGallery = LazyLoadPage(
       '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Badge'
     ),
 );
+const BreadcrumbGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/BreadcrumbGallery'
+    ),
+);
 const BlurViewGallery = LazyLoadPage(
   () =>
     import(
@@ -317,6 +323,12 @@ const SwitchGallery = LazyLoadPage(
       '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Switch'
     ),
 );
+const TableGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TableGallery/index'
+    ),
+);
 const NewTabsGallery = LazyLoadPage(
   () =>
     import(
@@ -385,6 +397,13 @@ const NumberSizeableTextGallery = LazyLoadPage(
   () =>
     import(
       '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/NumberSizeableTextGallery'
+    ),
+);
+
+const OrderBookGallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/OrderBookGallery'
     ),
 );
 
@@ -476,6 +495,13 @@ const TradingViewGallery = LazyLoadPage(
   () =>
     import(
       '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TradingView'
+    ),
+);
+
+const TradingViewPerpsV2Gallery = LazyLoadPage(
+  () =>
+    import(
+      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TradingViewPerpsV2'
     ),
 );
 
@@ -648,6 +674,7 @@ export const galleryScreenList: {
   },
   { name: EGalleryRoutes.ComponentOrderedList, component: OrderedListGallery },
   { name: EGalleryRoutes.ComponentBadge, component: BadgeGallery },
+  { name: EGalleryRoutes.ComponentBreadcrumb, component: BreadcrumbGallery },
   { name: EGalleryRoutes.ComponentInput, component: InputGallery },
   { name: EGalleryRoutes.ComponentDialog, component: DialogGallery },
   { name: EGalleryRoutes.ComponentEmpty, component: EmptyGallery },
@@ -703,6 +730,7 @@ export const galleryScreenList: {
     component: NumberSizeableTextGallery,
   },
   { name: EGalleryRoutes.ComponentSwitch, component: SwitchGallery },
+  { name: EGalleryRoutes.ComponentTable, component: TableGallery },
   { name: EGalleryRoutes.ComponentButton, component: ButtonGallery },
   { name: EGalleryRoutes.ComponentTextArea, component: TextAreaGallery },
   { name: EGalleryRoutes.ComponentSlider, component: SliderGallery },
@@ -830,8 +858,16 @@ export const galleryScreenList: {
     component: PerpGallery,
   },
   {
+    name: EGalleryRoutes.ComponentOrderBook,
+    component: OrderBookGallery,
+  },
+  {
     name: EGalleryRoutes.ComponentTradingViewGallery,
     component: TradingViewGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentTradingViewPerpsV2Gallery,
+    component: TradingViewPerpsV2Gallery,
   },
   {
     name: EGalleryRoutes.LetterAvatarGallery,

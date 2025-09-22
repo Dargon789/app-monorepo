@@ -75,6 +75,7 @@ function RiskTokenManager() {
     deriveType,
     deriveInfo,
     hideValue,
+    accountAddress,
   } = route.params;
 
   const { tokens, map: tokenMap } = tokenList;
@@ -309,16 +310,20 @@ function RiskTokenManager() {
         deriveInfo,
         deriveType,
         isAllNetworks,
+        tokenMap,
+        accountAddress,
       });
     },
     [
-      accountId,
-      deriveInfo,
-      deriveType,
       navigation,
+      accountId,
       networkId,
       walletId,
+      deriveInfo,
+      deriveType,
       isAllNetworks,
+      tokenMap,
+      accountAddress,
     ],
   );
 
@@ -377,7 +382,9 @@ function RiskTokenManager() {
                 />
                 <YStack flex={1}>
                   <TokenNameView
+                    $key={token.$key}
                     name={token.symbol}
+                    isAggregateToken={token.isAggregateToken}
                     isNative={token.isNative}
                     isAllNetworks={isAllNetworks}
                     networkId={token.networkId}

@@ -5,6 +5,7 @@ import { useIntl } from 'react-intl';
 import { Dialog, SizableText, Stack, XStack } from '@onekeyhq/components';
 import { Token } from '@onekeyhq/kit/src/components/Token';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import {
   NUMBER_FORMATTER,
   formatDisplayNumber,
@@ -13,6 +14,7 @@ import {
 import { useTokenDetail } from '../../hooks/useTokenDetail';
 import { TokenSecurityAlertDialogContent } from '../TokenSecurityAlert/components';
 import { useTokenSecurity } from '../TokenSecurityAlert/hooks/useTokenSecurity';
+import { getTotalSecurityDisplayInfo } from '../TokenSecurityAlert/utils/utils';
 
 import { StatCard } from './components/StatCard';
 import { TokenOverviewSkeleton } from './TokenOverviewSkeleton';
@@ -54,10 +56,11 @@ const formatCirculatingSupply = (tokenDetail: ITokenDetail): string => {
 export function TokenOverview() {
   const intl = useIntl();
   const { tokenDetail, tokenAddress, networkId } = useTokenDetail();
-  const { warningCount, securityStatus, securityData } = useTokenSecurity({
-    tokenAddress,
-    networkId,
-  });
+  const { securityStatus, securityData, riskCount, cautionCount } =
+    useTokenSecurity({
+      tokenAddress,
+      networkId,
+    });
 
   const handleAuditPress = useCallback(() => {
     Dialog.show({
@@ -66,26 +69,55 @@ export function TokenOverview() {
       renderContent: (
         <TokenSecurityAlertDialogContent
           securityData={securityData}
-          warningCount={warningCount}
+          riskCount={riskCount}
+          cautionCount={cautionCount}
         />
       ),
     });
-  }, [intl, securityData, warningCount]);
+    // Dex analytics
+    if (networkId && tokenAddress && tokenDetail) {
+      defaultLogger.dex.actions.dexCheckRisk({
+        network: networkId,
+        tokenSymbol: tokenDetail.symbol || '',
+        tokenContract: tokenAddress,
+      });
+    }
+  }, [
+    intl,
+    securityData,
+    riskCount,
+    cautionCount,
+    networkId,
+    tokenAddress,
+    tokenDetail,
+  ]);
 
   // Optimized stat builders
-  const auditStat = useMemo<IStatItem>(
-    () => ({
+  const auditStat = useMemo<IStatItem>(() => {
+    const { count, color } = getTotalSecurityDisplayInfo(
+      securityStatus,
+      riskCount,
+      cautionCount,
+    );
+
+    return {
       label: intl.formatMessage({ id: ETranslations.dexmarket_audit }),
       value: intl.formatMessage(
         { id: ETranslations.dexmarket_details_audit_issue },
-        { amount: warningCount },
+        { amount: count },
       ),
-      icon: securityStatus === 'safe' ? 'ShieldCheckDoneSolid' : 'BugOutline',
-      iconColor: securityStatus === 'safe' ? '$iconSuccess' : '$iconCaution',
+      icon: 'BugOutline',
+      iconColor: color,
       onPress: securityData ? handleAuditPress : undefined,
-    }),
-    [intl, warningCount, securityStatus, handleAuditPress, securityData],
-  );
+    };
+  }, [
+    intl,
+    riskCount,
+    cautionCount,
+    securityStatus,
+    handleAuditPress,
+    securityData,
+  ]);
 
   const holdersStat = useMemo<IStatItem>(
     () => ({

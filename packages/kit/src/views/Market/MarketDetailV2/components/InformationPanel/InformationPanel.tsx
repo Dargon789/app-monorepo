@@ -7,12 +7,29 @@ import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 
 import { useTokenDetail } from '../../hooks/useTokenDetail';
 import { TokenSecurityAlert } from '../TokenSecurityAlert';
+import { useTokenSecurity } from '../TokenSecurityAlert/hooks';
 
 import { InformationPanelSkeleton } from './InformationPanelSkeleton';
 
+function getPriceSizeByValue(price: string) {
+  if (price.startsWith('0.0000')) {
+    return '$headingLg';
+  }
+  if (price.startsWith('0.000')) {
+    return '$headingXl';
+  }
+  return '$heading3xl';
+}
+
 export function InformationPanel() {
   const intl = useIntl();
-  const { tokenDetail, networkId } = useTokenDetail();
+  const { tokenDetail, networkId, tokenAddress } = useTokenDetail();
+
+  // Directly use the security data hook to check if we have security data
+  const { securityData } = useTokenSecurity({
+    tokenAddress,
+    networkId,
+  });
 
   if (!tokenDetail) return <InformationPanelSkeleton />;
 
@@ -34,7 +51,7 @@ export function InformationPanel() {
     <XStack px="$5" py="$4" gap="$4" jc="space-between" width="100%">
       <YStack pointerEvents="none">
         <MarketTokenPrice
-          size="$heading3xl"
+          size={getPriceSizeByValue(currentPrice)}
           price={currentPrice}
           tokenName={name}
           tokenSymbol={symbol}
@@ -75,8 +92,8 @@ export function InformationPanel() {
             {numberFormat(String(holders), { formatter: 'marketCap' })}
           </SizableText>
         </XStack>
-        {/* Audit / Security */}
-        {networkId && address ? (
+        {/* Audit / Security - Only show when we have security data */}
+        {networkId && address && securityData ? (
           <XStack gap="$1" ai="center" width="100%" jc="space-between">
             <SizableText
               pointerEvents="none"

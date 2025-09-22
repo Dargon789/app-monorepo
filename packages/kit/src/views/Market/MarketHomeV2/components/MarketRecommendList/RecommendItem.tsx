@@ -8,6 +8,7 @@ import {
   YStack,
   getSharedButtonStyles,
 } from '@onekeyhq/components';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { MarketTokenIcon } from '../../../components/MarketTokenIcon';
 
@@ -59,28 +60,41 @@ export function RecommendItem({
     >
       <XStack gap="$3" ai="center" flexShrink={1}>
         <MarketTokenIcon uri={icon} size="md" networkId={networkId} />
-        <YStack flexShrink={1}>
-          <SizableText
-            size="$bodyLgMedium"
-            numberOfLines={1}
-            $sm={{
-              size: '$bodyMdMedium',
-            }}
-          >
-            {symbol}
-          </SizableText>
-          <SizableText
-            size="$bodySm"
-            color="$textSubdued"
-            flexShrink={1}
-            numberOfLines={1}
-            maxWidth={120}
-            $sm={{
-              maxWidth: 70,
-            }}
-          >
-            {tokenName}
-          </SizableText>
+        <YStack
+          flexShrink={1}
+          {...(platformEnv.isNativeAndroid
+            ? {
+                width: '$20',
+                height: '$9',
+                justifyContent: 'center',
+              }
+            : {})}
+        >
+          <XStack>
+            <SizableText
+              size="$bodyLgMedium"
+              numberOfLines={1}
+              $sm={{
+                size: '$bodyMdMedium',
+              }}
+            >
+              {symbol}
+            </SizableText>
+          </XStack>
+          <XStack>
+            <SizableText
+              size="$bodySm"
+              color="$textSubdued"
+              flexShrink={1}
+              numberOfLines={1}
+              maxWidth={120}
+              $sm={{
+                maxWidth: 70,
+              }}
+            >
+              {tokenName}
+            </SizableText>
+          </XStack>
         </YStack>
       </XStack>
       {checked ? (

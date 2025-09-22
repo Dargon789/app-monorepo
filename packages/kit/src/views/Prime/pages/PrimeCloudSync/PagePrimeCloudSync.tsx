@@ -1,18 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useIntl } from 'react-intl';
 
 import {
   Badge,
-  Button,
   Dialog,
-  Divider,
   ESwitchSize,
   Page,
   ScrollView,
   SizableText,
   Stack,
   Switch,
+  startViewTransition,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
@@ -22,9 +21,13 @@ import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { useAppRoute } from '@onekeyhq/kit/src/hooks/useAppRoute';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { usePasswordPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import { usePrimeCloudSyncPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms/prime';
+import {
+  usePrimeCloudSyncPersistAtom,
+  usePrimeServerMasterPasswordStatusAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms/prime';
 import { ELockDuration } from '@onekeyhq/shared/src/consts/appAutoLockConsts';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import { EModalRoutes } from '@onekeyhq/shared/src/routes';
 import type { IPrimeParamList } from '@onekeyhq/shared/src/routes/prime';
 import { EPrimeFeatures, EPrimePages } from '@onekeyhq/shared/src/routes/prime';
@@ -77,9 +80,11 @@ function AutoLockUpdateDialogContent({
         })}
         onConfirm={async () => {
           try {
-            await backgroundApiProxy.servicePassword.setAppLockDuration(
-              Number(selectedValue),
-            );
+            startViewTransition(async () => {
+              await backgroundApiProxy.servicePassword.setAppLockDuration(
+                Number(selectedValue),
+              );
+            });
             onContinue();
           } catch (error) {
             onError(error as Error);
@@ -207,6 +212,9 @@ function EnableOneKeyCloudSwitchListItem() {
               if (shouldChangePasswordAutoLock) {
                 await new Promise<void>((resolve, reject) => {
                   Dialog.show({
+                    isAsync: true,
+                    disableDrag: true,
+                    dismissOnOverlayPress: true,
                     title: intl.formatMessage({
                       id: ETranslations.settings_auto_lock,
                     }),
@@ -233,11 +241,17 @@ function EnableOneKeyCloudSwitchListItem() {
                 });
               }
               await runEnableCloudSync();
+              defaultLogger.prime.usage.onekeyCloudToggle({
+                status: 'on',
+              });
             } else {
               // disable cloud sync
               await backgroundApiProxy.servicePrimeCloudSync.setCloudSyncEnabled(
                 false,
               );
+              defaultLogger.prime.usage.onekeyCloudToggle({
+                status: 'off',
+              });
             }
           } catch (error) {
             // disable cloud sync
@@ -247,6 +261,7 @@ function EnableOneKeyCloudSwitchListItem() {
             throw error;
           } finally {
             isSubmittingRef.current = false;
+            void backgroundApiProxy.servicePrime.apiFetchPrimeUserInfo();
           }
         }}
         value={config.isCloudSyncEnabled}
@@ -277,28 +292,33 @@ function WhatDataIncludedListItem() {
 }
 
 function AppDataSection() {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const navigation = useAppNavigation();
   const route = useAppRoute<IPrimeParamList, EPrimePages.PrimeCloudSync>();
   const forceReloadServerUserInfo = useRef(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const serverUserInfo = route.params?.serverUserInfo;
 
+  const [serverMasterPasswordStatus] = usePrimeServerMasterPasswordStatusAtom();
+  const isServerMasterPasswordSet =
+    serverMasterPasswordStatus.isServerMasterPasswordSet;
+
   const [config] = usePrimeCloudSyncPersistAtom();
-
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const isSubmittingRef = useRef(false);
+  const manualSyncingRef = useRef(false);
 
-  const { result: isServerMasterPasswordSet, run: reloadServerUserInfo } =
-    usePromiseResult(() => {
-      return backgroundApiProxy.serviceMasterPassword.IsServerMasterPasswordSet(
-        {
-          serverUserInfo: forceReloadServerUserInfo.current
-            ? undefined
-            : serverUserInfo,
-        },
-      );
-    }, [serverUserInfo]);
+  const reloadServerUserInfo = useCallback(async () => {
+    await backgroundApiProxy.servicePrime.apiFetchPrimeUserInfo();
+  }, []);
+
+  useEffect(() => {
+    void reloadServerUserInfo();
+  }, [reloadServerUserInfo]);
 
   const intl = useIntl();
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const lastUpdateTime = useMemo<string>(() => {
     if (config.lastSyncTime) {
       return formatDistanceToNow(new Date(config.lastSyncTime));
@@ -306,15 +326,58 @@ function AppDataSection() {
     return ' - ';
   }, [config.lastSyncTime]);
 
+  const handleManualSync = useCallback(async () => {
+    if (!config.isCloudSyncEnabled) {
+      return;
+    }
+    if (manualSyncingRef.current) {
+      return;
+    }
+    manualSyncingRef.current = true;
+    try {
+      await backgroundApiProxy.serviceApp.showDialogLoading({
+        title: intl.formatMessage({
+          id: ETranslations.global_syncing,
+        }),
+      });
+      await backgroundApiProxy.servicePrimeCloudSync.startServerSyncFlow({
+        callerName: 'Manual Cloud Sync',
+        noDebounceUpload: true,
+      });
+      await backgroundApiProxy.servicePrimeCloudSync.updateLastSyncTime();
+    } finally {
+      manualSyncingRef.current = false;
+      await timerUtils.wait(1000);
+      await backgroundApiProxy.serviceApp.hideDialogLoading();
+    }
+    void backgroundApiProxy.serviceApp.showToast({
+      method: 'success',
+      title: intl.formatMessage({
+        id: ETranslations.global_sync_successfully,
+      }),
+    });
+  }, [config.isCloudSyncEnabled, intl]);
+
   return (
     <>
       <EnableOneKeyCloudSwitchListItem />
 
-      {config?.isCloudSyncEnabled || isServerMasterPasswordSet ? (
+      {config?.isCloudSyncEnabled ? (
         <ListItem
           title={intl.formatMessage({
-            id: ETranslations.prime_change_backup_password,
+            id: ETranslations.wallet_backup_now,
           })}
+          icon="RefreshCwOutline"
+          drillIn
+          onPress={handleManualSync}
+        />
+      ) : null}
+
+      {config?.isCloudSyncEnabled || isServerMasterPasswordSet ? (
+        <ListItem
+          title={`${intl.formatMessage({
+            id: ETranslations.prime_change_backup_password,
+          })}`}
           icon="Key2Outline"
           drillIn
           onPress={async () => {
@@ -333,6 +396,7 @@ function AppDataSection() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function WalletSection() {
   const intl = useIntl();
   const navigation = useAppNavigation();

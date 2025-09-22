@@ -4,6 +4,7 @@ import { AccountScope } from './scopes/account';
 import { AccountSelectorScope } from './scopes/accountSelector';
 import { AddressInputScope } from './scopes/addressInput';
 import { AppScope } from './scopes/app';
+import { ApprovalScope } from './scopes/approval';
 import { CloudBackupScope } from './scopes/cloudBackup';
 import { DemoScope } from './scopes/demo';
 import { DexScope } from './scopes/dex';
@@ -13,6 +14,7 @@ import { HardwareScope } from './scopes/hardware';
 import { MarketScope } from './scopes/market';
 import { NotificationScope } from './scopes/notification/notification';
 import { PerpScope } from './scopes/perp';
+import { PrimeScope } from './scopes/prime';
 import { ReferralScope } from './scopes/referral';
 import { RewardScope } from './scopes/reward';
 import { ScanQrCodeScope } from './scopes/scanQrCode';
@@ -34,6 +36,8 @@ export class DefaultLogger {
   accountSelector = new AccountSelectorScope();
 
   app = new AppScope();
+
+  approval = new ApprovalScope();
 
   demo = new DemoScope();
 
@@ -76,6 +80,8 @@ export class DefaultLogger {
   reward = new RewardScope();
 
   dex = new DexScope();
+
+  prime = new PrimeScope();
 }
 
 const defaultLogger = new DefaultLogger();

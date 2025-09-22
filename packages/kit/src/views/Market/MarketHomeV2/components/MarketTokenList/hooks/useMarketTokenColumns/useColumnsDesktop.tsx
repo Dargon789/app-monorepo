@@ -14,7 +14,10 @@ import {
 import { MarketStarV2 } from '@onekeyhq/kit/src/views/Market/components/MarketStarV2';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import { EWatchlistFrom } from '@onekeyhq/shared/src/logger/scopes/market/scenes/token';
+import {
+  ECopyFrom,
+  EWatchlistFrom,
+} from '@onekeyhq/shared/src/logger/scopes/dex';
 
 import { TokenIdentityItem } from '../../components/TokenIdentityItem';
 import { Txns } from '../../components/Txns';
@@ -43,7 +46,8 @@ export const useColumnsDesktop = (
           <MarketStarV2
             chainId={record.chainId || networkId || ''}
             contractAddress={record.address}
-            from={EWatchlistFrom.catalog}
+            from={EWatchlistFrom.Homepage}
+            tokenSymbol={record.symbol}
             size="small"
           />
         </Stack>
@@ -63,6 +67,7 @@ export const useColumnsDesktop = (
           symbol={record.symbol}
           address={record.address}
           showCopyButton
+          copyFrom={ECopyFrom.Homepage}
         />
       ),
       renderSkeleton: () => (
@@ -126,7 +131,7 @@ export const useColumnsDesktop = (
           formatter="marketCap"
           formatterOptions={{ currency, capAtMaxT: true }}
         >
-          {text}
+          {text === 0 ? '--' : text}
         </NumberSizeableText>
       ),
       renderSkeleton: () => <Skeleton width={80} height={16} />,
@@ -141,7 +146,7 @@ export const useColumnsDesktop = (
           formatter="marketCap"
           formatterOptions={{ currency }}
         >
-          {text}
+          {text === 0 ? '--' : text}
         </NumberSizeableText>
       ),
       renderSkeleton: () => <Skeleton width={100} height={16} />,
@@ -156,7 +161,7 @@ export const useColumnsDesktop = (
           formatter="marketCap"
           formatterOptions={{ currency }}
         >
-          {text}
+          {text === 0 ? '--' : text}
         </NumberSizeableText>
       ),
       renderSkeleton: () => <Skeleton width={100} height={16} />,
@@ -185,7 +190,7 @@ export const useColumnsDesktop = (
           columnProps: { flex: 1 },
           render: (text: number) => (
             <NumberSizeableText size="$bodyMd" formatter="marketCap">
-              {text}
+              {text === 0 ? '--' : text}
             </NumberSizeableText>
           ),
           renderSkeleton: () => <Skeleton width={60} height={16} />,
@@ -198,7 +203,7 @@ export const useColumnsDesktop = (
           columnProps: { flex: 1 },
           render: (text: number) => (
             <NumberSizeableText size="$bodyMd" formatter="marketCap">
-              {text}
+              {text === 0 ? '--' : text}
             </NumberSizeableText>
           ),
           renderSkeleton: () => <Skeleton width={60} height={16} />,

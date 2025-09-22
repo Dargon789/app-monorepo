@@ -1,5 +1,5 @@
 /* eslint-disable spellcheck/spell-checker */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useIntl } from 'react-intl';
 
@@ -33,9 +33,13 @@ type ITransferMethod = (typeof TRANSFER_METHOD)[keyof typeof TRANSFER_METHOD];
 export function PrimeTransferHome({
   remotePairingCode,
   setRemotePairingCode,
+  autoConnect,
+  autoConnectCustomServer,
 }: {
   remotePairingCode: string;
   setRemotePairingCode: (code: string) => void;
+  autoConnect?: boolean;
+  autoConnectCustomServer?: string;
 }) {
   const [primeTransferAtom] = usePrimeTransferAtom();
 
@@ -57,7 +61,18 @@ export function PrimeTransferHome({
     [intl],
   );
 
-  const [value, setValue] = useState<ITransferMethod>(QR_CODE);
+  const [value, setValue] = useState<ITransferMethod>(
+    autoConnect ? ENTER_LINK : QR_CODE,
+  );
+
+  const qrcodeViewRef = useRef<React.ReactNode | null>(null);
+  const [refreshQrcodeView, setRefreshQrcodeView] = useState(0);
+  useEffect(() => {
+    if (value === QR_CODE && !qrcodeViewRef.current) {
+      qrcodeViewRef.current = <PrimeTransferHomeQrCode />;
+      setRefreshQrcodeView(refreshQrcodeView + 1);
+    }
+  }, [refreshQrcodeView, value]);
 
   return (
     <>
@@ -80,12 +95,14 @@ export function PrimeTransferHome({
         />
 
         <Stack display={value === QR_CODE ? 'flex' : 'none'}>
-          <PrimeTransferHomeQrCode />
+          {qrcodeViewRef.current}
         </Stack>
         <Stack display={value === ENTER_LINK ? 'flex' : 'none'}>
           <PrimeTransferHomeEnterLink
             remotePairingCode={remotePairingCode}
             setRemotePairingCode={setRemotePairingCode}
+            autoConnect={autoConnect}
+            autoConnectCustomServer={autoConnectCustomServer}
           />
         </Stack>
 

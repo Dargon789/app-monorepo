@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useIntl } from 'react-intl';
 import { ScrollView, View, useWindowDimensions } from 'react-native';
@@ -30,8 +30,8 @@ import { useAppRoute } from '@onekeyhq/kit/src/hooks/useAppRoute';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { usePrimeCloudSyncPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import { EModalRoutes } from '@onekeyhq/shared/src/routes';
 import { EPrimeFeatures, EPrimePages } from '@onekeyhq/shared/src/routes/prime';
 import type { IPrimeParamList } from '@onekeyhq/shared/src/routes/prime';
 import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
@@ -134,6 +134,14 @@ export default function PagePrimeFeatures() {
       serverUserInfo,
     });
   }, [serverUserInfo]);
+
+  useEffect(() => {
+    if (selectedFeature && !showAllFeatures) {
+      defaultLogger.prime.subscription.primeUpsellShow({
+        featureName: selectedFeature,
+      });
+    }
+  }, [selectedFeature, showAllFeatures]);
 
   const bannerHeight = useMemo(() => {
     if (gtMd) {
@@ -289,6 +297,82 @@ export default function PagePrimeFeatures() {
           },
         ],
       },
+
+      {
+        id: EPrimeFeatures.Notifications,
+        banner: (
+          <Image
+            w="100%"
+            h={bannerHeight}
+            maxWidth={393}
+            source={require('@onekeyhq/kit/assets/prime/increase_notification_limit_banner.png')}
+          />
+        ),
+        title: intl.formatMessage({
+          id: ETranslations.global_multi_account_notification,
+        }),
+        description: intl.formatMessage(
+          {
+            id: ETranslations.global_on_chain_notifications_description,
+          },
+          {
+            number: 100,
+          },
+        ),
+        details: [
+          {
+            icon: 'EyeOutline',
+            title: intl.formatMessage({
+              id: ETranslations.prime_features_increase_notification_limit_one_title,
+            }),
+            description: intl.formatMessage({
+              id: ETranslations.prime_features_increase_notification_limit_one_desc,
+            }),
+          },
+        ],
+      },
+      {
+        id: EPrimeFeatures.HistoryExport,
+        banner: (
+          <Image
+            w="100%"
+            h={bannerHeight}
+            maxWidth={393}
+            source={require('@onekeyhq/kit/assets/prime/export_transactions_banner.png')}
+          />
+        ),
+        title: intl.formatMessage({
+          id: ETranslations.global_export_transaction_history,
+        }),
+        description: intl.formatMessage(
+          {
+            id: ETranslations.wallet_export_on_chain_transactions_description,
+          },
+          {
+            networkCount: 12,
+          },
+        ),
+        details: [
+          {
+            icon: 'ArchiveBoxOutline',
+            title: intl.formatMessage({
+              id: ETranslations.prime_features_export_transactions_one_title,
+            }),
+            description: intl.formatMessage({
+              id: ETranslations.prime_features_export_transactions_one_desc,
+            }),
+          },
+          {
+            icon: 'BillOutline',
+            title: intl.formatMessage({
+              id: ETranslations.prime_features_export_transactions_two_title,
+            }),
+            description: intl.formatMessage({
+              id: ETranslations.prime_features_export_transactions_two_desc,
+            }),
+          },
+        ],
+      },
     ];
 
     const selectedFeatureItem = allFeatures.find(
@@ -299,9 +383,10 @@ export default function PagePrimeFeatures() {
       ? allFeatures
       : [selectedFeatureItem].filter(Boolean);
     const index = data.findIndex((item) => item.id === selectedFeature);
+    const safeIndex = index >= 0 ? index : 0;
     return {
       data,
-      index: index ?? 0,
+      index: safeIndex,
     };
   }, [
     bannerHeight,
@@ -434,9 +519,12 @@ export default function PagePrimeFeatures() {
 
   const subscribe = useCallback(async () => {
     if (!showAllFeatures) {
-      navigation.pushModal(EModalRoutes.PrimeModal, {
-        screen: EPrimePages.PrimeDashboard,
-      });
+      if (selectedFeature) {
+        defaultLogger.prime.subscription.primeUpsellActionClick({
+          featureName: selectedFeature,
+        });
+      }
+      navigation.push(EPrimePages.PrimeDashboard);
       return;
     }
     if (isPackagesLoading) {
@@ -461,6 +549,7 @@ export default function PagePrimeFeatures() {
     ensurePrimeSubscriptionActive,
     isPackagesLoading,
     navigation,
+    selectedFeature,
     selectedSubscriptionPeriod,
     showAllFeatures,
   ]);
@@ -477,7 +566,7 @@ export default function PagePrimeFeatures() {
 
   const page = (
     <>
-      <Page.BackButton />
+      {showAllFeatures ? <Page.BackButton /> : <Page.CloseButton />}
       <Page>
         <Theme name="dark">
           <Page.Header

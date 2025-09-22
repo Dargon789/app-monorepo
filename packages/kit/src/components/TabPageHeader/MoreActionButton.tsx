@@ -67,7 +67,10 @@ import { usePrimeAvailable } from '../../views/Prime/hooks/usePrimeAvailable';
 import useScanQrCode from '../../views/ScanQrCode/hooks/useScanQrCode';
 import { AccountSelectorProviderMirror } from '../AccountSelector';
 import { UpdateReminder } from '../UpdateReminder';
-import { useAppUpdateInfo } from '../UpdateReminder/hooks';
+import {
+  isShowAppUpdateUIWhenUpdating,
+  useAppUpdateInfo,
+} from '../UpdateReminder/hooks';
 
 import type { GestureResponderEvent } from 'react-native';
 
@@ -497,6 +500,8 @@ function MoreActionContentGrid() {
 
   const scanQrCode = useScanQrCode();
 
+  const isPrimeUser = user?.primeSubscription?.isActive && user?.privyUserId;
+
   const handleScan = useCallback(async () => {
     await scanQrCode.start({
       handlers: scanQrCode.PARSE_HANDLER_NAMES.all,
@@ -580,7 +585,15 @@ function MoreActionContentGrid() {
           id: ETranslations.global_bulk_copy_addresses,
         }),
         icon: 'Copy3Outline',
-        onPress: openBulkCopyAddressesModal,
+        onPress: () => {
+          if (!isPrimeUser) {
+            defaultLogger.prime.subscription.primeEntryClick({
+              featureName: EPrimeFeatures.BulkCopyAddresses,
+              entryPoint: 'moreActions',
+            });
+          }
+          void openBulkCopyAddressesModal();
+        },
         trackID: 'bulk-copy-addresses-in-more-action',
         isPrimeFeature: true,
       },
@@ -599,6 +612,7 @@ function MoreActionContentGrid() {
     openBulkCopyAddressesModal,
     themeVariant,
     toReferFriendsPage,
+    isPrimeUser,
   ]);
 
   return (
@@ -677,16 +691,26 @@ const useIsShowWalletXfpStatus = () => {
 // This component may trigger multiple update checks simultaneously
 // Deduplicate or throttle API requests.
 // to prevent unnecessary API calls and improve performance
-const useIsShowUpgradeDot = () => {
+const useIsShowAppUpdateDot = () => {
   const appUpdateInfo = useAppUpdateInfo(true);
   const isAppNeedUpdate = appUpdateInfo.isNeedUpdate;
+  const isShowAppUpdateUI = useMemo(() => {
+    return isShowAppUpdateUIWhenUpdating({
+      updateStrategy: appUpdateInfo.data.updateStrategy,
+      updateStatus: appUpdateInfo.data.status,
+    });
+  }, [appUpdateInfo.data.updateStrategy, appUpdateInfo.data.status]);
   const isNeedUpgradeFirmware = useIsNeedUpgradeFirmware();
   const isShowWalletXfpStatus = useIsShowWalletXfpStatus();
-  return isAppNeedUpdate || isNeedUpgradeFirmware || isShowWalletXfpStatus;
+  return (
+    (isShowAppUpdateUI && isAppNeedUpdate) ||
+    isNeedUpgradeFirmware ||
+    isShowWalletXfpStatus
+  );
 };
 
 function UpdateReminders() {
-  const isShowUpgradeComponents = useIsShowUpgradeDot();
+  const isShowUpgradeComponents = useIsShowAppUpdateDot();
   return isShowUpgradeComponents ? (
     <YStack gap="$2">
       <UpdateReminder />
@@ -756,7 +780,7 @@ function Dot({ color }: { color: IStackStyle['bg'] }) {
 function MoreButtonWithDot({ onPress }: { onPress?: IButtonProps['onPress'] }) {
   const intl = useIntl();
   const isShowRedDot = useIsShowRedDot();
-  const isShowUpgradeDot = useIsShowUpgradeDot();
+  const isShowUpgradeDot = useIsShowAppUpdateDot();
   const dot = useMemo(() => {
     if (isShowUpgradeDot) {
       return <Dot color="$blue8" />;

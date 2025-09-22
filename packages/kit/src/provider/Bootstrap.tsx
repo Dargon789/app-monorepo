@@ -17,6 +17,7 @@ import { ipcMessageKeys } from '@onekeyhq/desktop/app/config';
 import {
   useAppIsLockedAtom,
   useDevSettingsPersistAtom,
+  useOnboardingConnectWalletLoadingAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { EAppUpdateStatus } from '@onekeyhq/shared/src/appUpdate';
 import {
@@ -25,6 +26,7 @@ import {
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
+import { electronUpdateListeners } from '@onekeyhq/shared/src/modules3rdParty/auto-update/electronUpdateListeners';
 import { initIntercom } from '@onekeyhq/shared/src/modules3rdParty/intercom';
 import performance from '@onekeyhq/shared/src/performance';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
@@ -33,6 +35,7 @@ import {
   EModalRoutes,
   EModalSettingRoutes,
   EMultiTabBrowserRoutes,
+  EOnboardingPages,
   ETabRoutes,
 } from '@onekeyhq/shared/src/routes';
 import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
@@ -367,6 +370,12 @@ export const useFetchCurrencyList = () => {
   }, []);
 };
 
+export const useFetchMarketBasicConfig = () => {
+  useEffect(() => {
+    void backgroundApiProxy.serviceMarketV2.fetchMarketBasicConfig();
+  }, []);
+};
+
 const launchFloatingIconEvent = async (intl: IntlShape) => {
   const visited = await backgroundApiProxy.serviceSpotlight.isVisited(
     ESpotlightTour.showFloatingIconDialog,
@@ -475,21 +484,16 @@ export const useCheckUpdateOnDesktop =
   !platformEnv.isDesktopWinMsStore
     ? () => {
         useEffect(() => {
-          globalThis.desktopApi.on(
-            ipcMessageKeys.UPDATE_DOWNLOAD_FILE_INFO,
+          const subscription = electronUpdateListeners.onDownloadedFileEvent?.(
             (downloadUrl) => {
-              defaultLogger.update.app.log(
-                'UPDATE_DOWNLOAD_FILE_INFO',
-                downloadUrl,
-              );
               void backgroundApiProxy.serviceAppUpdate.updateDownloadUrl(
                 downloadUrl,
               );
             },
           );
-          setTimeout(() => {
+          setTimeout(async () => {
             const previousBuildNumber =
-              globalThis.desktopApi.getPreviousUpdateBuildNumber();
+              await globalThis.desktopApiProxy.appUpdate.getPreviousUpdateBuildNumber();
             if (
               previousBuildNumber &&
               getBuilderNumber(previousBuildNumber) >=
@@ -498,6 +502,9 @@ export const useCheckUpdateOnDesktop =
               void backgroundApiProxy.serviceAppUpdate.resetToManualInstall();
             }
           }, 0);
+          return () => {
+            subscription?.();
+          };
         }, []);
       }
     : noop;
@@ -555,6 +562,13 @@ export function Bootstrap() {
   const [devSettings] = useDevSettingsPersistAtom();
   const autoNavigation = devSettings.settings?.autoNavigation;
 
+  const [, setOnboardingConnectWalletLoading] =
+    useOnboardingConnectWalletLoadingAtom();
+
+  useEffect(() => {
+    setOnboardingConnectWalletLoading(false);
+  }, [setOnboardingConnectWalletLoading]);
+
   useEffect(() => {
     if (
       platformEnv.isDev &&
@@ -564,8 +578,11 @@ export function Bootstrap() {
     ) {
       const timer = setTimeout(() => {
         navigation.switchTab(autoNavigation.selectedTab as ETabRoutes);
-        navigation.pushModal(EModalRoutes.PrimeModal, {
-          screen: EPrimePages.PrimeTransfer,
+        // navigation.pushModal(EModalRoutes.PrimeModal, {
+        //   screen: EPrimePages.PrimeTransfer,
+        // });
+        navigation.pushModal(EModalRoutes.OnboardingModal, {
+          screen: EOnboardingPages.ConnectWallet,
         });
       }, 1000);
 
@@ -584,6 +601,7 @@ export function Bootstrap() {
   }, [devSettings.enabled, devSettings.settings?.showPerformanceMonitor]);
 
   useFetchCurrencyList();
+  useFetchMarketBasicConfig();
   useAboutVersion();
   useDesktopEvents();
   useLaunchEvents();

@@ -7,6 +7,7 @@ export enum EModalSettingRoutes {
   SettingSpendUTXOModal = 'SettingSpendUTXOModal',
   SettingCustomRPC = 'SettingCustomRPC',
   SettingCustomTransaction = 'SettingCustomTransaction',
+  SettingPerpUserConfig = 'SettingPerpUserConfig',
   SettingCustomNetwork = 'SettingCustomNetwork',
   SettingAppAutoLockModal = 'SettingAppAutoLockModal',
   SettingProtectModal = 'SettingProtectModal',
@@ -16,6 +17,7 @@ export enum EModalSettingRoutes {
   SettingDevUnitTestsModal = 'SettingDevUnitTestsModal',
   SettingDevDesktopApiProxyTestModal = 'SettingDevDesktopApiProxyTestModal',
   SettingDevPerpGalleryModal = 'SettingDevPerpGalleryModal',
+  SettingDevCryptoGalleryModal = 'SettingDevCryptoGalleryModal',
   SettingExportCustomNetworkConfig = 'SettingExportCustomNetworkConfig',
   SettingNotifications = 'SettingNotifications',
   SettingManageAccountActivity = 'SettingManageAccountActivity',
@@ -46,9 +48,11 @@ export type IModalSettingParamList = {
   [EModalSettingRoutes.SettingDevUnitTestsModal]: undefined;
   [EModalSettingRoutes.SettingDevDesktopApiProxyTestModal]: undefined;
   [EModalSettingRoutes.SettingDevPerpGalleryModal]: undefined;
+  [EModalSettingRoutes.SettingDevCryptoGalleryModal]: undefined;
   [EModalSettingRoutes.SettingExportCustomNetworkConfig]: undefined;
   [EModalSettingRoutes.SettingNotifications]: undefined;
   [EModalSettingRoutes.SettingManageAccountActivity]: undefined;
   [EModalSettingRoutes.SettingAlignPrimaryAccount]: undefined;
   [EModalSettingRoutes.SettingFloatingIconModal]: undefined;
+  [EModalSettingRoutes.SettingPerpUserConfig]: undefined;
 };

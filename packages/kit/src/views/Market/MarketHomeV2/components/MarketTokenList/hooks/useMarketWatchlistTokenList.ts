@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useCarouselIndex } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
-import { useMarketBasicConfig } from '@onekeyhq/kit/src/views/Market/hooks';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { IMarketWatchListItemV2 } from '@onekeyhq/shared/types/market';
+import type { IMarketTokenListItem } from '@onekeyhq/shared/types/marketV2';
 
 import {
   SORT_MAP,
@@ -28,8 +28,6 @@ export function useMarketWatchlistTokenList({
   initialSortType,
   pageSize = 100,
 }: IUseMarketWatchlistTokenListParams) {
-  // Get minLiquidity from market config
-  const { minLiquidity } = useMarketBasicConfig();
   const [currentPage, setCurrentPage] = useState(1);
   const [transformedData, setTransformedData] = useState<IMarketToken[]>([]);
   const [sortBy, setSortBy] = useState<string | undefined>(initialSortBy);
@@ -55,11 +53,13 @@ export function useMarketWatchlistTokenList({
         }
         return { list: [] } as const;
       }
-      const tokenAddressList = watchlist.map((item) => ({
-        chainId: item.chainId,
-        contractAddress: item.contractAddress,
-        isNative: !item.contractAddress,
-      }));
+      const tokenAddressList = watchlist
+        .filter((item) => item.chainId)
+        .map((item) => ({
+          chainId: item.chainId,
+          contractAddress: item.contractAddress,
+          isNative: item.isNative ?? false, // Use stored isNative field from watchlist
+        }));
       const response =
         await backgroundApiProxy.serviceMarketV2.fetchMarketTokenListBatch({
           tokenAddressList,
@@ -83,49 +83,71 @@ export function useMarketWatchlistTokenList({
   useEffect(() => {
     if (!apiResult || !apiResult.list) return;
 
-    // Map contractAddress to chainId and sortIndex for quick lookup
-    const chainIdMap: Record<string, string> = {};
-    const sortIndexMap: Record<string, number> = {};
+    // Use chainId + contractAddress combination for unique mapping
+    const tokenMap: Record<
+      string,
+      { chainId: string; sortIndex: number; isNative: boolean }
+    > = {};
     watchlist.forEach((w) => {
-      const key = w.contractAddress.toLowerCase();
-      chainIdMap[key] = w.chainId;
-      sortIndexMap[key] = w.sortIndex ?? 0;
+      const key = `${w.chainId}:${w.contractAddress.toLowerCase()}`;
+      tokenMap[key] = {
+        chainId: w.chainId,
+        sortIndex: w.sortIndex ?? 0,
+        isNative: w.isNative ?? false,
+      };
     });
 
     const transformed: IMarketToken[] = apiResult.list.map((item) => {
-      // Short addresses are automatically normalized to empty strings in transformApiItemToToken
-      const originalKey = item.address.toLowerCase();
-      const key = originalKey.length < 15 ? '' : originalKey;
+      // Get isNative from watchlist data since API doesn't return it
+      let address = item.address;
+      const networkId = item.networkId || '';
+      const key = `${networkId}:${address.toLowerCase()}`;
 
-      const chainId = chainIdMap[key] || item.networkId || '';
+      const tokenInfo = tokenMap[key];
+      const chainId = tokenInfo?.chainId || networkId;
       const networkLogoUri = getNetworkLogoUri(chainId);
-      const sortIndex = sortIndexMap[key];
+      const sortIndex = tokenInfo?.sortIndex;
+      let isNative = tokenInfo?.isNative ?? false; // Get isNative from watchlist
 
-      return transformApiItemToToken(item, {
+      // TODO: Remove this after we have a better way to handle native tokens
+      // Special handling for native tokens (short addresses)
+      if (address.length < 30) {
+        if (item.symbol === 'SUI' && networkId === 'sui--mainnet') {
+          address = '0x2::sui::SUI';
+        } else {
+          address = '';
+        }
+        isNative = true;
+      }
+
+      // Add isNative to the API item
+      const itemWithNative = {
+        ...item,
+        address,
+        isNative,
+      } as IMarketTokenListItem & { isNative: boolean };
+
+      return transformApiItemToToken(itemWithNative, {
         chainId,
         networkLogoUri,
         sortIndex,
       });
     });
 
-    console.log('🔍 Debug transformed data:', {
-      transformed,
-      watchlist,
-    });
+    // Build result array in watchlist order to maintain correct sorting
+    const filteredTransformed = watchlist
+      .map((watchlistItem) => {
+        // Find corresponding token in transformed data
+        const found = transformed.find((token) => {
+          const tokenKey = token.address.toLowerCase();
+          const watchlistKey = watchlistItem.contractAddress.toLowerCase();
+          const chainMatches = watchlistItem.chainId === token.chainId;
+          return tokenKey === watchlistKey && chainMatches;
+        });
 
-    // Filter transformed data based on current watchlist to ensure immediate UI updates
-    const filteredTransformed = transformed.filter((token) => {
-      const key = token.address.toLowerCase();
-
-      const matchingWatchlistItem = watchlist.find((w) => {
-        const watchlistKey = w.contractAddress.toLowerCase();
-        const chainMatches = w.chainId === token.chainId;
-
-        return watchlistKey === key && chainMatches;
-      });
-
-      return !!matchingWatchlistItem;
-    });
+        return found;
+      })
+      .filter(Boolean); // Remove undefined items
 
     setTransformedData(filteredTransformed);
 
@@ -135,19 +157,11 @@ export function useMarketWatchlistTokenList({
     }
   }, [apiResult, watchlist, isInitialLoad]);
 
-  // Apply minimum liquidity filter (maxLiquidity no longer exists)
-  const filteredData = useMemo(() => {
-    if (typeof minLiquidity === 'number') {
-      return transformedData.filter((d) => d.liquidity >= minLiquidity);
-    }
-    return transformedData;
-  }, [transformedData, minLiquidity]);
-
   // Sorting
   const sortedData = useMemo(() => {
     if (!sortBy || !sortType) {
       // Default: use sortIndex for natural watchlist ordering (ascending)
-      return [...filteredData].sort((a, b) => {
+      return [...transformedData].sort((a, b) => {
         const av = a.sortIndex ?? 0;
         const bv = b.sortIndex ?? 0;
         return av - bv;
@@ -156,13 +170,13 @@ export function useMarketWatchlistTokenList({
 
     // Custom sorting
     const key = SORT_MAP[sortBy] || sortBy;
-    return [...filteredData].sort((a, b) => {
+    return [...transformedData].sort((a, b) => {
       const av = a[key] as number;
       const bv = b[key] as number;
       if (av === bv) return 0;
       return sortType === 'asc' ? av - bv : bv - av;
     });
-  }, [filteredData, sortBy, sortType]);
+  }, [transformedData, sortBy, sortType]);
 
   const totalCount = sortedData.length;
   const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 1;

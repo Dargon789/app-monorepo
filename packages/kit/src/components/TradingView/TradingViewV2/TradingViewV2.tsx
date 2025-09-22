@@ -1,22 +1,19 @@
-import { useCallback, useMemo, useRef } from 'react';
-
-import { useCalendars } from 'expo-localization';
+import { useCallback, useRef } from 'react';
 
 import { Stack, useOrientation } from '@onekeyhq/components';
 import type { IStackStyle } from '@onekeyhq/components';
-import { useDevSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms/devSettings';
-import { TRADING_VIEW_URL } from '@onekeyhq/shared/src/config/appConfig';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
-import { useLocaleVariant } from '../../../hooks/useLocaleVariant';
+import { useRouteIsFocused } from '../../../hooks/useRouteIsFocused';
 import { useThemeVariant } from '../../../hooks/useThemeVariant';
 import WebView from '../../WebView';
-import { getTradingViewTimezone } from '../utils/tradingViewTimezone';
+import { useTradingViewUrl } from '../hooks';
 
 import {
   useAutoKLineUpdate,
   useAutoTokenDetailUpdate,
   useNavigationHandler,
+  useTradingViewV2WebSocket,
 } from './hooks';
 import { useTradingViewMessageHandler } from './messageHandlers';
 
@@ -26,7 +23,6 @@ import type { WebViewProps } from 'react-native-webview';
 import type { WebViewNavigation } from 'react-native-webview/lib/WebViewTypes';
 
 interface IBaseTradingViewV2Props {
-  mode: 'overview' | 'realtime';
   identifier: string;
   symbol: string;
   targetToken: string;
@@ -39,6 +35,7 @@ interface IBaseTradingViewV2Props {
   timeTo?: number;
   decimal: number;
   onPanesCountChange?: (count: number) => void;
+  isNative?: boolean;
 }
 
 export type ITradingViewV2Props = IBaseTradingViewV2Props & IStackStyle;
@@ -47,13 +44,10 @@ export function TradingViewV2(props: ITradingViewV2Props & WebViewProps) {
   const isLandscape = useOrientation();
   const isIPadPortrait = platformEnv.isNativeIOSPad && !isLandscape;
   const webRef = useRef<IWebViewRef | null>(null);
-  const calendars = useCalendars();
-  const systemLocale = useLocaleVariant();
   const theme = useThemeVariant();
-  const [devSettings] = useDevSettingsPersistAtom();
+  const isVisible = useRouteIsFocused();
 
   const {
-    mode,
     onLoadEnd,
     tradingViewUrl,
     tokenAddress = '',
@@ -61,6 +55,7 @@ export function TradingViewV2(props: ITradingViewV2Props & WebViewProps) {
     symbol,
     decimal,
     onPanesCountChange,
+    isNative = false,
   } = props;
 
   const { handleNavigation } = useNavigationHandler();
@@ -71,58 +66,41 @@ export function TradingViewV2(props: ITradingViewV2Props & WebViewProps) {
     onPanesCountChange,
   });
 
-  // Determine the URL to use based on dev settings
-  const finalTradingViewUrl = useMemo(() => {
-    if (tradingViewUrl) {
-      return tradingViewUrl;
-    }
-
-    return devSettings.enabled && devSettings.settings?.useLocalTradingViewUrl
-      ? 'http://localhost:5173/'
-      : TRADING_VIEW_URL;
-  }, [
+  const { finalUrl: tradingViewUrlWithParams } = useTradingViewUrl({
     tradingViewUrl,
-    devSettings.enabled,
-    devSettings.settings?.useLocalTradingViewUrl,
-  ]);
+    additionalParams: {
+      symbol,
+      decimal: decimal?.toString(),
+      networkId,
+      address: tokenAddress,
+    },
+  });
 
-  const tradingViewUrlWithParams = useMemo(() => {
-    const timezone = getTradingViewTimezone(calendars);
-    const locale = systemLocale;
-
-    const url = new URL(finalTradingViewUrl);
-    url.searchParams.set('timezone', timezone);
-    url.searchParams.set('locale', locale);
-    url.searchParams.set('platform', platformEnv.appPlatform ?? 'web');
-    url.searchParams.set('theme', theme);
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('decimal', decimal?.toString());
-    url.searchParams.set('networkId', networkId);
-    url.searchParams.set('address', tokenAddress);
-    return url.toString();
-  }, [
-    finalTradingViewUrl,
-    calendars,
-    systemLocale,
-    theme,
-    symbol,
-    decimal,
-    networkId,
-    tokenAddress,
-  ]);
-
+  // Use different data update strategies based on token type
+  // For native tokens (main coins), use traditional K-line updates
+  // For other tokens, use WebSocket for better real-time data
   useAutoKLineUpdate({
     tokenAddress,
     networkId,
     webRef,
-    enabled: mode === 'realtime',
+    enabled: isVisible,
   });
 
   useAutoTokenDetailUpdate({
     tokenAddress,
     networkId,
     webRef,
-    enabled: mode === 'realtime',
+    enabled: isVisible,
+  });
+
+  // Enhanced WebSocket connection for real-time market data
+  useTradingViewV2WebSocket({
+    tokenAddress,
+    networkId,
+    webRef,
+    enabled: isVisible,
+    chartType: '1m',
+    currency: 'usd',
   });
 
   const onShouldStartLoadWithRequest = useCallback(
@@ -133,6 +111,7 @@ export function TradingViewV2(props: ITradingViewV2Props & WebViewProps) {
   return (
     <Stack position="relative" flex={1}>
       <WebView
+        key={theme}
         customReceiveHandler={async (data) => {
           await customReceiveHandler(data as ICustomReceiveHandlerData);
         }}
@@ -140,6 +119,7 @@ export function TradingViewV2(props: ITradingViewV2Props & WebViewProps) {
         onWebViewRef={(ref) => {
           webRef.current = ref;
         }}
+        allowsBackForwardNavigationGestures={false}
         onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         displayProgressBar={false}
         pullToRefreshEnabled={false}
@@ -156,9 +136,9 @@ export function TradingViewV2(props: ITradingViewV2Props & WebViewProps) {
         <Stack
           position="absolute"
           left={0}
-          top={0}
+          top={50}
           bottom={0}
-          width={12}
+          width={15}
           zIndex={1}
           pointerEvents="auto"
         />

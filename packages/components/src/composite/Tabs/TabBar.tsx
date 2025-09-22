@@ -68,6 +68,14 @@ export interface ITabBarProps extends TabBarProps<string> {
   renderToolbar?: ({ focusedTab }: { focusedTab: string }) => React.ReactNode;
 }
 
+export interface ITabBarItemProps {
+  name: string;
+  isFocused: boolean;
+  onPress: (name: string) => void;
+  tabItemStyle?: IYStackProps;
+  focusedTabStyle?: IYStackProps;
+}
+
 export function TabBar({
   onTabPress,
   tabNames,
@@ -88,16 +96,7 @@ export function TabBar({
   divider?: boolean;
   tabItemStyle?: IYStackProps;
   focusedTabStyle?: IYStackProps;
-  renderItem?: (
-    props: {
-      name: string;
-      isFocused: boolean;
-      onPress: (name: string) => void;
-      tabItemStyle?: IYStackProps;
-      focusedTabStyle?: IYStackProps;
-    },
-    index: number,
-  ) => React.ReactNode;
+  renderItem?: (props: ITabBarItemProps, index: number) => React.ReactNode;
   scrollable?: boolean;
 }) {
   const [currentTab, setCurrentTab] = useState<string>(focusedTab.value);
@@ -210,23 +209,31 @@ export function TabBar({
   );
 
   return scrollable ? (
-    <ListView
-      data={tabNames}
-      estimatedItemSize={44}
-      ref={listViewRef}
-      horizontal
-      userSelect="none"
-      bg="$bgApp"
-      pr="$4"
-      contentContainerStyle={{
-        pr: 16,
-      }}
-      renderItem={handleRenderItem as any}
+    <YStack
       position={'sticky' as any}
       top={0}
+      bg="$bgApp"
       zIndex={10}
-      showsHorizontalScrollIndicator={false}
-    />
+      userSelect="none"
+      {...containerStyle}
+    >
+      <XStack alignItems="center" gap="$2" justifyContent="space-between">
+        <ListView
+          data={tabNames}
+          estimatedItemSize={44}
+          ref={listViewRef}
+          horizontal
+          pr="$4"
+          contentContainerStyle={{
+            pr: 16,
+          }}
+          renderItem={handleRenderItem as any}
+          showsHorizontalScrollIndicator={false}
+        />
+        {renderToolbar?.({ focusedTab: currentTab })}
+      </XStack>
+      {divider ? <Divider /> : null}
+    </YStack>
   ) : (
     <YStack
       userSelect="none"
