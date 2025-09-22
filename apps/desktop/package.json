@@ -40,7 +40,7 @@
     "electron-is-dev": "^2.0.0",
     "electron-log": "5.2.0",
     "electron-store": "^8.2.0",
-    "electron-updater": "6.1.8",
+    "electron-updater": "6.3.0",
     "electron-windows-security": "0.0.5",
     "keytar": "^7.9.0",
     "node-fetch": "^2.6.7"
@@ -55,10 +55,10 @@
     "cross-env": "^7.0.3",
     "electron": "27.3.1",
     "electron-builder": "26.0.9",
-    "esbuild": "0.15.18",
+    "esbuild": "0.25.0",
     "folderslint": "^1.2.0",
     "glob": "^7.2.0",
     "rimraf": "^3",
-    "webpack": "5.90.3"
+    "webpack": "5.94.0"
   }
 }
