@@ -1,33 +1,37 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { BigNumber } from 'bignumber.js';
+import { isNil } from 'lodash';
 
 import {
   Button,
   Dialog,
+  Divider,
   Icon,
   SizableText,
-  Slider,
   Toast,
   XStack,
   YStack,
 } from '@onekeyhq/components';
-import { useAllMidsAtom } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
-import { EJotaiContextStoreNames } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import {
+  useHyperliquidActions,
+  usePerpsAllMidsAtom,
+} from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import {
+  calculateProfitLoss,
   formatPriceToSignificantDigits,
   formatWithPrecision,
   validateSizeInput,
 } from '@onekeyhq/shared/src/utils/perpsUtils';
-import type {
-  IOrderResponse,
-  IWsWebData2,
-} from '@onekeyhq/shared/types/hyperliquid/sdk';
+import type { IWsWebData2 } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
 import { PerpsProviderMirror } from '../../PerpsProviderMirror';
+import { PerpsSlider } from '../PerpsSlider';
+import { TradingGuardWrapper } from '../TradingGuardWrapper';
 import { PriceInput } from '../TradingPanel/inputs/PriceInput';
 import { TradingFormInput } from '../TradingPanel/inputs/TradingFormInput';
 
@@ -46,25 +50,6 @@ interface IClosePositionFormData {
 interface IClosePositionParams {
   position: IPosition;
   type: ICloseType;
-  szDecimals: number;
-  assetId: number;
-  hyperliquidActions: {
-    current: {
-      orderClose: (params: {
-        assetId: number;
-        isBuy: boolean;
-        size: string;
-        midPx: string;
-      }) => Promise<IOrderResponse>;
-      limitOrderClose: (params: {
-        assetId: number;
-        isBuy: boolean;
-        size: string;
-        limitPrice: string;
-      }) => Promise<IOrderResponse>;
-      resetTradingForm: () => void;
-    };
-  };
 }
 
 interface IClosePositionFormProps extends IClosePositionParams {
@@ -72,26 +57,21 @@ interface IClosePositionFormProps extends IClosePositionParams {
 }
 
 const ClosePositionForm = memo(
-  ({
-    position,
-    type,
-    szDecimals,
-    assetId,
-    hyperliquidActions,
-    onClose,
-  }: IClosePositionFormProps) => {
-    const [allMids] = useAllMidsAtom();
+  ({ position, type, onClose }: IClosePositionFormProps) => {
+    const [allMids] = usePerpsAllMidsAtom();
+    const hyperliquidActions = useHyperliquidActions();
 
-    const getMidPrice = useCallback(() => {
-      if (!allMids?.mids) return '0';
-      const midPrice = allMids.mids[position.coin];
-      return midPrice || '0';
-    }, [allMids, position.coin]);
+    const { result: tokenInfo } = usePromiseResult(async () => {
+      return backgroundApiProxy.serviceHyperliquid.getSymbolMeta({
+        coin: position.coin,
+      });
+    }, [position.coin]);
+    const szDecimals = tokenInfo?.universe?.szDecimals ?? 2;
+    const assetId = tokenInfo?.assetId;
 
-    const markPrice = useMemo(() => {
-      const currentMidPrice = getMidPrice() || '0';
-      return currentMidPrice;
-    }, [getMidPrice]);
+    const midPrice = useMemo(() => {
+      return allMids?.mids?.[position.coin] || '0';
+    }, [allMids?.mids, position.coin]);
 
     const positionSize = useMemo(() => {
       const size = new BigNumber(position.szi || '0').abs();
@@ -105,25 +85,40 @@ const ClosePositionForm = memo(
 
     const [formData, setFormData] = useState<IClosePositionFormData>({
       type,
-      amount: '',
+      amount: positionSize.toFixed(),
       limitPrice: '',
       percentage: 100,
     });
 
+    const [sliderPercentage, setSliderPercentage] = useState(
+      formData.percentage,
+    );
+
     const [userSetPrice, setUserSetPrice] = useState(false);
     const initPriceRef = useRef(false);
+    const isMountedRef = useRef(true);
 
     useEffect(() => {
-      if (!markPrice) return;
+      setSliderPercentage(formData.percentage);
+    }, [formData.percentage, setSliderPercentage]);
 
-      if (!initPriceRef.current && !userSetPrice) {
+    useEffect(() => {
+      if (!midPrice) return;
+
+      if (!initPriceRef.current && !userSetPrice && isMountedRef.current) {
         setFormData((prev) => ({
           ...prev,
-          limitPrice: formatPriceToSignificantDigits(markPrice),
+          limitPrice: formatPriceToSignificantDigits(midPrice),
         }));
         initPriceRef.current = true;
       }
-    }, [markPrice, userSetPrice]);
+    }, [midPrice, userSetPrice]);
+
+    useEffect(() => {
+      return () => {
+        isMountedRef.current = false;
+      };
+    }, []);
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -153,19 +148,12 @@ const ClosePositionForm = memo(
     const handleAmountChange = useCallback(
       (value: string) => {
         const processedValue = value.replace(/。/g, '.');
-        if (processedValue === '') {
-          setFormData((prev) => ({
-            ...prev,
-            amount: '',
-            percentage: 0,
-          }));
-          return;
-        }
-        if (processedValue === '.') {
+
+        if (processedValue === '' || processedValue === '.') {
           setFormData((prev) => ({
             ...prev,
             amount: processedValue,
-            percentage: 0,
+            percentage: processedValue === '' ? 0 : prev.percentage,
           }));
           return;
         }
@@ -174,14 +162,16 @@ const ClosePositionForm = memo(
         if (numericValue.isNaN()) {
           return;
         }
+
         if (numericValue.gt(positionSize)) {
           setFormData((prev) => ({
             ...prev,
-            amount: position.szi,
+            amount: formatWithPrecision(positionSize, szDecimals, true),
             percentage: 100,
           }));
           return;
         }
+
         const percentage = positionSize.gt(0)
           ? numericValue.dividedBy(positionSize).multipliedBy(100).toNumber()
           : 0;
@@ -192,7 +182,7 @@ const ClosePositionForm = memo(
           percentage: Math.min(100, Math.max(0, percentage)),
         }));
       },
-      [positionSize, position.szi],
+      [positionSize, szDecimals],
     );
 
     const handleLimitPriceChange = useCallback(
@@ -211,17 +201,16 @@ const ClosePositionForm = memo(
     );
 
     const handleUseMid = useCallback(() => {
-      const latestMarkPrice = getMidPrice();
-      if (latestMarkPrice) {
+      const latestMidPrice = midPrice;
+      if (latestMidPrice && latestMidPrice !== '0') {
         setFormData((prev) => ({
           ...prev,
-          limitPrice: formatPriceToSignificantDigits(latestMarkPrice),
+          limitPrice: formatPriceToSignificantDigits(latestMidPrice),
         }));
-
         setUserSetPrice(false);
-        initPriceRef.current = false;
+        initPriceRef.current = true;
       }
-    }, [getMidPrice]);
+    }, [midPrice]);
 
     const handleTypeChange = useCallback((value: string) => {
       setFormData((prev) => ({
@@ -232,93 +221,132 @@ const ClosePositionForm = memo(
 
     const handleSubmit = useCallback(async () => {
       try {
-        setIsSubmitting(true);
+        if (isNil(assetId) || Number.isNaN(assetId)) {
+          return;
+        }
+        if (isMountedRef.current) {
+          setIsSubmitting(true);
+        }
 
         const closeAmount = formData.amount || calculatedAmount;
         const closeAmountBN = new BigNumber(closeAmount);
 
         if (!closeAmount || closeAmountBN.lte(0)) {
-          throw new OneKeyLocalError({
-            message: 'Please enter a valid amount',
+          Toast.error({
+            title: 'Please enter a valid amount',
           });
+          return;
         }
 
         if (formData.type === 'market') {
-          const latestMarkPrice = getMidPrice();
-          if (!latestMarkPrice) {
-            throw new OneKeyLocalError({
-              message: 'Unable to get current market price',
+          const latestMidPrice = midPrice;
+          if (!latestMidPrice || latestMidPrice === '0') {
+            Toast.error({
+              title: 'Unable to get current market price',
             });
+            return;
           }
 
-          await hyperliquidActions.current.orderClose({
-            assetId,
-            isBuy: isLongPosition,
-            size: closeAmount,
-            midPx: latestMarkPrice,
-          });
-
-          Toast.success({
-            title: 'Position Closed Successfully',
-            message: `Market close for ${closeAmount} ${position.coin} has been submitted`,
-          });
+          await hyperliquidActions.current.ordersClose([
+            {
+              assetId,
+              isBuy: isLongPosition,
+              size: closeAmount,
+              midPx: latestMidPrice,
+            },
+          ]);
         } else {
           const limitPriceBN = new BigNumber(formData.limitPrice || '0');
           if (!formData.limitPrice || limitPriceBN.lte(0)) {
-            throw new OneKeyLocalError({
-              message: 'Please enter a valid limit price',
+            Toast.error({
+              title: 'Please enter a valid limit price',
             });
+            return;
           }
 
-          await hyperliquidActions.current.limitOrderClose({
-            assetId,
-            isBuy: isLongPosition,
-            size: closeAmount,
-            limitPrice: formData.limitPrice,
-          });
-
-          Toast.success({
-            title: 'Limit Close Order Placed',
-            message: `Limit close for ${closeAmount} ${position.coin} at $${formData.limitPrice} has been submitted`,
-          });
+          await hyperliquidActions.current.ordersClose([
+            {
+              assetId,
+              isBuy: isLongPosition,
+              size: closeAmount,
+              limitPx: formData.limitPrice,
+            },
+          ]);
         }
 
         hyperliquidActions.current.resetTradingForm();
-        onClose();
-      } catch (error) {
-        Toast.error({
-          title: 'Close Position Failed',
-          message:
-            error instanceof Error ? error.message : 'Failed to close position',
-        });
-        throw error;
+        if (isMountedRef.current) {
+          onClose();
+        }
       } finally {
-        setIsSubmitting(false);
+        if (isMountedRef.current) {
+          setIsSubmitting(false);
+        }
       }
     }, [
-      formData,
+      formData.amount,
+      formData.type,
+      formData.limitPrice,
       calculatedAmount,
       assetId,
-      getMidPrice,
+      midPrice,
       isLongPosition,
-      position.coin,
       hyperliquidActions,
       onClose,
     ]);
+    const entryPrice = useMemo(() => {
+      return position?.entryPx || '0';
+    }, [position]);
 
-    const isFormValid = useMemo(() => {
+    const estimatedProfit = useMemo(() => {
+      const exitPrice =
+        formData.type === 'market' ? midPrice : formData.limitPrice;
+      if (!exitPrice || !position.entryPx) return '$0.00';
+
+      const amount = formData.amount || positionSize.toFixed(szDecimals);
+      if (!amount) return '$0.00';
+
+      return calculateProfitLoss({
+        entryPrice: position.entryPx,
+        exitPrice,
+        amount,
+        side: isLongPosition ? 'long' : 'short',
+        formatOptions: {
+          currency: '$',
+          decimals: 2,
+          showSign: false,
+        },
+      });
+    }, [
+      formData.type,
+      midPrice,
+      formData.amount,
+      formData.limitPrice,
+      position.entryPx,
+      positionSize,
+      isLongPosition,
+      szDecimals,
+    ]);
+
+    const isAmountValid = useMemo(() => {
       const amount = formData.amount || calculatedAmount;
-      const limitPrice = new BigNumber(formData.limitPrice || '0');
-      const amountBN = new BigNumber(amount || '0');
-      const liquidationPrice = position.liquidationPx;
+      if (!amount) return false;
 
-      if (!amount || amountBN.lte(0)) return false;
-      if (amountBN.gt(positionSize)) return false;
+      const amountBN = new BigNumber(amount);
+      if (!amountBN.isFinite()) return false;
 
+      return amountBN.gt(0) && amountBN.lte(positionSize);
+    }, [formData.amount, calculatedAmount, positionSize]);
+
+    const isPriceValid = useMemo(() => {
       if (formData.type === 'market') {
-        return Boolean(markPrice);
+        return Boolean(midPrice);
       }
+
+      const limitPrice = new BigNumber(formData.limitPrice || '0');
       if (!limitPrice.isFinite() || limitPrice.isZero()) return false;
+
+      const liquidationPrice = position.liquidationPx;
       if (liquidationPrice) {
         if (
           (!isLongPosition && limitPrice.gt(liquidationPrice)) ||
@@ -330,13 +358,16 @@ const ClosePositionForm = memo(
 
       return limitPrice.gt(0);
     }, [
-      formData,
-      calculatedAmount,
-      positionSize,
-      markPrice,
+      formData.type,
+      formData.limitPrice,
+      midPrice,
       isLongPosition,
       position.liquidationPx,
     ]);
+
+    const isFormValid = useMemo(() => {
+      return isAmountValid && isPriceValid;
+    }, [isAmountValid, isPriceValid]);
 
     return (
       <YStack gap="$4">
@@ -360,6 +391,23 @@ const ClosePositionForm = memo(
               {positionSize.toNumber()} {position.coin}
             </SizableText>
           </XStack>
+          <XStack justifyContent="space-between" alignItems="center">
+            <SizableText size="$bodyMd" color="$textSubdued">
+              {appLocale.intl.formatMessage({
+                id: ETranslations.perp_position_entry_price,
+              })}
+            </SizableText>
+            <SizableText size="$bodyMdMedium">{entryPrice}</SizableText>
+          </XStack>
+
+          {/* <XStack justifyContent="space-between" alignItems="center">
+            <SizableText size="$bodyMd" color="$textSubdued">
+              {appLocale.intl.formatMessage({
+                id: ETranslations.perp_position_mark_price,
+              })}
+            </SizableText>
+            <MarkPrice coin={position.coin} />
+          </XStack> */}
 
           <XStack justifyContent="space-between" alignItems="center">
             <SizableText size="$bodyMd" color="$textSubdued">
@@ -376,7 +424,13 @@ const ClosePositionForm = memo(
               gap="$1"
             >
               <SizableText size="$bodyMdMedium">
-                {formData.type === 'limit' ? 'Limit' : 'Market'}
+                {formData.type === 'limit'
+                  ? appLocale.intl.formatMessage({
+                      id: ETranslations.perp_trade_limit,
+                    })
+                  : appLocale.intl.formatMessage({
+                      id: ETranslations.perp_trade_market,
+                    })}
               </SizableText>
               <Icon
                 name="RepeatOutline"
@@ -387,7 +441,7 @@ const ClosePositionForm = memo(
             </XStack>
           </XStack>
         </YStack>
-
+        <Divider />
         {formData.type === 'limit' ? (
           <PriceInput
             label={appLocale.intl.formatMessage({
@@ -396,7 +450,7 @@ const ClosePositionForm = memo(
             value={formData.limitPrice}
             onChange={handleLimitPriceChange}
             onUseMarketPrice={handleUseMid}
-            disabled={!markPrice}
+            disabled={!midPrice}
             szDecimals={szDecimals}
             ifOnDialog
           />
@@ -418,27 +472,40 @@ const ClosePositionForm = memo(
           ifOnDialog
         />
 
-        <YStack gap="$2" p="$2">
-          <Slider
-            value={formData.percentage}
-            onChange={handlePercentageChange}
-            max={100}
-            min={0}
-            step={1}
-          />
-        </YStack>
+        <PerpsSlider
+          value={sliderPercentage}
+          onChange={handlePercentageChange}
+          max={100}
+          min={0}
+          segments={0}
+        />
 
-        <Button
-          size="large"
-          variant="primary"
-          onPress={handleSubmit}
-          disabled={!isFormValid || isSubmitting}
-          loading={isSubmitting}
-        >
-          {appLocale.intl.formatMessage({
-            id: ETranslations.perp_confirm_order,
-          })}
-        </Button>
+        <XStack justifyContent="space-between" gap="$1">
+          <SizableText size="$bodyMd" color="$textSubdued">
+            {appLocale.intl.formatMessage({
+              id: ETranslations.perp_tp_sl_profit,
+            })}
+          </SizableText>
+          <SizableText
+            size="$bodyMdMedium"
+            color={estimatedProfit.startsWith('-') ? '$red11' : '$green11'}
+          >
+            {estimatedProfit}
+          </SizableText>
+        </XStack>
+        <TradingGuardWrapper>
+          <Button
+            size="medium"
+            variant="primary"
+            onPress={handleSubmit}
+            disabled={!isFormValid || isSubmitting}
+            loading={isSubmitting}
+          >
+            {appLocale.intl.formatMessage({
+              id: ETranslations.perp_confirm_order,
+            })}
+          </Button>{' '}
+        </TradingGuardWrapper>
       </YStack>
     );
   },
@@ -449,37 +516,22 @@ ClosePositionForm.displayName = 'ClosePositionForm';
 export function showClosePositionDialog({
   position,
   type,
-  szDecimals,
-  assetId,
-  hyperliquidActions,
 }: IClosePositionParams) {
   const dialogInstance = Dialog.show({
-    title:
-      type === 'market'
-        ? appLocale.intl.formatMessage({
-            id: ETranslations.perp_close_position_button_market,
-          })
-        : appLocale.intl.formatMessage({
-            id: ETranslations.perp_close_position_button_limit,
-          }),
+    title: appLocale.intl.formatMessage({
+      id: ETranslations.perp_close_position_title,
+    }),
+    disableDrag: true,
     renderContent: (
       <PerpsProviderMirror>
         <ClosePositionForm
           position={position}
           type={type}
-          szDecimals={szDecimals}
-          assetId={assetId}
-          hyperliquidActions={hyperliquidActions}
-          onClose={() => {
-            void dialogInstance.close();
-          }}
+          onClose={() => dialogInstance.close()}
         />
       </PerpsProviderMirror>
     ),
     showFooter: false,
-    onClose: () => {
-      void dialogInstance.close();
-    },
   });
 
   return dialogInstance;

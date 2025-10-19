@@ -1,7 +1,6 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
-import { RadioGroup } from 'tamagui';
-
+import { RadioGroup } from '@onekeyhq/components/src/shared/tamagui';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { Label, SizableText, XStack, YStack } from '../../primitives';
@@ -48,6 +47,13 @@ export function Radio({
     [onChange, options],
   );
 
+  const itemContainerFlex = useMemo(() => {
+    if (platformEnv.isNative) {
+      return undefined;
+    }
+    return orientation === 'horizontal' ? undefined : 1;
+  }, [orientation]);
+
   return (
     <RadioGroup
       value={value}
@@ -75,7 +81,7 @@ export function Radio({
                 py="$2"
                 alignItems="center"
                 gap="$2"
-                flex={orientation === 'horizontal' ? undefined : 1}
+                flex={itemContainerFlex}
                 opacity={optionDisabled ? 0.5 : 1}
               >
                 <RadioGroup.Item
@@ -107,9 +113,11 @@ export function Radio({
                   />
                 </RadioGroup.Item>
                 <YStack
+                  userSelect="none"
                   py={orientation === 'horizontal' ? '$0' : '$2'}
                   my={orientation === 'horizontal' ? '$0' : '$-2'}
                   flex={orientation === 'horizontal' ? undefined : 1}
+                  onPress={() => handleValueChange(v)}
                 >
                   <Label
                     htmlFor={v}

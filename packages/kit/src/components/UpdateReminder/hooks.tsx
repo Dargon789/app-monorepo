@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-import { isEmpty, noop, throttle } from 'lodash';
+import { noop, throttle } from 'lodash';
 import { useIntl } from 'react-intl';
 import { StyleSheet } from 'react-native';
 
@@ -32,6 +32,7 @@ import {
   BundleUpdate,
 } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
+import { getRequestHeaders } from '@onekeyhq/shared/src/request/Interceptor';
 import { EAppUpdateRoutes, EModalRoutes } from '@onekeyhq/shared/src/routes';
 import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
@@ -44,6 +45,12 @@ import { whenAppUnlocked } from '../../utils/passwordUtils';
 import type { IntlShape } from 'react-intl';
 
 const MIN_EXECUTION_DURATION = 3000; // 3 seconds minimum execution time
+const isShowToastError = (updateStrategy: EUpdateStrategy) => {
+  return (
+    updateStrategy !== EUpdateStrategy.silent &&
+    updateStrategy !== EUpdateStrategy.seamless
+  );
+};
 
 export const isAutoUpdateStrategy = (updateStrategy: EUpdateStrategy) => {
   return (
@@ -59,6 +66,9 @@ export const isShowAppUpdateUIWhenUpdating = ({
   updateStrategy: EUpdateStrategy;
   updateStatus: EAppUpdateStatus;
 }) => {
+  if (updateStrategy === EUpdateStrategy.seamless) {
+    return false;
+  }
   if (
     updateStrategy === EUpdateStrategy.manual ||
     updateStrategy === EUpdateStrategy.force
@@ -72,13 +82,10 @@ export const isForceUpdateStrategy = (updateStrategy: EUpdateStrategy) => {
   return updateStrategy === EUpdateStrategy.force;
 };
 
-export const useAppChangeLog = (version?: string) => {
+export const useAppChangeLog = () => {
   const response = usePromiseResult(
-    () =>
-      version
-        ? backgroundApiProxy.serviceAppUpdate.fetchChangeLog()
-        : Promise.resolve(null),
-    [version],
+    () => backgroundApiProxy.serviceAppUpdate.fetchChangeLog(),
+    [],
   );
   return useMemo(() => response.result, [response.result]);
 };
@@ -198,7 +205,6 @@ export const useDownloadPackage = () => {
   const intl = useIntl();
   const navigation = useAppNavigation();
   const themeVariant = useThemeVariant();
-
   const showUpdateInCompleteDialogRef =
     useRef<
       ({
@@ -220,6 +226,7 @@ export const useDownloadPackage = () => {
     async (onSuccess: () => void, onFail: () => void) => {
       const data = await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
       const fileType = await getFileTypeFromUpdateInfo();
+      const showToastError = isShowToastError(data.updateStrategy);
       try {
         defaultLogger.app.appUpdate.startInstallPackage({ fileType, data });
         if (fileType === EUpdateFileType.jsBundle) {
@@ -237,7 +244,7 @@ export const useDownloadPackage = () => {
         defaultLogger.app.appUpdate.endInstallPackage(false, e as Error);
         if ((e as { message?: string })?.message === 'NOT_FOUND_PACKAGE') {
           onFail();
-        } else {
+        } else if (showToastError) {
           Toast.error({ title: (e as Error).message });
         }
       }
@@ -245,35 +252,23 @@ export const useDownloadPackage = () => {
     [getFileTypeFromUpdateInfo],
   );
 
-  const showSilentUpdateDialog = useCallback(async () => {
-    const appUpdateInfo =
-      await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
-    await whenAppUnlocked();
-    await showSilentUpdateDialogUI({
-      intl,
-      summary: appUpdateInfo.summary || '',
-      themeVariant,
-      onConfirm: () => {
-        if (isEmpty(appUpdateInfo.changeLog)) {
-          void installPackage(noop, () => {
-            showUpdateInCompleteDialogRef.current?.({
-              onConfirm: noop,
-              onCancel: noop,
-            });
+  const showSilentUpdateDialog = useCallback(() => {
+    setTimeout(async () => {
+      const currentUpdateInfo =
+        await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
+      await whenAppUnlocked();
+      await showSilentUpdateDialogUI({
+        intl,
+        summary: currentUpdateInfo.summary || '',
+        themeVariant,
+        onConfirm: () => {
+          navigation.pushModal(EModalRoutes.AppUpdateModal, {
+            screen: EAppUpdateRoutes.DownloadVerify,
           });
-        }
-        navigation.pushModal(EModalRoutes.AppUpdateModal, {
-          screen: EAppUpdateRoutes.UpdatePreview,
-          params: {
-            latestVersion: appUpdateInfo.latestVersion,
-            isForceUpdate: isForceUpdateStrategy(appUpdateInfo.updateStrategy),
-            autoClose: false,
-            ...appUpdateInfo,
-          },
-        });
-      },
-    });
-  }, [intl, navigation, themeVariant, installPackage]);
+        },
+      });
+    }, 0);
+  }, [intl, navigation, themeVariant]);
 
   const verifyPackage = useCallback(async () => {
     const appUpdateInfo =
@@ -297,15 +292,11 @@ export const useDownloadPackage = () => {
       ]);
       await backgroundApiProxy.serviceAppUpdate.readyToInstall();
       defaultLogger.app.appUpdate.endVerifyPackage(true);
-
-      if (appUpdateInfo.updateStrategy === EUpdateStrategy.silent) {
-        void showSilentUpdateDialog();
-      }
     } catch (e) {
       defaultLogger.app.appUpdate.endVerifyPackage(false, e as Error);
       await backgroundApiProxy.serviceAppUpdate.verifyPackageFailed(e as Error);
     }
-  }, [showSilentUpdateDialog]);
+  }, []);
 
   const verifyASC = useCallback(async () => {
     const fileType = await getFileTypeFromUpdateInfo();
@@ -359,32 +350,35 @@ export const useDownloadPackage = () => {
 
   const downloadPackage = useCallback(async () => {
     const fileType = await getFileTypeFromUpdateInfo();
+    const params = await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
+    defaultLogger.app.appUpdate.startCheckForUpdates(
+      fileType,
+      params.updateStrategy,
+    );
+    const showToastError = isShowToastError(params.updateStrategy);
     try {
       await backgroundApiProxy.serviceAppUpdate.downloadPackage();
-      const params = await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
-      defaultLogger.app.appUpdate.startCheckForUpdates(
-        fileType,
-        params.updateStrategy,
-      );
       const { latestVersion, jsBundleVersion, jsBundle, downloadUrl } = params;
       const isJsBundle = fileType === EUpdateFileType.jsBundle;
       const updateEvent =
         await backgroundApiProxy.serviceAppUpdate.getDownloadEvent();
+      const headers = await getRequestHeaders();
       const downloadParams: IDownloadPackageParams = {
         ...updateEvent,
         signature: isJsBundle ? jsBundle?.signature : undefined,
         latestVersion,
         bundleVersion: jsBundleVersion,
         downloadUrl: isJsBundle ? jsBundle?.downloadUrl : downloadUrl,
-        fileSize: isJsBundle ? jsBundle?.fileSize : undefined,
+        fileSize: isJsBundle ? jsBundle?.fileSize : params.fileSize ?? 0,
         sha256: isJsBundle ? jsBundle?.sha256 : undefined,
+        headers,
       };
-      defaultLogger.app.appUpdate.endDownload(downloadParams);
+      defaultLogger.app.appUpdate.startDownload(downloadParams);
       const result =
         fileType === EUpdateFileType.jsBundle
           ? await BundleUpdate.downloadBundle(downloadParams)
           : await AppUpdate.downloadPackage(downloadParams);
-      defaultLogger.app.appUpdate.endDownload(result);
+      defaultLogger.app.appUpdate.endDownload(result || {});
       if (!result) {
         return;
       }
@@ -397,11 +391,13 @@ export const useDownloadPackage = () => {
       await backgroundApiProxy.serviceAppUpdate.downloadPackageFailed(
         e as Error,
       );
-      Toast.error({
-        title: intl.formatMessage({
-          id: ETranslations.global_update_failed,
-        }),
-      });
+      if (showToastError) {
+        Toast.error({
+          title: intl.formatMessage({
+            id: ETranslations.global_update_failed,
+          }),
+        });
+      }
     }
   }, [downloadASC, getFileTypeFromUpdateInfo, intl]);
 
@@ -535,22 +531,28 @@ export const useAppUpdateInfo = (isFullModal = false, autoCheck = true) => {
         isForceUpdate?: boolean;
       },
     ) => {
-      const pushModal = isFull
-        ? navigation.pushFullModal
-        : navigation.pushModal;
-      pushModal(EModalRoutes.AppUpdateModal, {
-        screen: EAppUpdateRoutes.UpdatePreview,
-        params: {
-          latestVersion: appUpdateInfo.latestVersion,
-          isForceUpdate: isForceUpdateStrategy(appUpdateInfo.updateStrategy),
-          autoClose: isFull,
-          ...params,
-        },
-      });
+      setTimeout(async () => {
+        const currentAppUpdateInfo =
+          await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
+        const pushModal = isFull
+          ? navigation.pushFullModal
+          : navigation.pushModal;
+        pushModal(EModalRoutes.AppUpdateModal, {
+          screen: EAppUpdateRoutes.UpdatePreview,
+          params: {
+            latestVersion:
+              params?.latestVersion ?? currentAppUpdateInfo.latestVersion,
+            isForceUpdate:
+              params?.isForceUpdate ??
+              isForceUpdateStrategy(appUpdateInfo.updateStrategy),
+            autoClose: isFull,
+            ...params,
+          },
+        });
+      }, 0);
     },
     [
       appUpdateInfo.updateStrategy,
-      appUpdateInfo.latestVersion,
       navigation.pushFullModal,
       navigation.pushModal,
     ],
@@ -600,34 +602,83 @@ export const useAppUpdateInfo = (isFullModal = false, autoCheck = true) => {
         storeUrl?: string;
       },
     ) => {
-      void showUpdateDialogUI({
-        dialog,
-        intl,
-        themeVariant,
-        summary: params?.summary || '',
-        onConfirm: () => {
-          if (!platformEnv.isExtension && params?.storeUrl) {
-            openUrlExternal(params.storeUrl);
-          } else {
-            setTimeout(() => {
-              toUpdatePreviewPage(isFull, params);
-            }, 120);
-          }
-          defaultLogger.app.component.confirmedInUpdateDialog();
-        },
-      });
+      setTimeout(async () => {
+        await whenAppUnlocked();
+        void showUpdateDialogUI({
+          dialog,
+          intl,
+          themeVariant,
+          summary: params?.summary || '',
+          onConfirm: () => {
+            if (!platformEnv.isExtension && params?.storeUrl) {
+              openUrlExternal(params.storeUrl);
+            } else {
+              setTimeout(async () => {
+                const currentUpdateInfo =
+                  await backgroundApiProxy.serviceAppUpdate.getUpdateInfo();
+                if (currentUpdateInfo.status === EAppUpdateStatus.ready) {
+                  toDownloadAndVerifyPage();
+                } else {
+                  toUpdatePreviewPage(isFull, params);
+                }
+              }, 120);
+            }
+            defaultLogger.app.component.confirmedInUpdateDialog();
+          },
+        });
+      }, 0);
     },
-    [dialog, intl, themeVariant, toUpdatePreviewPage],
+    [dialog, intl, themeVariant, toDownloadAndVerifyPage, toUpdatePreviewPage],
   );
 
   // run only once
   useEffect(() => {
-    if (!autoCheck) {
+    if (!autoCheck || !isFirstLaunch) {
       return;
     }
+    isFirstLaunch = false;
+    let isShowForceUpdatePreviewPage = false;
+
+    const fetchUpdateInfo = () => {
+      void checkForUpdates().then(
+        async ({ isNeedUpdate: needUpdate, isForceUpdate, response }) => {
+          if (isShowForceUpdatePreviewPage) {
+            return;
+          }
+          const updateStrategy =
+            response?.updateStrategy ?? EUpdateStrategy.manual;
+          if (needUpdate) {
+            if (isAutoUpdateStrategy(updateStrategy)) {
+              void downloadPackage();
+            } else if (isForceUpdate) {
+              toUpdatePreviewPage(true, response);
+            } else if (platformEnv.isNative || platformEnv.isDesktop) {
+              setTimeout(() => {
+                showUpdateDialog(false, response);
+              }, 200);
+            }
+          }
+        },
+      );
+    };
+
     if (isFirstLaunchAfterUpdated(appUpdateInfo)) {
-      onViewReleaseInfo();
+      if (appUpdateInfo.updateStrategy !== EUpdateStrategy.seamless) {
+        onViewReleaseInfo();
+      }
+      setTimeout(async () => {
+        await backgroundApiProxy.serviceAppUpdate.refreshUpdateStatus();
+        fetchUpdateInfo();
+      }, 250);
+      return;
     }
+
+    const forceUpdate = isForceUpdateStrategy(appUpdateInfo.updateStrategy);
+    if (appUpdateInfo.status !== EAppUpdateStatus.done && forceUpdate) {
+      isShowForceUpdatePreviewPage = true;
+      toUpdatePreviewPage(true, appUpdateInfo);
+    }
+
     if (appUpdateInfo.status === EAppUpdateStatus.updateIncomplete) {
       // do nothing
     } else if (appUpdateInfo.status === EAppUpdateStatus.downloadPackage) {
@@ -639,38 +690,37 @@ export const useAppUpdateInfo = (isFullModal = false, autoCheck = true) => {
     } else if (appUpdateInfo.status === EAppUpdateStatus.verifyPackage) {
       void verifyPackage();
     } else if (appUpdateInfo.status === EAppUpdateStatus.ready) {
-      if (appUpdateInfo.updateStrategy === EUpdateStrategy.silent) {
-        void showSilentUpdateDialog();
-      } else if (appUpdateInfo.updateStrategy === EUpdateStrategy.manual) {
-        void showUpdateDialog();
+      if (isShowForceUpdatePreviewPage) {
+        return;
+      }
+      const fileType = getUpdateFileType(appUpdateInfo);
+      if (
+        fileType === EUpdateFileType.jsBundle &&
+        appUpdateInfo.updateStrategy === EUpdateStrategy.seamless
+      ) {
+        void BundleUpdate.installBundle(appUpdateInfo.downloadedEvent);
+      } else if (appUpdateInfo.updateStrategy === EUpdateStrategy.silent) {
+        showSilentUpdateDialog();
+      } else {
+        showUpdateDialog();
       }
     } else {
-      void checkForUpdates().then(
-        async ({ isNeedUpdate: needUpdate, isForceUpdate, response }) => {
-          const updateStrategy =
-            response?.updateStrategy ?? EUpdateStrategy.manual;
-          if (needUpdate) {
-            if (isAutoUpdateStrategy(updateStrategy)) {
-              void downloadPackage();
-            } else if (isForceUpdate) {
-              toUpdatePreviewPage(true, response);
-            } else if (
-              (platformEnv.isNative || platformEnv.isDesktop) &&
-              response?.isShowUpdateDialog &&
-              isFirstLaunch
-            ) {
-              isFirstLaunch = false;
-              await whenAppUnlocked();
-              setTimeout(() => {
-                showUpdateDialog(false, response);
-              }, 200);
-            }
-          }
-        },
-      );
+      fetchUpdateInfo();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [
+    autoCheck,
+    appUpdateInfo.status,
+    checkForUpdates,
+    downloadASC,
+    downloadPackage,
+    onViewReleaseInfo,
+    showSilentUpdateDialog,
+    showUpdateDialog,
+    toUpdatePreviewPage,
+    verifyASC,
+    verifyPackage,
+    appUpdateInfo,
+  ]);
 
   const onUpdateAction = useCallback(() => {
     switch (appUpdateInfo.status) {

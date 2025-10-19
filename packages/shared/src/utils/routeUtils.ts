@@ -1,6 +1,7 @@
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import {
+  EAppUpdateRoutes,
   EGalleryRoutes,
   EModalReferFriendsRoutes,
   EModalRoutes,
@@ -138,7 +139,24 @@ export const buildAllowList = (screens: IScreenPathConfig) => {
         showUrl: true,
         showParams: true,
       },
+    [pagePath`${ERootRoutes.Main}${ETabRoutes.Market}${ETabMarketRoutes.MarketDetailV2}`]:
+      {
+        showUrl: true,
+        showParams: true,
+      },
     [pagePath`${ERootRoutes.Main}${ETabRoutes.Earn}`]: {
+      showUrl: true,
+      showParams: true,
+    },
+    [pagePath`${ERootRoutes.Main}${ETabRoutes.Market}`]: {
+      showUrl: true,
+      showParams: true,
+    },
+    [pagePath`${ERootRoutes.Main}${ETabRoutes.Perp}`]: {
+      showUrl: true,
+      showParams: true,
+    },
+    [pagePath`${ERootRoutes.Main}${ETabRoutes.WebviewPerpTrade}`]: {
       showUrl: true,
       showParams: true,
     },
@@ -186,6 +204,11 @@ export const buildAllowList = (screens: IScreenPathConfig) => {
         showParams: true,
       },
     [pagePath`${ERootRoutes.Modal}${EModalRoutes.SignatureConfirmModal}${EModalSignatureConfirmRoutes.MessageConfirmFromDApp}`]:
+      {
+        showUrl: true,
+        showParams: true,
+      },
+    [pagePath`${ERootRoutes.Modal}${EModalRoutes.AppUpdateModal}${EAppUpdateRoutes.UpdatePreview}`]:
       {
         showUrl: true,
         showParams: true,

@@ -1,47 +1,42 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
+import { noop } from 'lodash';
 import { useIntl } from 'react-intl';
 
-import {
-  useAllMidsAtom,
-  useHyperliquidActions,
-} from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
-import { useCurrentUserAtom } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid/atoms';
+import type { IDebugRenderTrackerProps } from '@onekeyhq/components';
+import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import { usePerpsActivePositionLengthAtom } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid/atoms';
+import { usePerpsActiveAccountAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
-import { useTokenList } from '../../../hooks/usePerpMarketData';
-import {
-  usePerpOrders,
-  usePerpPositions,
-} from '../../../hooks/usePerpOrderInfoPanel';
-import { showClosePositionDialog } from '../ClosePositionModal';
+import { showCloseAllPositionsDialog } from '../CloseAllPositionsModal';
 import { PositionRow } from '../Components/PositionsRow';
-import { showSetTpslDialog } from '../SetTpslModal';
 
 import { CommonTableListView, type IColumnConfig } from './CommonTableListView';
-
-import type { AssetPosition } from '@nktkas/hyperliquid';
 
 interface IPerpPositionsListProps {
   handleViewTpslOrders: () => void;
   isMobile?: boolean;
+  useTabsList?: boolean;
+  disableListScroll?: boolean;
 }
 
 function PerpPositionsList({
   handleViewTpslOrders,
   isMobile,
+  useTabsList,
+  disableListScroll,
 }: IPerpPositionsListProps) {
   const intl = useIntl();
-  const [currentUser] = useCurrentUserAtom();
-  const positions = usePerpPositions();
-  const openOrders = usePerpOrders();
-  const [allMids] = useAllMidsAtom();
-  const actions = useHyperliquidActions();
-  const { getTokenInfo } = useTokenList();
+  const [currentUser] = usePerpsActiveAccountAtom();
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+  const [positionsLength] = usePerpsActivePositionLengthAtom();
   const [currentListPage, setCurrentListPage] = useState(1);
   useEffect(() => {
+    noop(currentUser?.accountAddress);
     setCurrentListPage(1);
-  }, [currentUser]);
+  }, [currentUser?.accountAddress]);
+
   const columnsConfig: IColumnConfig[] = useMemo(() => {
     return [
       {
@@ -49,7 +44,7 @@ function PerpPositionsList({
         title: intl.formatMessage({
           id: ETranslations.perp_token_selector_asset,
         }),
-        width: 120,
+        width: 150,
         align: 'left',
       },
       {
@@ -57,7 +52,7 @@ function PerpPositionsList({
         title: intl.formatMessage({
           id: ETranslations.perp_position_position_size,
         }),
-        minWidth: 120,
+        minWidth: 140,
         align: 'left',
         flex: 1,
       },
@@ -105,6 +100,9 @@ function PerpPositionsList({
         minWidth: 100,
         align: 'left',
         flex: 1,
+        tooltip: intl.formatMessage({
+          id: ETranslations.perp_position_margin_tooltip,
+        }),
       },
       {
         key: 'funding',
@@ -114,6 +112,9 @@ function PerpPositionsList({
         minWidth: 100,
         align: 'left',
         flex: 1,
+        tooltip: intl.formatMessage({
+          id: ETranslations.perp_position_margin_tooltip_funding,
+        }),
       },
       {
         key: 'TPSL',
@@ -125,16 +126,19 @@ function PerpPositionsList({
         flex: 1,
       },
       {
-        key: 'actions',
-        title: intl.formatMessage({
+        key: 'closeAll',
+        title: `${intl.formatMessage({
           id: ETranslations.perp_position_close,
-        }),
+        })}`,
         minWidth: 100,
         align: 'right',
         flex: 1,
+        ...(positionsLength > 0 && {
+          onPress: () => showCloseAllPositionsDialog(),
+        }),
       },
     ];
-  }, [intl]);
+  }, [intl, positionsLength]);
   const totalMinWidth = useMemo(
     () =>
       columnsConfig.reduce(
@@ -143,106 +147,46 @@ function PerpPositionsList({
       ),
     [columnsConfig],
   );
-  const positionSort = useMemo<AssetPosition[]>(() => {
-    return positions.sort(
-      (a, b) =>
-        parseFloat(b.position.positionValue || '0') -
-        parseFloat(a.position.positionValue || '0'),
-    );
-  }, [positions]);
+  const mockedPositions = useMemo<{ index: number }[]>(() => {
+    return Array.from({ length: positionsLength }, (_, index) => {
+      return {
+        index,
+      };
+    });
+  }, [positionsLength]);
 
-  const handleSetTpsl = useCallback(
-    (position: AssetPosition['position']) => {
-      const tokenInfo = getTokenInfo(position.coin);
-      if (!tokenInfo) {
-        console.error(
-          '[PerpPositionsList] Token info not found for',
-          position.coin,
-        );
-        return;
-      }
-
-      showSetTpslDialog({
-        position,
-        szDecimals: tokenInfo.szDecimals ?? 2,
-        assetId: tokenInfo.assetId,
-        hyperliquidActions: actions,
-      });
-    },
-    [getTokenInfo, actions],
-  );
-
-  const allMidsRef = useRef(allMids);
-  useEffect(() => {
-    allMidsRef.current = allMids;
-  }, [allMids]);
-
-  const handleClosePosition = useCallback(
-    ({
-      position,
-      type,
-    }: {
-      position: AssetPosition['position'];
-      type: 'market' | 'limit';
-    }) => {
-      const tokenInfo = getTokenInfo(position.coin);
-      if (!tokenInfo) {
-        console.error(
-          '[PerpPositionsList] Token info not found for',
-          position.coin,
-        );
-        return;
-      }
-
-      showClosePositionDialog({
-        position,
-        type,
-        szDecimals: tokenInfo.szDecimals ?? 2,
-        assetId: tokenInfo.assetId,
-        hyperliquidActions: actions,
-      });
-    },
-    [getTokenInfo, actions],
-  );
-
-  const renderPositionRow = (item: AssetPosition, _index: number) => {
-    const position = item.position;
-    const coin = position?.coin;
-    const szi = position?.szi;
-    const midValue = allMids?.mids?.[coin];
-    const tpslOrders = openOrders.filter(
-      (order) =>
-        order.coin === coin &&
-        (order.orderType.startsWith('Take') ||
-          order.orderType.startsWith('Stop')),
-    );
-
+  const renderPositionRow = (item: { index: number }, _index: number) => {
     return (
       <PositionRow
-        key={`${coin}_${szi}`}
-        pos={position}
-        mid={midValue}
+        mockedPosition={item}
         isMobile={isMobile}
-        tpslOrders={tpslOrders}
         cellMinWidth={totalMinWidth}
         columnConfigs={columnsConfig}
-        handleClosePosition={(type) => handleClosePosition({ position, type })}
         handleViewTpslOrders={handleViewTpslOrders}
-        setTpsl={() => handleSetTpsl(position)}
-        index={_index}
       />
     );
   };
-
+  const actions = useHyperliquidActions();
   return (
     <CommonTableListView
-      useTabsList
+      onPullToRefresh={async () => {
+        await actions.current.refreshAllPerpsData();
+      }}
+      listViewDebugRenderTrackerProps={useMemo(
+        (): IDebugRenderTrackerProps => ({
+          name: 'PerpPositionsList',
+          position: 'top-left',
+        }),
+        [],
+      )}
+      useTabsList={useTabsList}
+      disableListScroll={disableListScroll}
       currentListPage={currentListPage}
       setCurrentListPage={setCurrentListPage}
-      enablePagination
+      enablePagination={!isMobile}
       columns={columnsConfig}
       minTableWidth={totalMinWidth}
-      data={positionSort}
+      data={mockedPositions}
       isMobile={isMobile}
       renderRow={renderPositionRow}
       emptyMessage={intl.formatMessage({

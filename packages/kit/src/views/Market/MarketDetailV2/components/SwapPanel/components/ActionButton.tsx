@@ -13,6 +13,7 @@ import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accoun
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { EModalRoutes, EOnboardingPages } from '@onekeyhq/shared/src/routes';
+import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 
 import { useTokenDetail } from '../../../hooks/useTokenDetail';
@@ -95,6 +96,24 @@ export function ActionButton({
     amountBN,
   ]);
 
+  const tokenFormatter: INumberFormatProps = useMemo(() => {
+    return {
+      formatter: 'balance',
+      formatterOptions: {
+        tokenSymbol: token?.symbol || '',
+      },
+    };
+  }, [token?.symbol]);
+
+  const currencyFormatter: INumberFormatProps = useMemo(() => {
+    return {
+      formatter: 'value',
+      formatterOptions: {
+        currency: settingsValue.currencyInfo.symbol,
+      },
+    };
+  }, [settingsValue.currencyInfo.symbol]);
+
   const shouldCreateAddress = usePromiseResult(async () => {
     let result = false;
     if (activeAccount?.canCreateAddress && !createAddressLoading) {
@@ -134,23 +153,11 @@ export function ActionButton({
 
   // Disable button if insufficient balance
   const shouldDisable = isInsufficientBalance;
-  const displayAmountFormatted = numberFormat(displayAmount, {
-    formatter: 'balance',
-    formatterOptions: {
-      tokenSymbol: token?.symbol || '',
-    },
-  });
+  const displayAmountFormatted = numberFormat(displayAmount, tokenFormatter);
 
-  let buttonText = `${actionText} ${displayAmountFormatted as string} `;
+  let buttonText = `${actionText} ${displayAmountFormatted} `;
   if (typeof totalValue === 'number') {
-    buttonText += `(${
-      numberFormat(totalValue.toFixed(2), {
-        formatter: 'value',
-        formatterOptions: {
-          currency: settingsValue.currencyInfo.symbol,
-        },
-      }) as string
-    })`;
+    buttonText += `(${numberFormat(totalValue.toFixed(2), currencyFormatter)})`;
   }
 
   if (isWrapped) {
@@ -184,7 +191,8 @@ export function ActionButton({
   }
 
   // Use colored style only for normal trading states (has amount, not disabled, has account)
-  const shouldUseColoredStyle = hasAmount && !shouldDisable && !noAccount;
+  const shouldUseColoredStyle =
+    hasAmount && !shouldDisable && !noAccount && !disabled;
 
   const buttonStyleProps = shouldUseColoredStyle
     ? {
@@ -217,17 +225,22 @@ export function ActionButton({
       }
       if (shouldCreateAddress?.result) {
         setCreateAddressLoading(true);
-        await createAddress({
-          num: 0,
-          selectAfterCreate: false,
-          account: {
-            walletId: activeAccount?.wallet?.id,
-            networkId: networkId ?? '',
-            indexedAccountId: activeAccount?.indexedAccount?.id,
-            deriveType: activeAccount?.deriveType ?? 'default',
-          },
-        });
-        setCreateAddressLoading(false);
+        try {
+          await createAddress({
+            num: 0,
+            selectAfterCreate: false,
+            account: {
+              walletId: activeAccount?.wallet?.id,
+              networkId: networkId ?? '',
+              indexedAccountId: activeAccount?.indexedAccount?.id,
+              deriveType: activeAccount?.deriveType ?? 'default',
+            },
+          });
+        } catch (e) {
+          console.error('Create address failed:', e);
+        } finally {
+          setCreateAddressLoading(false);
+        }
         return;
       }
 

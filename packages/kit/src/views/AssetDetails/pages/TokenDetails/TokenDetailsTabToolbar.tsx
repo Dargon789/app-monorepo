@@ -1,6 +1,7 @@
 import { memo, useCallback, useMemo } from 'react';
 
 import BigNumber from 'bignumber.js';
+import { isNil } from 'lodash';
 import { useIntl } from 'react-intl';
 
 import {
@@ -57,7 +58,7 @@ function TokenDetailsTabToolbar(props: IProps) {
         new BigNumber(aFiat.isNaN() ? -1 : aFiat),
       );
     });
-    let index = sortedTokens.findIndex((t) => {
+    const negativeIndex = sortedTokens.findIndex((t) => {
       const key = `${
         t.accountId ||
         tokenAccountMap[`${t.networkId || ''}_${t.address}`] ||
@@ -68,26 +69,47 @@ function TokenDetailsTabToolbar(props: IProps) {
       ).isNegative();
     });
 
-    if (index === -1) {
-      index = sortedTokens.findIndex((t) => {
-        const key = `${
-          t.accountId ||
-          tokenAccountMap[`${t.networkId || ''}_${t.address}`] ||
-          ''
-        }_${t.networkId || ''}`;
-        return new BigNumber(tokenDetails[key]?.data?.fiatValue ?? -1).isZero();
-      });
-    }
+    const zeroIndex = sortedTokens.findIndex((t) => {
+      const key = `${
+        t.accountId ||
+        tokenAccountMap[`${t.networkId || ''}_${t.address}`] ||
+        ''
+      }_${t.networkId || ''}`;
+      return new BigNumber(tokenDetails[key]?.data?.fiatValue ?? -1).isZero();
+    });
 
-    if (index > -1) {
-      const tokensWithBalance = sortedTokens.slice(0, index);
-      let tokensWithZeroBalance = sortedTokens.slice(index);
+    if (negativeIndex > -1 || zeroIndex > -1) {
+      let tokensWithNonZeroBalance: IAccountToken[] = [];
+      let tokensWithZeroBalance: IAccountToken[] = [];
+      let tokensWithoutBalance: IAccountToken[] = [];
+
+      if (negativeIndex > -1) {
+        const tokensWithBalance = sortedTokens.slice(0, negativeIndex);
+        tokensWithoutBalance = sortedTokens.slice(negativeIndex);
+        if (zeroIndex > -1) {
+          tokensWithNonZeroBalance = tokensWithBalance.slice(0, zeroIndex);
+          tokensWithZeroBalance = tokensWithBalance.slice(zeroIndex);
+        } else {
+          tokensWithNonZeroBalance = tokensWithBalance;
+        }
+      } else if (zeroIndex > -1) {
+        tokensWithNonZeroBalance = sortedTokens.slice(0, zeroIndex);
+        tokensWithZeroBalance = sortedTokens.slice(zeroIndex);
+      }
 
       tokensWithZeroBalance = sortTokensByOrder({
         tokens: tokensWithZeroBalance,
       });
 
-      sortedTokens = [...tokensWithBalance, ...tokensWithZeroBalance];
+      tokensWithoutBalance = sortTokensByOrder({
+        tokens: tokensWithoutBalance,
+      });
+
+      sortedTokens = [
+        ...tokensWithNonZeroBalance,
+        ...tokensWithZeroBalance,
+        ...tokensWithoutBalance,
+      ];
     }
 
     return sortedTokens;
@@ -142,7 +164,20 @@ function TokenDetailsTabToolbar(props: IProps) {
                 >
                   {token.networkName}
                 </SizableText>
-                {tokenDetail?.fiatValue ? (
+                {isNil(tokenDetail?.fiatValue) ? (
+                  <Tooltip
+                    renderTrigger={
+                      <Icon
+                        name="RefreshCcwOutline"
+                        size="$4"
+                        color="$iconSubdued"
+                      />
+                    }
+                    renderContent={intl.formatMessage({
+                      id: ETranslations.network_enable_or_create_address,
+                    })}
+                  />
+                ) : (
                   <ListItem.Text
                     align="right"
                     primary={
@@ -161,19 +196,6 @@ function TokenDetailsTabToolbar(props: IProps) {
                         {tokenDetail?.fiatValue}
                       </NumberSizeableTextWrapper>
                     }
-                  />
-                ) : (
-                  <Tooltip
-                    renderTrigger={
-                      <Icon
-                        name="RefreshCcwOutline"
-                        size="$4"
-                        color="$iconSubdued"
-                      />
-                    }
-                    renderContent={intl.formatMessage({
-                      id: ETranslations.network_enable_or_create_address,
-                    })}
                   />
                 )}
               </ListItem>

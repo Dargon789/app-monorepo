@@ -11,6 +11,8 @@ export interface IDownloadPackageParams {
   sha256?: string;
   signature?: string;
   downloadedFile?: string;
+  headers?: Record<string, string>;
+  targetVersion?: string;
 }
 
 export type IUpdateDownloadedEvent =
@@ -22,7 +24,7 @@ export type IUpdateDownloadedEvent =
 
 export type IDownloadPackage = (
   params: IDownloadPackageParams,
-) => Promise<IUpdateDownloadedEvent>;
+) => Promise<IUpdateDownloadedEvent | null>;
 
 export type IInstallPackage = (params: IAppUpdateInfo) => Promise<void>;
 
@@ -102,6 +104,12 @@ export type ITestWriteEmptyMetadataJson = (
   bundleVersion: string,
 ) => Promise<{ success: boolean; message: string }>;
 
+export interface IJSBundle {
+  appVersion: string;
+  bundleVersion: string;
+  signature: string;
+}
+
 export interface IBundleUpdate {
   downloadBundle: IDownloadBundle;
   verifyBundle: IVerifyBundle;
@@ -109,10 +117,13 @@ export interface IBundleUpdate {
   downloadBundleASC: IDownloadBundleASC;
   installBundle: IInstallBundle;
   clearBundle: IClearBundle;
-  clearAllJSBundleData: () => Promise<void>;
+  clearAllJSBundleData: () => Promise<{ success: boolean; message: string }>;
+  getFallbackBundles: () => Promise<IJSBundle[]>;
+  switchBundle: (params: IJSBundle) => Promise<void>;
   testVerification: () => Promise<boolean>;
   testDeleteJsBundle: ITestDeleteJsBundle;
   testDeleteJsRuntimeDir: ITestDeleteJsRuntimeDir;
   testDeleteMetadataJson: ITestDeleteMetadataJson;
   testWriteEmptyMetadataJson: ITestWriteEmptyMetadataJson;
+  getWebEmbedPath: () => Promise<string>;
 }

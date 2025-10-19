@@ -14,7 +14,7 @@ import type {
   EOneKeyDeepLinkPath,
   IEOneKeyDeepLinkParams,
 } from '../consts/deeplinkConsts';
-import type { IWalletKit, WalletKitTypes } from '@reown/walletkit';
+import type { WalletKitTypes } from '@reown/walletkit';
 
 const DOMAIN_REGEXP =
   /(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]/;
@@ -100,6 +100,11 @@ export function checkOneKeyCardGoogleOauthUrl({
     'https://precard-762def0c-eacd-49b3-ad89-0bf807b37f57.onekeycn.com',
     'https://accounts.google.com',
   ].includes(origin);
+}
+
+export function needEraseElectronFeatureUrl({ url }: { url: string }): boolean {
+  const origin = getOriginFromUrl({ url });
+  return ['https://remix.ethereum.org'].includes(origin);
 }
 
 export function parseUrl(url: string): IUrlValue | null {
