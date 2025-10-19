@@ -55,10 +55,10 @@
     "cross-env": "^7.0.3",
     "electron": "35.7.5",
     "electron-builder": "26.0.9",
-    "esbuild": "0.25.10",
+    "esbuild": "0.25.11",
     "folderslint": "^1.2.0",
     "glob": "^7.2.0",
     "rimraf": "^3",
-    "webpack": "5.96.1"
+    "webpack": "5.97.0"
   }
 }
