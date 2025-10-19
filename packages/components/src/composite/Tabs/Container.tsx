@@ -68,11 +68,14 @@ const renderDefaultTabBar = (props: TabBarProps<string>) => {
   return <TabBar {...props} />;
 };
 
-interface IRefProps {
-  ref: React.RefObject<{
-    switchTab: (tabName: string) => void;
-    switchTabWithIndex: (index: number) => void;
-  }>;
+export interface ITabContainerRef {
+  jumpToTab: (tabName: string) => void;
+  setIndex: (index: number) => void;
+  getFocusedTab: () => string;
+  getCurrentIndex: () => number;
+}
+interface ITabContainerRefProps {
+  ref: React.RefObject<ITabContainerRef>;
 }
 
 export function Container({
@@ -85,7 +88,7 @@ export function Container({
   ref: containerRef,
   initialTabName,
   ...props
-}: PropsWithChildren<CollapsibleProps> & IRefProps) {
+}: PropsWithChildren<CollapsibleProps> & ITabContainerRefProps) {
   // Get tab names from children props
   const scrollTopRef = useRef<{ [key: string]: number }>({});
   const tabNames = useMemo(() => {
@@ -100,7 +103,9 @@ export function Container({
     }).filter(Boolean);
   }, [children]);
   const sharedTabNames = useSharedValue<string[]>(tabNames);
-  const focusedTab = useSharedValue<string>(tabNames[0] || '');
+  const focusedTab = useSharedValue<string>(
+    initialTabName || tabNames[0] || '',
+  );
   const scrollTabElementDict = useMemo(() => {
     return tabNames.reduce((acc, name) => {
       acc[name] = {
@@ -257,6 +262,22 @@ export function Container({
     },
   );
 
+  useEffect(() => {
+    setTimeout(() => {
+      if (initialTabName) {
+        const index = tabNames.findIndex((name) => name === initialTabName);
+        if (index !== -1) {
+          const width = ref.current?.clientWidth || 0;
+          listContainerRef.current?.scrollTo({
+            left: width * index,
+            behavior: 'instant',
+          });
+        }
+      }
+    }, 300);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onTabPress = useCallback(
     (tabName: string, emitEvents = true) => {
       if (!isEffectValid.current) {
@@ -283,22 +304,19 @@ export function Container({
   );
 
   useImperativeHandle(containerRef, () => ({
-    switchTab: (tabName: string) => {
+    jumpToTab: (tabName: string) => {
       onTabPress(tabName);
     },
-    switchTabWithIndex: (index: number) => {
+    setIndex: (index: number) => {
       onTabPress(tabNames[index]);
     },
+    getFocusedTab: () => {
+      return focusedTab.value;
+    },
+    getCurrentIndex: () => {
+      return tabNames.findIndex((name) => name === focusedTab.value);
+    },
   }));
-
-  useEffect(() => {
-    if (initialTabName) {
-      setTimeout(() => {
-        onTabPress(initialTabName, false);
-      }, 100);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   return (
     <YStack

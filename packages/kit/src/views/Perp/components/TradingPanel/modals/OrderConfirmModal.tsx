@@ -1,52 +1,77 @@
 import { useCallback, useMemo } from 'react';
 
+import { useIntl } from 'react-intl';
+
 import {
   Button,
   Checkbox,
   Dialog,
+  Divider,
   SizableText,
   XStack,
   YStack,
 } from '@onekeyhq/components';
-import { useTradingFormAtom } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
 import {
-  EJotaiContextStoreNames,
+  useTradingFormAtom,
+  useTradingFormComputedAtom,
+} from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import {
+  usePerpsActiveAssetAtom,
   usePerpsCustomSettingsAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 
-import { useCurrentTokenData, useOrderConfirm } from '../../../hooks';
+import { useOrderConfirm } from '../../../hooks';
 import { PerpsProviderMirror } from '../../../PerpsProviderMirror';
 import {
-  getTradingButtonStyleProps,
+  GetTradingButtonStyleProps,
   getTradingSideTextColor,
 } from '../../../utils/styleUtils';
+import { TradingGuardWrapper } from '../../TradingGuardWrapper';
 import { LiquidationPriceDisplay } from '../components/LiquidationPriceDisplay';
 
 interface IOrderConfirmContentProps {
   onClose?: () => void;
+  overrideSide?: 'long' | 'short';
 }
 
-function OrderConfirmContent({ onClose }: IOrderConfirmContentProps) {
+function OrderConfirmContent({
+  onClose,
+  overrideSide,
+}: IOrderConfirmContentProps) {
   const { isSubmitting, handleConfirm: confirmOrder } = useOrderConfirm({
     onSuccess: () => {
+      onClose?.();
+    },
+    onError: () => {
       onClose?.();
     },
   });
   const [perpsCustomSettings, setPerpsCustomSettings] =
     usePerpsCustomSettingsAtom();
   const [formData] = useTradingFormAtom();
-  const tokenInfo = useCurrentTokenData();
-  const actionColor = getTradingSideTextColor(formData.side);
-  const buttonStyleProps = getTradingButtonStyleProps(formData.side, false);
-  const actionText = formData.side === 'long' ? 'Long' : 'Short';
+  const [tradingComputed] = useTradingFormComputedAtom();
+  const [selectedSymbol] = usePerpsActiveAssetAtom();
+  const effectiveSide = overrideSide || formData.side;
+  const actionColor = getTradingSideTextColor(effectiveSide);
+  const buttonStyleProps = GetTradingButtonStyleProps(effectiveSide, false);
+  const intl = useIntl();
+  const actionText =
+    effectiveSide === 'long'
+      ? intl.formatMessage({
+          id: ETranslations.perp_trade_long,
+        })
+      : intl.formatMessage({
+          id: ETranslations.perp_trade_short,
+        });
 
   const sizeDisplay = useMemo(() => {
-    if (formData.size && tokenInfo?.name)
-      return `${formData.size} ${tokenInfo.name}`;
-    return '0';
-  }, [formData.size, tokenInfo?.name]);
+    if (selectedSymbol?.coin) {
+      return `${tradingComputed.computedSizeString} ${selectedSymbol.coin}`;
+    }
+    return tradingComputed.computedSizeString;
+  }, [tradingComputed.computedSizeString, selectedSymbol?.coin]);
 
   const buttonText = useMemo(() => {
     if (isSubmitting) {
@@ -68,8 +93,14 @@ function OrderConfirmContent({ onClose }: IOrderConfirmContentProps) {
     },
     [perpsCustomSettings, setPerpsCustomSettings],
   );
+
+  const handleConfirm = useCallback(() => {
+    onClose?.();
+    void confirmOrder(overrideSide);
+  }, [confirmOrder, onClose, overrideSide]);
+
   return (
-    <YStack gap="$4" p="$1" style={{ marginTop: -18 }}>
+    <YStack gap="$4" p="$1">
       {/* Order Details */}
       <YStack gap="$3">
         {/* Action */}
@@ -120,7 +151,10 @@ function OrderConfirmContent({ onClose }: IOrderConfirmContentProps) {
             })}
           </SizableText>
           <SizableText size="$bodyMd">
-            <LiquidationPriceDisplay />
+            <LiquidationPriceDisplay
+              textSize="$bodyMdMedium"
+              side={effectiveSide}
+            />
           </SizableText>
         </XStack>
 
@@ -131,28 +165,34 @@ function OrderConfirmContent({ onClose }: IOrderConfirmContentProps) {
               fontSize: '$bodyMdMedium',
               color: '$textSubdued',
             }}
-            label="Don't show this again"
+            label={appLocale.intl.formatMessage({
+              id: ETranslations.perp_confirm_not_show,
+            })}
             value={perpsCustomSettings.skipOrderConfirm}
             onChange={(checked) => setSkipOrderConfirm(!!checked)}
           />
         </XStack>
       </YStack>
 
-      <Button
-        variant="primary"
-        size="medium"
-        disabled={isSubmitting}
-        loading={isSubmitting}
-        onPress={confirmOrder}
-        {...buttonStyleProps}
-      >
-        {buttonText}
-      </Button>
+      <TradingGuardWrapper>
+        <Button
+          variant="primary"
+          size="medium"
+          disabled={isSubmitting}
+          loading={isSubmitting}
+          onPress={handleConfirm}
+          {...buttonStyleProps}
+        >
+          <SizableText size="$bodyMdMedium" color="$textOnColor">
+            {buttonText}
+          </SizableText>
+        </Button>
+      </TradingGuardWrapper>
     </YStack>
   );
 }
 
-export function showOrderConfirmDialog() {
+export function showOrderConfirmDialog(overrideSide?: 'long' | 'short') {
   const dialogInstance = Dialog.show({
     title: appLocale.intl.formatMessage({
       id: ETranslations.perp_confirm_order,
@@ -163,6 +203,7 @@ export function showOrderConfirmDialog() {
           onClose={() => {
             void dialogInstance.close();
           }}
+          overrideSide={overrideSide}
         />
       </PerpsProviderMirror>
     ),

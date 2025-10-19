@@ -16,14 +16,14 @@ import {
 import { setStringAsync } from 'expo-clipboard';
 import { isNil } from 'lodash';
 import { useIntl } from 'react-intl';
+
 import {
   AnimatePresence,
   Sheet,
   SizableText,
-  Dialog as TMDialog,
+  TMDialog,
   useMedia,
-} from 'tamagui';
-
+} from '@onekeyhq/components/src/shared/tamagui';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
@@ -31,7 +31,12 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { Toast } from '../../actions/Toast';
 import { Keyboard, SheetGrabber } from '../../content';
 import { Form } from '../../forms/Form';
-import { EPortalContainerConstantName, Portal } from '../../hocs';
+import {
+  EPageType,
+  EPortalContainerConstantName,
+  Portal,
+  usePageType,
+} from '../../hocs';
 import {
   useBackHandler,
   useModalNavigatorContextPortalId,
@@ -706,10 +711,15 @@ export enum EInPageDialogType {
   inTabPages = 'inTabPages',
   inModalPage = 'inModalPage',
 }
-export const useInPageDialog = (type: EInPageDialogType) => {
+export const useInPageDialog = (dialogType?: EInPageDialogType) => {
   const navigatorPortalId = useModalNavigatorContextPortalId();
   const { pagePortalId } = usePageContext();
-
+  const pageType = usePageType();
+  const type =
+    dialogType ||
+    (pageType === EPageType.modal
+      ? EInPageDialogType.inModalPage
+      : EInPageDialogType.inTabPages);
   const portalId = useMemo(() => {
     if (type === EInPageDialogType.inTabPages) {
       return EPortalContainerConstantName.IN_PAGE_TAB_CONTAINER;

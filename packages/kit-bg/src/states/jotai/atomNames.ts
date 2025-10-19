@@ -1,6 +1,7 @@
 export enum EAtomNames {
   bannerCloseIdsAtom = 'bannerCloseIdsAtom',
   demoPriceAtom = 'demoPriceAtom',
+  demoPriceInfoAtom = 'demoPriceInfoAtom',
   demoPriceNotPersistAtom = 'demoPriceNotPersistAtom',
   // accountIdAtom = 'accountIdAtom',
   settingsPersistAtom = 'settingsPersistAtom',
@@ -38,6 +39,7 @@ export enum EAtomNames {
   activeAccountValueAtom = 'activeAccountValueAtom',
   settingsValuePersistAtom = 'settingsValuePersistAtom',
   settingsTronRentalPersistAtom = 'settingsTronRentalPersistAtom',
+  appSideBarStatusAtom = 'appSideBarStatusAtom',
   // notificationsAtom, notificationsPersistAtom is reserved for notificationsPersistAtom
   notificationsAtom = 'notificationsAtom', // persist
   notificationsReadedAtom = 'notificationsReadedAtom',
@@ -56,14 +58,23 @@ export enum EAtomNames {
   desktopBluetoothAtom = 'desktopBluetoothAtom',
   hardwareForceTransportAtom = 'hardwareForceTransportAtom',
   // perps
-  perpsSelectedAccountAtom = 'perpsSelectedAccountAtom',
+  perpsActiveAccountAtom = 'perpsActiveAccountAtom',
+  perpsActiveAccountSummaryAtom = 'perpsActiveAccountSummaryAtom',
+  perpsActiveAccountStatusInfoAtom = 'perpsActiveAccountStatusInfoAtom',
   perpsAccountLoadingInfoAtom = 'perpsAccountLoadingInfoAtom',
-  perpsSelectedAccountStatusAtom = 'perpsSelectedAccountStatusAtom',
-  perpsSelectedSymbolAtom = 'perpsSelectedSymbolAtom',
+  perpsActiveAssetAtom = 'perpsActiveAssetAtom',
+  perpsActiveAssetCtxAtom = 'perpsActiveAssetCtxAtom',
+  perpsActiveAssetDataAtom = 'perpsActiveAssetDataAtom',
+  perpsActiveOrderBookOptionsAtom = 'perpsActiveOrderBookOptionsAtom',
   perpsCustomSettingsAtom = 'perpsCustomSettingsAtom',
   perpsCommonConfigPersistAtom = 'perpsCommonConfigPersistAtom',
   perpsUserConfigPersistAtom = 'perpsUserConfigPersistAtom',
   perpsNetworkStatusAtom = 'perpsNetworkStatusAtom',
+  perpsWebSocketReadyStateAtom = 'perpsWebSocketReadyStateAtom',
+  perpsTradesHistoryRefreshHookAtom = 'perpsTradesHistoryRefreshHookAtom',
+  perpsCandlesWebviewReloadHookAtom = 'perpsCandlesWebviewReloadHookAtom',
+  perpsCandlesWebviewMountedAtom = 'perpsCandlesWebviewMountedAtom',
+  perpsWebSocketDataUpdateTimesAtom = 'perpsWebSocketDataUpdateTimesAtom',
 }
 export type IAtomNameKeys = keyof typeof EAtomNames;
 export const atomsConfig: Partial<

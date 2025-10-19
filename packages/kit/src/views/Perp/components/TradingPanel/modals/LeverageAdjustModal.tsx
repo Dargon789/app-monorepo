@@ -1,33 +1,40 @@
 import { memo, useCallback, useState } from 'react';
 
 import { useIntl } from 'react-intl';
+import { InputAccessoryView } from 'react-native';
 
 import {
   Badge,
-  Dialog,
+  Button,
   Icon,
   Input,
   SizableText,
   Slider,
   XStack,
   YStack,
-  useMedia,
+  getFontSize,
+  useDialogInstance,
+  useInPageDialog,
 } from '@onekeyhq/components';
-import { useDialogInstance } from '@onekeyhq/components/src/composite/Dialog';
-import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
-import { useActiveAssetDataAtom } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import { useDelayedState } from '@onekeyhq/kit/src/hooks/useDelayedState';
+import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import type { IPerpsActiveAssetAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
-  usePerpsSelectedAccountAtom,
-  usePerpsSelectedSymbolAtom,
+  usePerpsActiveAccountAtom,
+  usePerpsActiveAssetAtom,
+  usePerpsActiveAssetDataAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
-import { useTokenList } from '../../../hooks/usePerpMarketData';
+import { PerpsProviderMirror } from '../../../PerpsProviderMirror';
+import { TradingGuardWrapper } from '../../TradingGuardWrapper';
+import { InputAccessoryDoneButton } from '../inputs/TradingFormInput';
 
 interface ILeverageContentProps {
   initialValue: number;
   maxLeverage: number;
-  tokenInfo: { assetId: number; name: string };
+  tokenInfo: IPerpsActiveAssetAtom;
   activeAssetData: { leverage?: { type: string } };
   isMobile?: boolean;
 }
@@ -39,14 +46,18 @@ const LeverageContent = memo(
     tokenInfo,
     activeAssetData,
   }: ILeverageContentProps) => {
-    const [value, setValue] = useState(initialValue);
+    const [value, setValue] = useDelayedState(initialValue);
     const [loading, setLoading] = useState(false);
     const dialogInstance = useDialogInstance();
+    const actions = useHyperliquidActions();
 
-    const handleSliderChange = useCallback((newValue: number) => {
-      const roundedValue = Math.round(newValue);
-      setValue(roundedValue);
-    }, []);
+    const handleSliderChange = useCallback(
+      (newValue: number) => {
+        const roundedValue = Math.round(newValue);
+        setValue(roundedValue);
+      },
+      [setValue],
+    );
 
     const handleInputChange = useCallback(
       (text: string) => {
@@ -65,18 +76,18 @@ const LeverageContent = memo(
         }
         setValue(newValue);
       },
-      [maxLeverage],
+      [maxLeverage, setValue],
     );
 
     const handleConfirm = useCallback(async () => {
       setLoading(true);
+      void dialogInstance.close();
       try {
-        await backgroundApiProxy.serviceHyperliquidExchange.updateLeverage({
-          asset: tokenInfo.assetId,
+        await actions.current.updateLeverage({
+          asset: tokenInfo.assetId ?? -1,
           isCross: activeAssetData?.leverage?.type === 'cross',
           leverage: value,
         });
-        void dialogInstance.close();
       } catch (error) {
         console.error(
           '[LeverageAdjustModal] Failed to update leverage:',
@@ -86,6 +97,7 @@ const LeverageContent = memo(
         setLoading(false);
       }
     }, [
+      actions,
       value,
       tokenInfo.assetId,
       activeAssetData?.leverage?.type,
@@ -93,36 +105,35 @@ const LeverageContent = memo(
     ]);
     const isDisabled = value <= 0 || loading;
     const intl = useIntl();
-    const { gtSm } = useMedia();
+    const nativeInputProps = platformEnv.isNativeIOS
+      ? { inputAccessoryViewID: 'leverage-adjust-input-accessory-view' }
+      : {};
     return (
-      <YStack>
-        <YStack p="$1" my="$3" gap="$3" flex={1}>
-          <XStack flex={1} alignItems="center" gap="$4">
-            <Slider
-              value={value || 1}
-              onChange={handleSliderChange}
-              min={1}
-              max={maxLeverage}
-              step={1}
-              disabled={loading}
-              flex={1}
-            />
-            <XStack width={gtSm ? undefined : 60} alignItems="center">
+      <>
+        <YStack gap="$5" flex={1}>
+          <YStack p="$1" gap="$4" flex={1}>
+            <XStack justifyContent="center" alignItems="center">
               <Input
                 containerProps={{
                   borderRadius: '$3',
+                  borderWidth: 0,
                   p: 0,
+                  w: 80,
+                  justifyContent: 'flex-end',
+                  alignItems: 'flex-end',
                 }}
                 InputComponentStyle={{
                   p: 0,
                 }}
-                width={30}
-                size="medium"
+                fontSize={
+                  platformEnv.isNativeAndroid ? 34 : getFontSize('$heading5xl')
+                }
                 alignItems="center"
+                justifyContent="center"
                 value={value ? value.toString() : ''}
                 onChangeText={handleInputChange}
                 keyboardType="numeric"
-                textAlign="right"
+                textAlign="center"
                 disabled={loading}
                 addOns={[
                   {
@@ -133,34 +144,73 @@ const LeverageContent = memo(
                     ),
                   },
                 ]}
+                {...nativeInputProps}
               />
             </XStack>
-          </XStack>
+            <XStack flex={1} alignItems="center" gap="$4">
+              <Slider
+                value={value || 1}
+                onChange={handleSliderChange}
+                min={1}
+                max={maxLeverage}
+                step={1}
+                disabled={loading}
+                flex={1}
+              />
+            </XStack>
+          </YStack>
+          <YStack gap="$2" pb="$4">
+            <XStack gap="$1" alignItems="center" justifyContent="flex-start">
+              <Icon
+                name="InfoCircleSolid"
+                size="$3.5"
+                color="$iconSubdued"
+                flexShrink={0}
+              />
+              <SizableText size="$bodyMd" color="$textSubdued">
+                {intl.formatMessage(
+                  {
+                    id: ETranslations.perp_leverage_desc_warning,
+                  },
+                  {
+                    token: tokenInfo.coin,
+                    leverage: `${maxLeverage}x`,
+                  },
+                )}
+              </SizableText>
+            </XStack>
+            <XStack gap="$1" alignItems="center" justifyContent="flex-start">
+              <Icon
+                name="InfoCircleSolid"
+                size="$3.5"
+                color="$iconSubdued"
+                flexShrink={0}
+              />
+              <SizableText size="$bodyMd" color="$textSubdued">
+                {intl.formatMessage({
+                  id: ETranslations.perp_leverage_warning_2,
+                })}
+              </SizableText>
+            </XStack>
+          </YStack>
+          <TradingGuardWrapper>
+            <Button
+              onPress={handleConfirm}
+              disabled={isDisabled}
+              loading={loading}
+              size="medium"
+              variant="primary"
+            >
+              {intl.formatMessage({ id: ETranslations.global_confirm })}
+            </Button>
+          </TradingGuardWrapper>
         </YStack>
-        <SizableText size="$bodyMd" color="$textSubdued">
-          {intl.formatMessage(
-            {
-              id: ETranslations.perp_leverage_desc_warning,
-            },
-            {
-              token: tokenInfo.name,
-              leverage: maxLeverage,
-            },
-          )}
-        </SizableText>
-
-        <Dialog.Footer
-          onConfirm={handleConfirm}
-          onConfirmText={intl.formatMessage({
-            id: ETranslations.global_confirm,
-          })}
-          confirmButtonProps={{
-            disabled: isDisabled,
-            loading,
-          }}
-          showCancelButton={false}
-        />
-      </YStack>
+        {platformEnv.isNativeIOS ? (
+          <InputAccessoryView nativeID="leverage-adjust-input-accessory-view">
+            <InputAccessoryDoneButton />
+          </InputAccessoryView>
+        ) : null}
+      </>
     );
   },
 );
@@ -168,40 +218,44 @@ LeverageContent.displayName = 'LeverageContent';
 
 export const LeverageAdjustModal = memo(
   ({ isMobile = false }: { isMobile?: boolean }) => {
-    const [selectedAccount] = usePerpsSelectedAccountAtom();
+    const [selectedAccount] = usePerpsActiveAccountAtom();
     const userAddress = selectedAccount.accountAddress;
 
-    const [currentToken] = usePerpsSelectedSymbolAtom();
-    const { getTokenInfo } = useTokenList();
-    const [activeAssetData] = useActiveAssetDataAtom();
+    const [currentToken] = usePerpsActiveAssetAtom();
+    const [activeAssetData] = usePerpsActiveAssetDataAtom();
 
-    const tokenInfo = getTokenInfo(currentToken.coin);
     const intl = useIntl();
+    const dialog = useInPageDialog();
     const showLeverageDialog = useCallback(() => {
-      if (!userAddress || !tokenInfo || !activeAssetData) return;
+      if (!userAddress || !currentToken || !activeAssetData) return;
 
       const initialValue =
-        activeAssetData?.leverage?.value || tokenInfo.maxLeverage || 1;
-      const maxLeverage = tokenInfo.maxLeverage || 25;
+        activeAssetData?.leverage?.value ||
+        currentToken?.universe?.maxLeverage ||
+        1;
+      const maxLeverage = currentToken?.universe?.maxLeverage || 25;
 
-      Dialog.show({
+      dialog.show({
         title: intl.formatMessage({
           id: ETranslations.perp_trading_adjust_leverage,
         }),
 
         renderContent: (
-          <LeverageContent
-            initialValue={initialValue}
-            maxLeverage={maxLeverage}
-            tokenInfo={tokenInfo}
-            activeAssetData={activeAssetData}
-          />
+          <PerpsProviderMirror>
+            <LeverageContent
+              initialValue={initialValue}
+              maxLeverage={maxLeverage}
+              // tokenInfo={tokenInfo}
+              tokenInfo={currentToken}
+              activeAssetData={activeAssetData}
+            />
+          </PerpsProviderMirror>
         ),
         showFooter: false,
       });
-    }, [tokenInfo, userAddress, activeAssetData, intl]);
+    }, [userAddress, currentToken, activeAssetData, dialog, intl]);
 
-    if (!userAddress || !tokenInfo) return null;
+    if (!userAddress || !currentToken) return null;
 
     return (
       <Badge
@@ -218,9 +272,20 @@ export const LeverageAdjustModal = memo(
           bg: '$bgStrongActive',
         }}
         cursor="pointer"
+        gap="$1"
       >
+        {isMobile ? null : (
+          <SizableText size="$bodyMdMedium">
+            {intl.formatMessage({
+              id: ETranslations.perp_leverage,
+            })}
+          </SizableText>
+        )}
         <SizableText size="$bodyMdMedium">
-          {activeAssetData?.leverage?.value || tokenInfo.maxLeverage || 1}x
+          {activeAssetData?.leverage?.value ||
+            currentToken?.universe?.maxLeverage ||
+            1}
+          x
         </SizableText>
       </Badge>
     );

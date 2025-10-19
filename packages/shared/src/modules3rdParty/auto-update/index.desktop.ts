@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useThrottledCallback } from 'use-debounce';
 
@@ -44,7 +44,11 @@ const withUpdateError = <T>(callback: () => Promise<T>): Promise<T> =>
       });
   });
 
-const downloadPackage: IDownloadPackage = async ({ downloadedFile }) => {
+const downloadPackage: IDownloadPackage = async ({
+  downloadedFile,
+  headers,
+  latestVersion,
+}) => {
   const isDownloading =
     await globalThis.desktopApiProxy.appUpdate.isDownloadingPackage();
   if (isDownloading) {
@@ -60,7 +64,15 @@ const downloadPackage: IDownloadPackage = async ({ downloadedFile }) => {
     }
   }
   const result = await withUpdateError(async () => {
-    await globalThis.desktopApiProxy.appUpdate.checkForUpdates();
+    const updateInfo =
+      await globalThis.desktopApiProxy.appUpdate.checkForUpdates(
+        false,
+        headers,
+        latestVersion || '',
+      );
+    if (!updateInfo) {
+      return null;
+    }
     return new Promise<IUpdateDownloadedEvent>((resolve) => {
       const onDownloadedSubscription = electronUpdateListeners.onDownloaded?.(
         (params) => {
@@ -119,13 +131,21 @@ export const useDownloadProgress: IUseDownloadProgress = () => {
     10,
   );
 
+  const updatedDownloaded = useCallback(() => {
+    defaultLogger.update.app.log('downloaded');
+    setPercent(100);
+  }, []);
+
   useEffect(() => {
     const onProgressUpdateSubscription =
       electronUpdateListeners.onProgressUpdate?.(updatePercent);
+    const updateDownloadedSubscription =
+      electronUpdateListeners.onDownloaded?.(updatedDownloaded);
     return () => {
       onProgressUpdateSubscription?.();
+      updateDownloadedSubscription?.();
     };
-  }, [updatePercent]);
+  }, [updatedDownloaded, updatePercent]);
   return percent;
 };
 
@@ -152,6 +172,7 @@ export const AppUpdate: IAppUpdate = {
 };
 
 export const BundleUpdate: IBundleUpdate = {
+  getWebEmbedPath: () => Promise.resolve(''),
   downloadBundle: (params) =>
     globalThis.desktopApiProxy.bundleUpdate.downloadBundle(params),
   verifyBundle: (params) =>
@@ -162,6 +183,10 @@ export const BundleUpdate: IBundleUpdate = {
     globalThis.desktopApiProxy.bundleUpdate.downloadBundleASC(params),
   installBundle: (params) =>
     globalThis.desktopApiProxy.bundleUpdate.installBundle(params),
+  getFallbackBundles: () =>
+    globalThis.desktopApiProxy.bundleUpdate.getFallbackUpdateBundleData(),
+  switchBundle: (params) =>
+    globalThis.desktopApiProxy.bundleUpdate.setCurrentUpdateBundleData(params),
   clearBundle: () => globalThis.desktopApiProxy.bundleUpdate.clearBundle(),
   clearAllJSBundleData: () =>
     globalThis.desktopApiProxy.bundleUpdate.clearAllJSBundleData(),

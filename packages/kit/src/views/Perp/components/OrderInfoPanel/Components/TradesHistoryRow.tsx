@@ -5,17 +5,24 @@ import { useIntl } from 'react-intl';
 
 import { Divider, SizableText, XStack, YStack } from '@onekeyhq/components';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
+import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { formatTime } from '@onekeyhq/shared/src/utils/dateUtils';
+import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 import { getValidPriceDecimals } from '@onekeyhq/shared/src/utils/perpsUtils';
 import type { IFill } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
-import { usePerpTokenSelector } from '../../../hooks';
 import { calcCellAlign, getColumnStyle } from '../utils';
 
 import type { IColumnConfig } from '../List/CommonTableListView';
 
+const formatter: INumberFormatProps = {
+  formatter: 'value',
+  formatterOptions: {
+    currency: '$',
+  },
+};
 export type ITradesHistoryRowProps = {
   fill: IFill;
   cellMinWidth: number;
@@ -32,7 +39,7 @@ const TradesHistoryRow = memo(
     isMobile,
     index,
   }: ITradesHistoryRowProps) => {
-    const { selectToken } = usePerpTokenSelector();
+    const actions = useHyperliquidActions();
     const intl = useIntl();
     const assetSymbol = useMemo(() => fill.coin ?? '-', [fill.coin]);
     const dateInfo = useMemo(() => {
@@ -49,9 +56,9 @@ const TradesHistoryRow = memo(
     const directionInfo = useMemo(() => {
       const directionStr = fill.dir;
       const side = fill.side;
-      let directionColor = '#18794E';
+      let directionColor = '$green11';
       if (side === 'A') {
-        directionColor = '#C62A2F';
+        directionColor = '$red11';
       }
       return { directionStr, directionColor };
     }, [fill.dir, fill.side]);
@@ -64,20 +71,10 @@ const TradesHistoryRow = memo(
       const priceBN = new BigNumber(price);
       const sizeBN = new BigNumber(size);
       const priceFormatted = priceBN.toFixed(decimals);
-      const feeFormatted = numberFormat(fee, {
-        formatter: 'value',
-        formatterOptions: {
-          currency: '$',
-        },
-      });
+      const feeFormatted = numberFormat(fee, formatter);
 
       const tradeValue = priceBN.times(sizeBN).toFixed();
-      const tradeValueFormatted = numberFormat(tradeValue, {
-        formatter: 'value',
-        formatterOptions: {
-          currency: '$',
-        },
-      });
+      const tradeValueFormatted = numberFormat(tradeValue, formatter);
       return { priceFormatted, size, feeFormatted, tradeValueFormatted };
     }, [fill.fee, fill.px, fill.sz]);
 
@@ -85,9 +82,9 @@ const TradesHistoryRow = memo(
       const closePnl = fill.closedPnl;
       const closePnlBN = new BigNumber(closePnl).minus(new BigNumber(fill.fee));
       let closePnlPlusOrMinus = '';
-      let closePnlColor = '#18794E';
+      let closePnlColor = '$green11';
       if (closePnlBN.lt(0)) {
-        closePnlColor = '#C62A2F';
+        closePnlColor = '$red11';
         closePnlPlusOrMinus = '-';
       }
       const closePnlStr = closePnlBN.abs().toFixed();
@@ -119,7 +116,14 @@ const TradesHistoryRow = memo(
             width="100%"
           >
             <YStack gap="$1">
-              <XStack gap="$2" cursor="pointer" alignItems="center">
+              <XStack
+                gap="$2"
+                alignItems="center"
+                // cursor="pointer"
+                // onPress={() =>
+                //   actions.current.changeActiveAsset({ coin: assetSymbol })
+                // }
+              >
                 <SizableText size="$bodyMdMedium">{assetSymbol}</SizableText>
                 <SizableText
                   size="$bodySm"
@@ -139,9 +143,7 @@ const TradesHistoryRow = memo(
                 })}
               </SizableText>
               <SizableText size="$bodySm" color={closePnlInfo.closePnlColor}>
-                {`${closePnlInfo.closePnlPlusOrMinus}${
-                  closePnlInfo.closePnlFormatted as string
-                }`}
+                {`${closePnlInfo.closePnlPlusOrMinus}${closePnlInfo.closePnlFormatted}`}
               </SizableText>
             </YStack>
           </XStack>
@@ -181,7 +183,7 @@ const TradesHistoryRow = memo(
                 })}
               </SizableText>
               <SizableText size="$bodySm">
-                {`${tradeBaseInfo.tradeValueFormatted as string}`}
+                {`${tradeBaseInfo.tradeValueFormatted}`}
               </SizableText>
             </YStack>
             <YStack gap="$1" flex={1} alignItems="flex-end">
@@ -191,7 +193,7 @@ const TradesHistoryRow = memo(
                 })}
               </SizableText>
               <SizableText size="$bodySm">
-                {`${tradeBaseInfo.feeFormatted as string}`}
+                {`${tradeBaseInfo.feeFormatted}`}
               </SizableText>
             </YStack>
           </XStack>
@@ -235,7 +237,9 @@ const TradesHistoryRow = memo(
           justifyContent={calcCellAlign(columnConfigs[1].align)}
           alignItems="center"
           cursor="pointer"
-          onPress={() => selectToken(assetSymbol)}
+          onPress={() =>
+            actions.current.changeActiveAsset({ coin: assetSymbol })
+          }
         >
           <SizableText
             numberOfLines={1}
@@ -295,7 +299,7 @@ const TradesHistoryRow = memo(
           alignItems="center"
         >
           <SizableText numberOfLines={1} ellipsizeMode="tail" size="$bodySm">
-            {`${tradeBaseInfo.tradeValueFormatted as string}`}
+            {`${tradeBaseInfo.tradeValueFormatted}`}
           </SizableText>
         </XStack>
 
@@ -306,7 +310,7 @@ const TradesHistoryRow = memo(
           alignItems="center"
         >
           <SizableText numberOfLines={1} ellipsizeMode="tail" size="$bodySm">
-            {`${tradeBaseInfo.feeFormatted as string}`}
+            {`${tradeBaseInfo.feeFormatted}`}
           </SizableText>
         </XStack>
 
@@ -322,9 +326,7 @@ const TradesHistoryRow = memo(
             size="$bodySm"
             color={closePnlInfo.closePnlColor}
           >
-            {`${closePnlInfo.closePnlPlusOrMinus}${
-              closePnlInfo.closePnlFormatted as string
-            }`}
+            {`${closePnlInfo.closePnlPlusOrMinus}${closePnlInfo.closePnlFormatted}`}
           </SizableText>
         </XStack>
       </XStack>

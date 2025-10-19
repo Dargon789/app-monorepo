@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { useFocusEffect } from '@react-navigation/native';
 
 import {
-  Badge,
+  IconButton,
   Image,
   Page,
   Stack,
@@ -12,19 +12,25 @@ import {
   useMedia,
 } from '@onekeyhq/components';
 import { usePerpsNetworkStatusAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { FLOAT_NAV_BAR_Z_INDEX } from '@onekeyhq/shared/src/consts/zIndexConsts';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { ETabRoutes } from '@onekeyhq/shared/src/routes/tab';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
+import { NetworkStatusBadge } from '../../../components/NetworkStatusBadge';
 import { TabPageHeader } from '../../../components/TabPageHeader';
-import { useThemeVariant } from '../../../hooks/useThemeVariant';
+import { useHyperliquidActions } from '../../../states/jotai/contexts/hyperliquid';
+import { HyperliquidTermsOverlay } from '../components/HyperliquidTerms';
 import { PerpsGlobalEffects } from '../components/PerpsGlobalEffects';
-import { PerpAccountPanel } from '../components/TradingPanel/panels/PerpAccountPanel';
+import { PerpsHeaderRight } from '../components/TradingPanel/components/PerpsHeaderRight';
+import { usePerpsLogo } from '../hooks/usePerpsLogo';
 import { PerpDesktopLayout } from '../layouts/PerpDesktopLayout';
 import { PerpMobileLayout } from '../layouts/PerpMobileLayout';
 import { PerpsAccountSelectorProviderMirror } from '../PerpsAccountSelectorProviderMirror';
 import { PerpsProviderMirror } from '../PerpsProviderMirror';
+
+import { ExtPerp, shouldOpenExpandExtPerp } from './ExtPerp';
 
 import type { LayoutChangeEvent } from 'react-native';
 
@@ -38,52 +44,40 @@ function PerpLayout() {
 
 function PerpNetworkStatus() {
   const [networkStatus] = usePerpsNetworkStatusAtom();
-  const isNetworkStable = networkStatus.connected;
-  const networkStyle = useMemo(() => {
-    return {
-      badgeType: isNetworkStable ? 'success' : 'critical',
-      indicatorBg: isNetworkStable ? '$success10' : '$critical10',
-      text: isNetworkStable ? 'Online' : 'Disconnected',
-    };
-  }, [isNetworkStable]);
-  return useMemo(
-    () => (
-      <Badge
-        badgeType={networkStyle.badgeType}
-        badgeSize="sm"
-        height={20}
-        borderRadius="$full"
-        paddingVertical={0}
-        paddingHorizontal={8}
-        gap="$1.5"
-      >
-        <Stack
-          position="relative"
-          w={8}
-          h={8}
-          borderRadius="$full"
-          alignItems="center"
-          justifyContent="center"
-          bg="$neutral3"
-        >
-          <Stack
-            position="absolute"
-            w={6}
-            h={6}
-            borderRadius="$full"
-            bg={networkStyle.indicatorBg}
-          />
-        </Stack>
-        <Badge.Text style={{ fontSize: 10 }}>{networkStyle.text}</Badge.Text>
-      </Badge>
-    ),
-    [networkStyle],
+  const connected = Boolean(networkStatus?.connected);
+
+  return <NetworkStatusBadge connected={connected} />;
+}
+
+function FooterRefreshButton() {
+  const actions = useHyperliquidActions();
+  const [networkStatus] = usePerpsNetworkStatusAtom();
+  const [loading, setLoading] = useState(false);
+  return (
+    <IconButton
+      loading={loading}
+      disabled={!networkStatus.connected}
+      ml="$2"
+      icon="RefreshCwOutline"
+      variant="tertiary"
+      size="small"
+      onPress={async () => {
+        try {
+          setLoading(true);
+          await actions.current.refreshAllPerpsData();
+        } catch (error) {
+          console.error(error);
+        } finally {
+          setLoading(false);
+        }
+      }}
+    />
   );
 }
 
 function PerpContentFooter() {
   const { gtSm } = useMedia();
-  const themeVariant = useThemeVariant();
+  const { poweredByHyperliquidLogo } = usePerpsLogo();
   return gtSm ? (
     <Page.Footer>
       <XStack
@@ -96,12 +90,10 @@ function PerpContentFooter() {
         justifyContent="space-between"
       >
         <PerpNetworkStatus />
+        <FooterRefreshButton />
+        <Stack flex={1} />
         <Image
-          source={
-            themeVariant === 'light'
-              ? require('../../../../assets/PoweredByHyperliquidLight.svg')
-              : require('../../../../assets/PoweredByHyperliquidDark.svg')
-          }
+          source={poweredByHyperliquidLogo}
           size={170}
           resizeMode="contain"
         />
@@ -109,6 +101,8 @@ function PerpContentFooter() {
     </Page.Footer>
   ) : null;
 }
+
+console.log('PerpContent js loaded');
 
 function PerpContent() {
   console.log('PerpContent render');
@@ -120,63 +114,69 @@ function PerpContent() {
     const height = e.nativeEvent.layout.height - 20;
     setTabPageHeight(height);
   }, []);
+
+  const header = (
+    <TabPageHeader
+      sceneName={EAccountSelectorSceneName.home}
+      tabRoute={ETabRoutes.Perp}
+      customHeaderRightItems={
+        <PerpsAccountSelectorProviderMirror>
+          <PerpsProviderMirror>
+            <PerpsHeaderRight />
+          </PerpsProviderMirror>
+        </PerpsAccountSelectorProviderMirror>
+      }
+    />
+  );
+
   return (
     <Page>
       {platformEnv.isNative ? (
-        <Stack h={tabPageHeight} />
+        <>
+          <Stack h={tabPageHeight} />
+          <YStack
+            position="absolute"
+            top={-20}
+            left={0}
+            bg="$bgApp"
+            pt="$5"
+            width="100%"
+            onLayout={handleTabPageLayout}
+            zIndex={FLOAT_NAV_BAR_Z_INDEX}
+          >
+            {header}
+          </YStack>
+        </>
       ) : (
-        <TabPageHeader
-          sceneName={EAccountSelectorSceneName.home}
-          tabRoute={ETabRoutes.Perp}
-          customHeaderRightItems={
-            <PerpsAccountSelectorProviderMirror>
-              <PerpsProviderMirror>
-                <PerpAccountPanel ifOnHeader />
-              </PerpsProviderMirror>
-            </PerpsAccountSelectorProviderMirror>
-          }
-        />
+        header
       )}
       <Page.Body>
-        <PerpLayout />
+        <Stack position="relative" flex={1}>
+          <PerpLayout />
+          <HyperliquidTermsOverlay />
+        </Stack>
       </Page.Body>
       <PerpContentFooter />
-      {platformEnv.isNative ? (
-        <YStack
-          position="absolute"
-          top={-20}
-          left={0}
-          bg="$bgApp"
-          pt="$5"
-          width="100%"
-          onLayout={handleTabPageLayout}
-        >
-          <TabPageHeader
-            sceneName={EAccountSelectorSceneName.home}
-            tabRoute={ETabRoutes.Perp}
-            customHeaderRightItems={
-              <PerpsAccountSelectorProviderMirror>
-                <PerpsProviderMirror>
-                  <PerpAccountPanel ifOnHeader />
-                </PerpsProviderMirror>
-              </PerpsAccountSelectorProviderMirror>
-            }
-          />
-        </YStack>
-      ) : null}
     </Page>
   );
 }
 
 export default function Perp() {
   useFocusEffect(() => {
-    void backgroundApiProxy.serviceWebviewPerp.updateBuilderFeeConfigByServer();
+    void backgroundApiProxy.serviceHyperliquid.updatePerpsConfigByServer();
   });
+
   return (
     <PerpsAccountSelectorProviderMirror>
       <PerpsProviderMirror>
-        <PerpsGlobalEffects />
-        <PerpContent />
+        {shouldOpenExpandExtPerp() ? (
+          <ExtPerp />
+        ) : (
+          <>
+            <PerpsGlobalEffects />
+            <PerpContent />
+          </>
+        )}
       </PerpsProviderMirror>
     </PerpsAccountSelectorProviderMirror>
   );

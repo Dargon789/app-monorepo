@@ -22,12 +22,15 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { getRequestHeaders } from '@onekeyhq/shared/src/request/Interceptor';
+import { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
+import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import {
   formatBalance,
   numberFormat,
 } from '@onekeyhq/shared/src/utils/numberUtils';
 import { equalsIgnoreCase } from '@onekeyhq/shared/src/utils/stringUtils';
+import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import { equalTokenNoCaseSensitive } from '@onekeyhq/shared/src/utils/tokenUtils';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 import type { ESigningScheme } from '@onekeyhq/shared/types/message';
@@ -89,6 +92,9 @@ import ServiceBase from './ServiceBase';
 
 import type { IAllNetworkAccountInfo } from './ServiceAllNetwork/ServiceAllNetwork';
 
+const formatter: INumberFormatProps = {
+  formatter: 'balance',
+};
 @backgroundClass()
 export default class ServiceSwap extends ServiceBase {
   private _quoteAbortController?: AbortController;
@@ -957,17 +963,29 @@ export default class ServiceSwap extends ServiceBase {
 
   @backgroundMethod()
   async checkSupportSwap({ networkId }: { networkId: string }) {
-    const client = await this.getClient(EServiceEndpointEnum.Swap);
-    const resp = await client.get<{
-      data: ISwapCheckSupportResponse[];
-    }>(`/swap/v1/check-support`, {
-      params: {
-        networkId,
-        protocol: EProtocolOfExchange.SWAP,
-      },
-    });
-    return resp.data.data[0];
+    return this.checkSupportSwapMemo({ networkId });
   }
+
+  checkSupportSwapMemo = memoizee(
+    async ({ networkId }: { networkId: string }) => {
+      const client = await this.getClient(EServiceEndpointEnum.Swap);
+      const resp = await client.get<{
+        data: ISwapCheckSupportResponse[];
+      }>(`/swap/v1/check-support`, {
+        params: {
+          networkId,
+          protocol: EProtocolOfExchange.SWAP,
+        },
+      });
+      return resp.data.data[0];
+    },
+    {
+      max: 10,
+      maxAge: timerUtils.getTimeDurationMs({ minute: 3 }),
+      promise: true,
+      primitive: true,
+    },
+  );
 
   @backgroundMethod()
   async fetchApproveAllowance({
@@ -1454,15 +1472,11 @@ export default class ServiceSwap extends ServiceBase {
                 ? ETranslations.swap_page_toast_swap_successful
                 : ETranslations.swap_page_toast_swap_failed,
           }),
-          message: `${
-            numberFormat(item.baseInfo.fromAmount, {
-              formatter: 'balance',
-            }) as string
-          } ${item.baseInfo.fromToken.symbol} → ${
-            numberFormat(item.baseInfo.toAmount, {
-              formatter: 'balance',
-            }) as string
-          } ${item.baseInfo.toToken.symbol}`,
+          message: `${numberFormat(item.baseInfo.fromAmount, formatter)} ${
+            item.baseInfo.fromToken.symbol
+          } → ${numberFormat(item.baseInfo.toAmount, formatter)} ${
+            item.baseInfo.toToken.symbol
+          }`,
         });
       }
     }

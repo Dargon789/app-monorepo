@@ -1,8 +1,12 @@
+import { useMemo } from 'react';
+
 import { useIntl } from 'react-intl';
 
 import { SizableText, XStack, YStack } from '@onekeyhq/components';
 import { MarketTokenPrice } from '@onekeyhq/kit/src/views/Market/components/MarketTokenPrice';
+import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 
 import { useTokenDetail } from '../../hooks/useTokenDetail';
@@ -21,8 +25,13 @@ function getPriceSizeByValue(price: string) {
   return '$heading3xl';
 }
 
+const marketCapFormatter: INumberFormatProps = {
+  formatter: 'marketCap',
+};
+
 export function InformationPanel() {
   const intl = useIntl();
+  const [settings] = useSettingsPersistAtom();
   const { tokenDetail, networkId, tokenAddress } = useTokenDetail();
 
   // Directly use the security data hook to check if we have security data
@@ -30,6 +39,16 @@ export function InformationPanel() {
     tokenAddress,
     networkId,
   });
+
+  const currencyFormatter: INumberFormatProps = useMemo(() => {
+    const currencySymbol = settings.currencyInfo.symbol;
+    return {
+      formatter: 'marketCap',
+      formatterOptions: {
+        currency: currencySymbol,
+      },
+    };
+  }, [settings.currencyInfo.symbol]);
 
   if (!tokenDetail) return <InformationPanelSkeleton />;
 
@@ -39,10 +58,14 @@ export function InformationPanel() {
     price: currentPrice = '0',
     priceChange24hPercent = '0',
     marketCap = '0',
-    volume24h = '0',
+    liquidity = '0',
     holders = 0,
     address = '',
   } = tokenDetail;
+
+  const formattedMarketCap = numberFormat(marketCap, currencyFormatter);
+
+  const formattedLiquidity = numberFormat(liquidity, currencyFormatter);
 
   const priceChangeNum = parseFloat(priceChange24hPercent);
   const isPriceUp = priceChangeNum >= 0;
@@ -72,24 +95,20 @@ export function InformationPanel() {
           <SizableText size="$bodySm" color="$textSubdued">
             {intl.formatMessage({ id: ETranslations.global_market_cap })}
           </SizableText>
-          <SizableText size="$bodySmMedium">
-            ${numberFormat(marketCap, { formatter: 'marketCap' })}
-          </SizableText>
+          <SizableText size="$bodySmMedium">{formattedMarketCap}</SizableText>
         </XStack>
         <XStack pointerEvents="none" gap="$1" width="100%" jc="space-between">
           <SizableText size="$bodySm" color="$textSubdued">
             {intl.formatMessage({ id: ETranslations.global_liquidity })}
           </SizableText>
-          <SizableText size="$bodySmMedium">
-            ${numberFormat(volume24h, { formatter: 'marketCap' })}
-          </SizableText>
+          <SizableText size="$bodySmMedium">{formattedLiquidity}</SizableText>
         </XStack>
         <XStack pointerEvents="none" gap="$1" width="100%" jc="space-between">
           <SizableText size="$bodySm" color="$textSubdued">
             {intl.formatMessage({ id: ETranslations.dexmarket_holders })}
           </SizableText>
           <SizableText size="$bodySmMedium">
-            {numberFormat(String(holders), { formatter: 'marketCap' })}
+            {numberFormat(String(holders), marketCapFormatter)}
           </SizableText>
         </XStack>
         {/* Audit / Security - Only show when we have security data */}

@@ -3,33 +3,39 @@ import { useMemo } from 'react';
 import { BigNumber } from 'bignumber.js';
 
 import {
-  useAccountPanelDataAtom,
+  usePerpsActivePositionAtom,
   useTradingFormAtom,
+  useTradingFormComputedAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
-import { usePerpsSelectedSymbolAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  usePerpsActiveAccountSummaryAtom,
+  usePerpsActiveAssetAtom,
+  usePerpsActiveAssetCtxAtom,
+  usePerpsActiveAssetDataAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { calculateLiquidationPrice } from '@onekeyhq/shared/src/utils/perpsUtils';
 
-import { useCurrentTokenData } from './usePerpMarketData';
-import { usePerpPositions } from './usePerpOrderInfoPanel';
-
-export function useLiquidationPrice(): BigNumber | null {
+export function useLiquidationPrice(
+  overrideSide?: 'long' | 'short',
+): BigNumber | null {
   const [formData] = useTradingFormAtom();
-  const tokenInfo = useCurrentTokenData();
-  const [accountPanelData] = useAccountPanelDataAtom();
-  const { accountSummary } = accountPanelData;
-  const [perpsSelectedSymbol] = usePerpsSelectedSymbolAtom();
-  const perpsPositions = usePerpPositions();
-  const { coin, margin } = perpsSelectedSymbol;
+  const [tradingComputed] = useTradingFormComputedAtom();
+  const [activeAsset] = usePerpsActiveAssetAtom();
+  const [activeAssetCtx] = usePerpsActiveAssetCtxAtom();
+  const [activeAssetData] = usePerpsActiveAssetDataAtom();
+  const [accountSummary] = usePerpsActiveAccountSummaryAtom();
+  const [{ activePositions: perpsPositions }] = usePerpsActivePositionAtom();
+  const { coin, margin } = activeAsset;
 
   const stableAccountValues = useMemo(
     () => ({
-      crossAccountValue: accountSummary.crossAccountValue || '0',
+      crossAccountValue: accountSummary?.crossAccountValue || '0',
       crossMaintenanceMarginUsed:
-        accountSummary.crossMaintenanceMarginUsed || '0',
+        accountSummary?.crossMaintenanceMarginUsed || '0',
     }),
     [
-      accountSummary.crossAccountValue,
-      accountSummary.crossMaintenanceMarginUsed,
+      accountSummary?.crossAccountValue,
+      accountSummary?.crossMaintenanceMarginUsed,
     ],
   );
 
@@ -37,45 +43,48 @@ export function useLiquidationPrice(): BigNumber | null {
     if (formData.type === 'limit' && formData.price) {
       return new BigNumber(formData.price);
     }
-    if (formData.type === 'market' && tokenInfo?.markPx) {
-      return new BigNumber(tokenInfo.markPx);
+    if (formData.type === 'market' && activeAssetCtx?.ctx?.markPrice) {
+      return new BigNumber(activeAssetCtx.ctx.markPrice);
     }
     return new BigNumber(0);
-  }, [formData.type, formData.price, tokenInfo?.markPx]);
+  }, [formData.type, formData.price, activeAssetCtx?.ctx?.markPrice]);
 
   const totalValue = useMemo(() => {
-    const size = new BigNumber(formData.size || 0);
-    return size.multipliedBy(referencePrice);
-  }, [formData.size, referencePrice]);
+    return tradingComputed.computedSizeBN.multipliedBy(referencePrice);
+  }, [tradingComputed.computedSizeBN, referencePrice]);
 
   const leverage = useMemo(() => {
-    return tokenInfo?.leverage?.value || tokenInfo?.maxLeverage;
-  }, [tokenInfo]);
+    return (
+      activeAssetData?.leverage?.value || activeAsset?.universe?.maxLeverage
+    );
+  }, [activeAssetData?.leverage?.value, activeAsset?.universe?.maxLeverage]);
 
   const currentCoinPosition = useMemo(() => {
     return perpsPositions.filter((pos) => pos.position.coin === coin)?.[0]
       ?.position;
   }, [perpsPositions, coin]);
 
-  const liquidationPrice: BigNumber | null = useMemo(() => {
-    if (!leverage || !tokenInfo?.mode) return null;
+  const effectiveSide = overrideSide || formData.side;
 
-    const positionSize = new BigNumber(formData.size || 0);
+  const liquidationPrice: BigNumber | null = useMemo(() => {
+    if (!leverage || !activeAssetData?.leverage.type) return null;
+
+    const positionSize = tradingComputed.computedSizeBN;
     if (positionSize.isZero()) return null;
 
     // Use unified function - it will automatically choose the optimal calculation path
     const _liquidationPrice = calculateLiquidationPrice({
       totalValue,
       referencePrice,
-      markPrice: tokenInfo?.markPx
-        ? new BigNumber(tokenInfo?.markPx)
+      markPrice: activeAssetCtx?.ctx?.markPrice
+        ? new BigNumber(activeAssetCtx.ctx.markPrice)
         : undefined,
       positionSize,
-      side: formData.side,
+      side: effectiveSide,
       leverage,
-      mode: tokenInfo.mode,
+      mode: activeAssetData?.leverage.type,
       marginTiers: margin?.marginTiers,
-      maxLeverage: tokenInfo?.maxLeverage || 1,
+      maxLeverage: activeAsset?.universe?.maxLeverage || 1,
       crossMarginUsed: new BigNumber(stableAccountValues.crossAccountValue),
       crossMaintenanceMarginUsed: new BigNumber(
         stableAccountValues.crossMaintenanceMarginUsed,
@@ -87,20 +96,21 @@ export function useLiquidationPrice(): BigNumber | null {
       existingEntryPrice: currentCoinPosition
         ? new BigNumber(currentCoinPosition.entryPx)
         : undefined,
-      newOrderSide: formData.side,
+      newOrderSide: effectiveSide,
     });
     return _liquidationPrice?.gt(0) ? _liquidationPrice : null;
   }, [
-    leverage,
-    tokenInfo?.mode,
-    tokenInfo?.markPx,
-    tokenInfo?.maxLeverage,
-    formData.size,
-    formData.side,
+    activeAsset?.universe?.maxLeverage,
+    activeAssetCtx?.ctx?.markPrice,
+    activeAssetData?.leverage.type,
     currentCoinPosition,
-    referencePrice,
+    effectiveSide,
+    tradingComputed.computedSizeBN,
+    leverage,
     margin?.marginTiers,
-    stableAccountValues,
+    referencePrice,
+    stableAccountValues.crossAccountValue,
+    stableAccountValues.crossMaintenanceMarginUsed,
     totalValue,
   ]);
 

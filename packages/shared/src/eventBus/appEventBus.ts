@@ -4,7 +4,6 @@ import { cloneDeep } from 'lodash';
 
 import type {
   IDialogLoadingProps,
-  IDialogShowProps,
   IQrcodeDrawType,
 } from '@onekeyhq/components';
 import type { ISubSettingConfig } from '@onekeyhq/kit/src/views/Setting/pages/Tab/config';
@@ -315,6 +314,9 @@ export interface IAppEventBusPayload {
     promiseId: number;
     walletId: string;
   };
+  [EAppEventBusNames.doubleConfirmTxFeeInfo]: {
+    promiseId: number;
+  };
   [EAppEventBusNames.HardwareFeaturesUpdate]: {
     deviceId: string;
   };
@@ -354,7 +356,6 @@ export interface IAppEventBusPayload {
     type: string;
     subType: ESubscriptionType;
     data: unknown;
-    metadata: Record<string, any>;
   };
   [EAppEventBusNames.HyperliquidConnectionChange]: {
     type: 'connection';

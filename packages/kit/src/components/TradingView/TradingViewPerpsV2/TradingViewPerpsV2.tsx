@@ -1,27 +1,29 @@
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { Stack, useOrientation } from '@onekeyhq/components';
 import type { IStackStyle } from '@onekeyhq/components';
+import { usePerpsCandlesWebviewMountedAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import type { IHex } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
 import { useThemeVariant } from '../../../hooks/useThemeVariant';
 import WebView from '../../WebView';
-import { useTradingViewUrl } from '../hooks';
+import { useNavigationHandler, useTradingViewUrl } from '../hooks';
 
 import { useTradeUpdates } from './hooks';
-import { usePerpsMessageHandler } from './messageHandlers';
+import { usePerpsTradingViewMessageHandler } from './messageHandlers';
 
 import type { ITradeEvent } from './types';
 import type { IWebViewRef } from '../../WebView/types';
 import type { WebViewProps } from 'react-native-webview';
+import type { WebViewNavigation } from 'react-native-webview/lib/WebViewTypes';
 
 interface IBaseTradingViewPerpsV2Props {
   symbol: string;
   userAddress: IHex | undefined | null;
+  webviewKey?: string;
   onLoadEnd?: () => void;
   onTradeUpdate?: (trade: ITradeEvent) => void;
-  tradingViewUrl?: string;
 }
 
 export type ITradingViewPerpsV2Props = IBaseTradingViewPerpsV2Props &
@@ -42,11 +44,6 @@ const useSymbolSync = ({
     const hasSymbolChanged = prevSymbol !== symbol;
 
     if (hasSymbolChanged && webRef.current) {
-      console.log('🔄 Syncing symbol to WebView:', {
-        from: prevSymbol,
-        to: symbol,
-      });
-
       // Sync symbol changes via message communication instead of WebView reload
       webRef.current.sendMessageViaInjectedScript({
         type: 'SYMBOL_CHANGE',
@@ -67,17 +64,20 @@ const WebViewMemoized = memo(
     src,
     customReceiveHandler,
     onWebViewRef,
+    onShouldStartLoadWithRequest,
     ...otherProps
   }: {
     src: string;
     customReceiveHandler: (data: any) => Promise<void>;
     onWebViewRef: (ref: IWebViewRef | null) => void;
+    onShouldStartLoadWithRequest?: (event: WebViewNavigation) => boolean;
     [key: string]: any;
   }) => (
     <WebView
       src={src}
       customReceiveHandler={customReceiveHandler}
       onWebViewRef={onWebViewRef}
+      onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
       {...otherProps}
     />
   ),
@@ -85,7 +85,9 @@ const WebViewMemoized = memo(
     // Only re-render if critical props change
     return (
       prevProps.src === nextProps.src &&
-      prevProps.customReceiveHandler === nextProps.customReceiveHandler
+      prevProps.customReceiveHandler === nextProps.customReceiveHandler &&
+      prevProps.onShouldStartLoadWithRequest ===
+        nextProps.onShouldStartLoadWithRequest
     );
   },
 );
@@ -95,19 +97,32 @@ WebViewMemoized.displayName = 'WebViewMemoized';
 export function TradingViewPerpsV2(
   props: ITradingViewPerpsV2Props & WebViewProps,
 ) {
+  const { symbol, userAddress, onLoadEnd, onTradeUpdate, webviewKey } = props;
+  const [, setMounted] = usePerpsCandlesWebviewMountedAtom();
   const isLandscape = useOrientation();
   const isIPadPortrait = platformEnv.isNativeIOSPad && !isLandscape;
   const webRef = useRef<IWebViewRef | null>(null);
   const theme = useThemeVariant();
+  const _webviewKey = useMemo(() => {
+    return `${theme}-${webviewKey || ''}`;
+  }, [theme, webviewKey]);
 
-  const { symbol, userAddress, onLoadEnd, onTradeUpdate, tradingViewUrl } =
-    props;
+  useEffect(() => {
+    setMounted({ mounted: true });
+    return () => {
+      setMounted({ mounted: false });
+    };
+  }, [setMounted]);
+
+  // Freeze initial symbol to prevent URL regeneration on symbol changes
+  const initialSymbolRef = useRef(symbol);
+
+  const { handleNavigation } = useNavigationHandler();
 
   // Optimization: Static URL with only initialization params to avoid WebView reload
   const { finalUrl: staticTradingViewUrl } = useTradingViewUrl({
-    tradingViewUrl,
     additionalParams: {
-      symbol,
+      symbol: initialSymbolRef.current, // Use frozen initial symbol
       type: 'perps',
     },
   });
@@ -118,7 +133,7 @@ export function TradingViewPerpsV2(
     symbol,
   });
 
-  const { customReceiveHandler } = usePerpsMessageHandler({
+  const { customReceiveHandler } = usePerpsTradingViewMessageHandler({
     symbol,
     userAddress,
     webRef,
@@ -134,14 +149,21 @@ export function TradingViewPerpsV2(
     webRef.current = ref;
   }, []);
 
+  const onShouldStartLoadWithRequest = useCallback(
+    (event: WebViewNavigation) => handleNavigation(event),
+    [handleNavigation],
+  );
+
   return (
     <Stack position="relative" flex={1}>
       <WebViewMemoized
-        key={theme}
+        key={_webviewKey}
         src={staticTradingViewUrl}
         customReceiveHandler={customReceiveHandler}
         onWebViewRef={onWebViewRef}
         onLoadEnd={onLoadEnd}
+        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        allowsBackForwardNavigationGestures={false}
         displayProgressBar={false}
         pullToRefreshEnabled={false}
         scrollEnabled={false}

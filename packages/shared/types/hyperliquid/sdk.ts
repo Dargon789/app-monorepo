@@ -1,4 +1,7 @@
+import type { ESubscriptionType } from './types';
 import type * as HL from '@nktkas/hyperliquid';
+
+// import type { WebSocketAsyncRequest } from '@nktkas/hyperliquid/esm/src/transports/websocket/_hyperliquid_event_target.js';
 
 // WebSocket data types
 export type IWsWebData2 = HL.WsWebData2;
@@ -7,6 +10,8 @@ export type IWsActiveAssetCtx = HL.WsActiveAssetCtx;
 export type IWsUserEvent = HL.WsUserEvent;
 export type IWsUserFills = HL.WsUserFills;
 export type IWsBbo = HL.WsBbo;
+export type IHyperliquidEventTarget = EventTarget; // HL.HyperliquidEventTarget;
+// export type IWebSocketAsyncRequest = WebSocketAsyncRequest; // HL.WebSocketAsyncRequest;
 
 export type IWsNotification = HL.WsNotification;
 export type IWsTrade = HL.WsTrade;
@@ -14,12 +19,21 @@ export type IApiRequestError = HL.ApiRequestError;
 export type IApiRequestResult = HL.SuccessResponse;
 export type IApiErrorResponse = HL.ErrorResponse;
 
+export type IPerpsAssetCtxRaw = HL.PerpsAssetCtx;
+export type IPerpsAssetCtx = IPerpsAssetCtxRaw;
+
 // Core trading types
-export type IPerpsUniverse = HL.PerpsUniverse;
+export type IPerpsUniverseRaw = HL.PerpsUniverse;
+export type IPerpsUniverse = IPerpsUniverseRaw & {
+  assetId: number;
+};
 export type IMarginTables = HL.MarginTables;
 export type IMarginTable = HL.MarginTable;
+export type IMarginTableMap = Partial<{
+  [key: number]: IMarginTable;
+}>;
 export type IOrder = HL.Order;
-export type IFrontendOrder = HL.FrontendOrder;
+export type IPerpsFrontendOrder = HL.FrontendOrder;
 export type IOrderParams = HL.OrderParams;
 export type IOrderResponse = HL.OrderResponse;
 export type ICancelResponse = HL.CancelResponse;
@@ -30,8 +44,13 @@ export type IOrderType = HL.OrderType;
 export type ITIF = HL.TIF;
 
 // Account and asset types
-export type IAssetPosition = HL.AssetPosition;
-export type IActiveAssetData = HL.ActiveAssetData;
+export type IPerpsAssetPosition = HL.AssetPosition;
+export type IPerpsActiveAssetDataRaw = HL.ActiveAssetData;
+export type IPerpsActiveAssetData = Omit<IPerpsActiveAssetDataRaw, 'user'> & {
+  accountAddress: string;
+  coin: string;
+  assetId: number | undefined;
+};
 export type IPerpsClearinghouseState = HL.PerpsClearinghouseState;
 export type ISpotClearinghouseState = HL.SpotClearinghouseState;
 export type ISpotBalance = HL.SpotBalance;
@@ -40,6 +59,7 @@ export type ISpotBalance = HL.SpotBalance;
 export type IInfoClient = HL.InfoClient;
 export type IExchangeClient = HL.ExchangeClient;
 export type ISubscriptionClient = HL.SubscriptionClient;
+export type IPerpsSubscription = HL.Subscription;
 export type IHttpTransport = HL.HttpTransport;
 export type IWebSocketTransport = HL.WebSocketTransport;
 
@@ -82,3 +102,19 @@ export type IErrorResponse = HL.ErrorResponse;
 // Basic types
 export type IHex = `0x${string}`;
 export type ISignature = HL.Signature;
+
+export type IPerpsSubscriptionParams = {
+  [ESubscriptionType.L2_BOOK]: IEventL2BookParameters;
+  [ESubscriptionType.USER_FILLS]: IEventUserFillsParameters;
+
+  [ESubscriptionType.ACTIVE_ASSET_DATA]: IEventActiveAssetDataParameters;
+  [ESubscriptionType.WEB_DATA2]: IEventWebData2Parameters;
+  [ESubscriptionType.ALL_MIDS]: IWsAllMidsParameters;
+  [ESubscriptionType.ACTIVE_ASSET_CTX]: IEventActiveAssetCtxParameters;
+  // [ESubscriptionType.USER_EVENTS]: IEventUserEventsParameters;
+  // [ESubscriptionType.USER_NOTIFICATIONS]: IEventNotificationParameters;
+  // [ESubscriptionType.TRADES]: IEventTradesParameters;
+  // [ESubscriptionType.BBO]: IEventBboParameters;
+};
+
+export type IWebSocketTransportOptions = HL.WebSocketTransportOptions;
