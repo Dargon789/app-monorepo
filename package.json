@@ -145,7 +145,7 @@
     "tonweb": "^0.0.66",
     "use-suspender": "^2.0.0-beta.0",
     "validator": "^13.7.0",
-    "viem": "^2.9.2"
+    "viem": "^2.38.3"
   },
   "devDependencies": {
     "@babel/plugin-proposal-class-static-block": "^7.21.0",
