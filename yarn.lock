@@ -152,6 +152,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@alephium/web3@npm:^3.0.0":
+  version: 3.0.4
+  resolution: "@alephium/web3@npm:3.0.4"
+  dependencies:
+    "@noble/curves": "npm:1.9.7"
+    "@noble/hashes": "npm:1.8.0"
+    "@noble/secp256k1": "npm:1.7.2"
+    base-x: "npm:4.0.1"
+    bignumber.js: "npm:^9.1.1"
+    eventemitter3: "npm:^4.0.7"
+  checksum: 10/fcb6fc824c9454307cf04ea34ac91541dd3f660c7ab4809949715baaada6a11da2f9a410c02e8ed79bfee494483d6db3d49e813d57de03a75c29cd7b8ce52a67
+  languageName: node
+  linkType: hard
+
 "@ampproject/remapping@npm:^2.2.0":
   version: 2.2.1
   resolution: "@ampproject/remapping@npm:2.2.1"
@@ -8234,6 +8248,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@noble/secp256k1@npm:1.7.2":
+  version: 1.7.2
+  resolution: "@noble/secp256k1@npm:1.7.2"
+  checksum: 10/ce1651f63ebf9269990dbc1002410d63e2f4379fcbf2bb7a567740997852a1fbdb353929e497cd9d09549c28e3edb036ac3905ff20ac5249ad32e64a852af955
+  languageName: node
+  linkType: hard
+
 "@nodelib/fs.scandir@npm:2.1.5":
   version: 2.1.5
   resolution: "@nodelib/fs.scandir@npm:2.1.5"
@@ -9364,7 +9385,7 @@ __metadata:
   resolution: "@onekeyhq/app-monorepo@workspace:."
   dependencies:
     "@aivenio/tsc-output-parser": "npm:^2.1.1"
-    "@alephium/web3": "npm:^1.5.2"
+    "@alephium/web3": "npm:^3.0.0"
     "@babel/plugin-proposal-class-properties": "npm:^7.18.6"
     "@babel/plugin-proposal-class-static-block": "npm:^7.21.0"
     "@babel/plugin-proposal-nullish-coalescing-operator": "npm:^7.18.6"
@@ -9600,7 +9621,7 @@ __metadata:
     use-suspender: "npm:^2.0.0-beta.0"
     validator: "npm:13.15.23"
     viem: "npm:2.37.6"
-    webpack: "npm:5.104.1"
+    webpack: "npm:5.105.0"
     webpack-bundle-analyzer: "npm:^4.9.1"
     webpack-cli: "npm:5.1.4"
     webpack-dev-server: "npm:^4.15.1"
@@ -9694,7 +9715,7 @@ __metadata:
     ethereumjs-util: "npm:7.1.5"
     folderslint: "npm:1.2.0"
     js-conflux-sdk: "npm:^2.1.12"
-    jsrsasign: "npm:^11.1.1"
+    jsrsasign: "npm:^11.1.3"
     near-api-js: "npm:^2.1.4"
     ripple-keypairs: "npm:^1.3.1"
     tonweb-mnemonic: "npm:^1.0.1"
@@ -9735,7 +9756,7 @@ __metadata:
     passport-desktop-win32-x64-msvc: "npm:0.1.2"
     rimraf: "npm:3.0.2"
     semver: "npm:7.7.4"
-    webpack: "npm:5.104.1"
+    webpack: "npm:5.105.0"
   languageName: unknown
   linkType: soft
 
@@ -22571,19 +22592,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"base-x@npm:4.0.1, base-x@npm:^4.0.0":
+  version: 4.0.1
+  resolution: "base-x@npm:4.0.1"
+  checksum: 10/c9061e576f7376b2bc6b69eca131254bb16ebe1445b535a3f0d68f27524e724965b6c191dffd255bf80f9bdf5eb9d1c8d0320903e83116f2c3e09f81b5ecb6a2
+  languageName: node
+  linkType: hard
+
 "base-x@npm:^3.0.2, base-x@npm:^3.0.6, base-x@npm:^3.0.9":
   version: 3.0.11
   resolution: "base-x@npm:3.0.11"
   dependencies:
     safe-buffer: "npm:^5.0.1"
   checksum: 10/c2e3c443fd07cb9b9d3e179a9e9c581daa31881005841fe8d6a834e534505890fedf03465ccf14512da60e3f7be00fe66167806b159ba076d2c03952ae7460c4
-  languageName: node
-  linkType: hard
-
-"base-x@npm:^4.0.0":
-  version: 4.0.1
-  resolution: "base-x@npm:4.0.1"
-  checksum: 10/c9061e576f7376b2bc6b69eca131254bb16ebe1445b535a3f0d68f27524e724965b6c191dffd255bf80f9bdf5eb9d1c8d0320903e83116f2c3e09f81b5ecb6a2
   languageName: node
   linkType: hard
 
@@ -27405,7 +27426,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"enhanced-resolve@npm:^5.17.4":
+"enhanced-resolve@npm:^5.19.0":
   version: 5.21.0
   resolution: "enhanced-resolve@npm:5.21.0"
   dependencies:
@@ -32860,9 +32881,9 @@ __metadata:
   linkType: hard
 
 "ip-address@npm:^10.0.1":
-  version: 10.1.0
-  resolution: "ip-address@npm:10.1.0"
-  checksum: 10/a6979629d1ad9c1fb424bc25182203fad739b40225aebc55ec6243bbff5035faf7b9ed6efab3a097de6e713acbbfde944baacfa73e11852bb43989c45a68d79e
+  version: 10.2.0
+  resolution: "ip-address@npm:10.2.0"
+  checksum: 10/12fec399e1af5753ac322e47a6d81a50d3a528b3abb17c09525b2a2edcaedcca628c40520706f7037bc4d8e951b0296c47e7b86d0a8e6e2335c8f0ba4afcfac1
   languageName: node
   linkType: hard
 
@@ -35148,7 +35169,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"jsrsasign@npm:^11.1.1":
+"jsrsasign@npm:^11.1.3":
   version: 11.1.3
   resolution: "jsrsasign@npm:11.1.3"
   checksum: 10/fbe7ef29a8cd45fa78008a979a559367b87908e7fb79b3cd81f12b93754ed1c8c794fa8c6baf2d088767f77291cfd0e3da4188115c6492122801dc81a49dde01
@@ -47902,7 +47923,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"watchpack@npm:^2.4.4":
+"watchpack@npm:^2.5.1":
   version: 2.5.1
   resolution: "watchpack@npm:2.5.1"
   dependencies:
@@ -48351,9 +48372,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"webpack@npm:5.104.1":
-  version: 5.104.1
-  resolution: "webpack@npm:5.104.1"
+"webpack@npm:5.105.0":
+  version: 5.105.0
+  resolution: "webpack@npm:5.105.0"
   dependencies:
     "@types/eslint-scope": "npm:^3.7.7"
     "@types/estree": "npm:^1.0.8"
@@ -48365,7 +48386,7 @@ __metadata:
     acorn-import-phases: "npm:^1.0.3"
     browserslist: "npm:^4.28.1"
     chrome-trace-event: "npm:^1.0.2"
-    enhanced-resolve: "npm:^5.17.4"
+    enhanced-resolve: "npm:^5.19.0"
     es-module-lexer: "npm:^2.0.0"
     eslint-scope: "npm:5.1.1"
     events: "npm:^3.2.0"
@@ -48378,14 +48399,14 @@ __metadata:
     schema-utils: "npm:^4.3.3"
     tapable: "npm:^2.3.0"
     terser-webpack-plugin: "npm:^5.3.16"
-    watchpack: "npm:^2.4.4"
+    watchpack: "npm:^2.5.1"
     webpack-sources: "npm:^3.3.3"
   peerDependenciesMeta:
     webpack-cli:
       optional: true
   bin:
     webpack: bin/webpack.js
-  checksum: 10/c22b58fdf41d993971516154cb621d13b7b61dd744b7e2c6be972e9afcc9942694a8aaa322c07fba46448c69d663023ff53d0aeeb00eb0b125d83ace5ca8fa3c
+  checksum: 10/95e0a0f04fc324e0e3b378a81d111b1739579cda7224cbf904f894e8c4f3a8edce35a26bc06d2e6d558b335e6e0315f50a62fb1bef410053b965a5985fe38bd8
   languageName: node
   linkType: hard
 
