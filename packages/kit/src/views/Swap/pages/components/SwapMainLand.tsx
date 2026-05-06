@@ -25,6 +25,7 @@ import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { useCustomRpcAvailability } from '@onekeyhq/kit/src/hooks/useCustomRpcAvailability';
 import { useTokenDetailActions } from '@onekeyhq/kit/src/states/jotai/contexts/marketV2';
 import {
+  useRateDifferenceAtom,
   useSwapActions,
   useSwapAlertsAtom,
   useSwapBuildTxFetchingAtom,
@@ -140,6 +141,7 @@ const SwapMainLoad = ({ swapInitParams, pageType }: ISwapMainLoadProps) => {
   const [quoteResult] = useSwapQuoteCurrentSelectAtom();
   const [alerts] = useSwapAlertsAtom();
   const [swapTypeSwitch] = useSwapTypeSwitchAtom();
+  const [rateDifference] = useRateDifferenceAtom();
   const [settingsPersistAtom] = useSettingsPersistAtom();
   const toAddressInfo = useSwapAddressInfo(ESwapDirectionType.TO);
   const swapFromAddressInfo = useSwapAddressInfo(ESwapDirectionType.FROM);
@@ -248,8 +250,8 @@ const SwapMainLoad = ({ swapInitParams, pageType }: ISwapMainLoadProps) => {
   }
 
   const quoteResultRef = useRef<IFetchQuoteResult | undefined>(undefined);
-  if (quoteResultRef.current !== currentQuoteRes) {
-    quoteResultRef.current = currentQuoteRes;
+  if (quoteResultRef.current !== swapStepData.quoteResult) {
+    quoteResultRef.current = swapStepData.quoteResult;
   }
 
   const preSwapDataRef = useRef<ISwapPreSwapData | undefined>(undefined);
@@ -516,6 +518,9 @@ const SwapMainLoad = ({ swapInitParams, pageType }: ISwapMainLoadProps) => {
     if (isWrapped) {
       return false;
     }
+    if (quoteEventFetching) {
+      return false;
+    }
     if (currentQuoteRes && !currentQuoteRes?.allowanceResult) {
       return true;
     }
@@ -525,7 +530,12 @@ const SwapMainLoad = ({ swapInitParams, pageType }: ISwapMainLoadProps) => {
         fromSelectToken?.networkId ?? '',
       )
     );
-  }, [currentQuoteRes, fromSelectToken?.networkId, isWrapped]);
+  }, [
+    currentQuoteRes,
+    fromSelectToken?.networkId,
+    isWrapped,
+    quoteEventFetching,
+  ]);
 
   const reviewStepTexts = useMemo(
     () => ({
@@ -603,6 +613,7 @@ const SwapMainLoad = ({ swapInitParams, pageType }: ISwapMainLoadProps) => {
         ) || isCustomRpcUnavailable,
       supportPreBuild,
       slippage: swapSlippageRef.current.value,
+      rateDifference,
       texts: reviewStepTexts,
     });
 
@@ -627,6 +638,7 @@ const SwapMainLoad = ({ swapInitParams, pageType }: ISwapMainLoadProps) => {
     settingsPersistAtom.swapBatchApproveAndSwap,
     supportPreBuild,
     isCustomRpcUnavailable,
+    rateDifference,
     reviewStepTexts,
   ]);
   const onActionHandler = useCallback(() => {

@@ -9,15 +9,18 @@ import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import type {
   EPerpsSizeInputMode,
   IPerpsFormattedAssetCtx,
+  ISpotFormattedAssetCtx,
 } from '@onekeyhq/shared/types/hyperliquid';
 import {
   MAX_DECIMALS_PERP,
+  MAX_DECIMALS_SPOT,
   MAX_PRICE_INTEGER_DIGITS,
   MAX_SIGNIFICANT_FIGURES,
 } from '@onekeyhq/shared/types/hyperliquid/perp.constants';
 import type {
   IPerpsAssetCtx,
   IPerpsUniverse,
+  ISpotAssetCtx,
   IWsActiveAssetCtx,
 } from '@onekeyhq/shared/types/hyperliquid/sdk';
 import { ETriggerOrderType } from '@onekeyhq/shared/types/hyperliquid/types';
@@ -385,11 +388,16 @@ function calculateSpreadPercentage(
 
 /**
  * Format value to specified decimal places using BigNumber precision
+ *
+ * @param roundingMode Optional rounding mode (default: BigNumber.ROUND_HALF_UP).
+ *   For HyperLiquid wire-safe size/price formatting, prefer BigNumber.ROUND_DOWN
+ *   (or use {@link formatHlSize} / {@link formatHlPrice}).
  */
 function formatWithPrecision(
   value: string | number | BigNumber,
   decimals: number,
   removeTrailingZeros = false,
+  roundingMode: BigNumber.RoundingMode = BigNumber.ROUND_HALF_UP,
 ): string {
   const bn = value instanceof BigNumber ? value : new BigNumber(value);
   if (!bn.isFinite()) return '0';
@@ -397,11 +405,130 @@ function formatWithPrecision(
     return bn.isInteger()
       ? bn.toFixed(0)
       : bn
-          .toFixed(decimals)
+          .toFixed(decimals, roundingMode)
           .replace(/(\.\d*?)0+$/, '$1')
           .replace(/\.$/, '');
   }
-  return bn.toFixed(decimals);
+  return bn.toFixed(decimals, roundingMode);
+}
+
+/**
+ * Strip a decimal-style string to canonical form.
+ * Mirrors the helper used by @nktkas/hyperliquid SDK so we stay 1:1 with HL rules
+ * without taking a runtime dependency on the SDK.
+ */
+function _stripDecimalString(value: string): string {
+  return value
+    .trim()
+    .replace(/^(-?)0+(?=\d)/, '$1') // "00123" → "123"
+    .replace(/\.0*$|(\.\d+?)0+$/, '$1') // "1.2000" → "1.2"
+    .replace(/^(-?)\./, '$10.') // ".5" → "0.5"
+    .replace(/^-?$/, '0') // "" → "0"
+    .replace(/^-0$/, '0'); // "-0" → "0"
+}
+
+/**
+ * Truncate a numeric string to N decimal places (regex-based, no float drift).
+ * Equivalent to floor() for non-negative values.
+ */
+function _truncateToDecimals(value: string, decimals: number): string {
+  if (decimals < 0) return '0';
+  const re = new RegExp(`^-?(?:\\d+)?(?:\\.\\d{0,${decimals}})?`);
+  const matched = value.match(re)?.[0];
+  if (!matched) return '0';
+  return _stripDecimalString(matched);
+}
+
+/**
+ * Floor-truncate a numeric string to N significant figures.
+ * Used to enforce HyperLiquid's "max 5 significant figures" price rule.
+ */
+function _truncateToSigFigs(value: string, sig: number): string {
+  if (sig < 1) return '0';
+  if (/^-?0+(\.0*)?$/.test(value)) return '0';
+
+  const neg = value.startsWith('-');
+  const abs = neg ? value.slice(1) : value;
+  const [intRaw, decRaw = ''] = abs.split('.');
+  const int = intRaw || '0';
+
+  // Compute floor(log10(abs)) without Number conversion (preserves precision).
+  let magnitude: number;
+  if (int !== '0') {
+    magnitude = int.replace(/^0+/, '').length - 1;
+  } else {
+    const leadingZeros = decRaw.match(/^0*/)?.[0].length ?? 0;
+    magnitude = -(leadingZeros + 1);
+  }
+
+  // Total available significant digits in the input
+  const allSigDigits = (int.replace(/^0+/, '') + decRaw).replace(/^0+/, '');
+  if (allSigDigits.length <= sig) return _stripDecimalString(value);
+
+  // Take first `sig` significant digits, pad with zeros up to magnitude+1 length on int side.
+  const truncatedSig = allSigDigits.slice(0, sig);
+  // Reconstruct number: place decimal point so MSD is at 10^magnitude
+  let resultStr: string;
+  if (magnitude >= sig - 1) {
+    // Pure integer with trailing zeros
+    resultStr = truncatedSig + '0'.repeat(magnitude - sig + 1);
+  } else if (magnitude >= 0) {
+    // Has both integer and decimal parts
+    const intLen = magnitude + 1;
+    resultStr = `${truncatedSig.slice(0, intLen)}.${truncatedSig.slice(intLen)}`;
+  } else {
+    // < 1, need leading zeros
+    const leadingZeros = -magnitude - 1;
+    resultStr = `0.${'0'.repeat(leadingZeros)}${truncatedSig}`;
+  }
+  return _stripDecimalString((neg ? '-' : '') + resultStr);
+}
+
+/**
+ * Format a size value into a HyperLiquid wire-safe string.
+ *
+ * Per {@link https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size HL tick & lot size}:
+ * - Size is truncated (floor) to `szDecimals` decimal places.
+ * - Trailing zeros stripped.
+ *
+ * Returns '' if the size truncates to 0 (caller should treat as "size too small").
+ */
+function formatHlSize(size: BigNumber.Value, szDecimals: number): string {
+  const bn = size instanceof BigNumber ? size : new BigNumber(size);
+  if (!bn.isFinite() || bn.lte(0)) return '';
+  const out = _truncateToDecimals(bn.toFixed(), Math.max(0, szDecimals));
+  return out === '0' ? '' : out;
+}
+
+/**
+ * Format a price value into a HyperLiquid wire-safe string.
+ *
+ * Per {@link https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size HL tick & lot size}:
+ * - Max 5 significant figures (integer prices are always allowed regardless).
+ * - Max decimals = (perp ? 6 : 8) - szDecimals.
+ *
+ * Returns '' if the price truncates to 0.
+ */
+function formatHlPrice(
+  price: BigNumber.Value,
+  szDecimals: number,
+  type: 'perp' | 'spot' = 'perp',
+): string {
+  const bn = price instanceof BigNumber ? price : new BigNumber(price);
+  if (!bn.isFinite() || bn.lte(0)) return '';
+  const s = bn.toFixed();
+  // Integer prices are always valid regardless of significant figures
+  if (/^-?\d+$/.test(s)) return _stripDecimalString(s);
+  const maxDecimals = Math.max((type === 'perp' ? 6 : 8) - szDecimals, 0);
+  let r = _truncateToDecimals(s, maxDecimals);
+  if (!r.includes('.')) return r === '0' ? '' : r;
+  const [integerPart] = r.split('.');
+  const integerDigits = integerPart.replace(/^-?0+/, '').length;
+  if (integerDigits >= MAX_SIGNIFICANT_FIGURES) {
+    return _stripDecimalString(integerPart);
+  }
+  r = _truncateToSigFigs(r, MAX_SIGNIFICANT_FIGURES);
+  return r === '0' ? '' : r;
 }
 
 /**
@@ -501,6 +628,42 @@ function validatePriceInput(input: string, szDecimals = 2): boolean {
   return intLen + dec.length <= MAX_SIGNIFICANT_FIGURES;
 }
 
+// Spot variant: max decimals = MAX_DECIMALS_SPOT - szDecimals (vs PERP's 6).
+function validateSpotPriceInput(input: string, szDecimals = 0): boolean {
+  if (!input) return true;
+
+  const text = input.replace(/。/g, '.');
+  if (text === '00') return false;
+
+  if (text.length > 1 && text[0] === '0' && text[1] !== '.') {
+    return false;
+  }
+
+  const maxDecimals = Math.max(0, MAX_DECIMALS_SPOT - szDecimals);
+
+  if (!/^[0-9]*\.?[0-9]*$/.test(text) || text.split('.').length > 2)
+    return false;
+  if (maxDecimals <= 0) return !/\./.test(text);
+
+  const [int = '0', dec = ''] = text.split('.');
+  if (int.length > MAX_PRICE_INTEGER_DIGITS) return false;
+  const hasDecimal = text.includes('.');
+
+  if (dec.length > maxDecimals) return false;
+
+  const intLen = int.replace(/^0+/, '').length;
+  const isZeroInt = intLen === 0;
+
+  if (intLen >= MAX_SIGNIFICANT_FIGURES) return !hasDecimal;
+
+  if (isZeroInt) {
+    const leadingZeros = dec.match(/^0*/)?.[0].length || 0;
+    return dec.length - leadingZeros <= MAX_SIGNIFICANT_FIGURES;
+  }
+
+  return intLen + dec.length <= MAX_SIGNIFICANT_FIGURES;
+}
+
 /**
  * Format price to display with significant digits and precision constraints
  *
@@ -513,6 +676,45 @@ function validatePriceInput(input: string, szDecimals = 2): boolean {
  * @param szDecimals - Optional asset's szDecimals for precision limiting
  * @returns Formatted price string suitable for display
  */
+/**
+ * Get valid decimal places for a spot price
+ *
+ * HyperLiquid spot prices follow: maxDecimals = MAX_DECIMALS_SPOT - szDecimals
+ * with up to MAX_SIGNIFICANT_FIGURES significant figures.
+ */
+function getValidSpotPriceDecimals(
+  marketPrice: string | number,
+  szDecimals: number,
+): number {
+  const validPrice = formatHlPrice(marketPrice, szDecimals, 'spot');
+  if (!validPrice) {
+    return 2;
+  }
+
+  const decimalIndex = validPrice.indexOf('.');
+  if (decimalIndex === -1) {
+    return 0;
+  }
+
+  return validPrice.length - decimalIndex - 1;
+}
+
+/**
+ * Format a spot price to a valid string according to HyperLiquid rules
+ */
+function formatSpotPriceToValid(
+  marketPrice: string | number,
+  szDecimals: number,
+): string {
+  const price = new BigNumber(marketPrice);
+
+  if (!price.isFinite() || price.isLessThanOrEqualTo(0)) {
+    return '0';
+  }
+
+  return formatHlPrice(price, szDecimals, 'spot') || '0';
+}
+
 function formatPriceToSignificantDigits(
   price: number | string | BigNumber | undefined,
   szDecimals?: number,
@@ -1119,10 +1321,6 @@ const resolveTradingSize = (params: ITradingSizeParams): string => {
   return sizeBN.toFixed();
 };
 
-function getHyperliquidTokenImageUrl(tokenSymbol: string): string {
-  return `https://uni.onekey-asset.com/static/hyperliquid/${tokenSymbol}.png`;
-}
-
 /**
  * Sort perps assets by various fields
  * Pre-converts numeric values to avoid repeated conversions during sorting
@@ -1448,6 +1646,127 @@ export function formatChartUsdPrice(price: number): string {
   return `${sign}$${abs.toFixed(2)}`;
 }
 
+// ── Spot Asset Context Formatter ──
+
+function formatSpotAssetCtx(
+  spotCtx: ISpotAssetCtx | null,
+): ISpotFormattedAssetCtx {
+  const midPrice = spotCtx?.midPx || '0';
+  const markPrice = spotCtx?.markPx || '0';
+  const prevDayPrice = spotCtx?.prevDayPx || '0';
+  const priceDecimals = getValidPriceDecimals(markPrice);
+
+  const markPriceBN = new BigNumber(markPrice);
+  const prevDayPriceBN = new BigNumber(prevDayPrice);
+  const change24hBN = markPriceBN.minus(prevDayPriceBN);
+
+  const change24h = change24hBN.toFixed(priceDecimals);
+  const change24hPercent = prevDayPriceBN.isZero()
+    ? 0
+    : change24hBN.dividedBy(prevDayPriceBN).multipliedBy(100).toNumber();
+
+  return {
+    midPrice,
+    markPrice,
+    prevDayPrice,
+    volume24h: spotCtx?.dayNtlVlm || '0',
+    change24h,
+    change24hPercent,
+    circulatingSupply: spotCtx?.circulatingSupply || '0',
+    totalSupply: spotCtx?.totalSupply || '0',
+    dayBaseVlm: spotCtx?.dayBaseVlm || '0',
+  };
+}
+
+/** Lightweight price entry formatter for spot price map entries (markPx + prevDayPx). */
+function formatSpotPriceEntry(spotEntry?: {
+  markPx?: string;
+  prevDayPx?: string;
+}): { change24hPercent: number; markPrice: string } {
+  const markPrice = spotEntry?.markPx ?? '0';
+  const markPriceNumber = Number(markPrice);
+  const prevDayPriceNumber = Number(spotEntry?.prevDayPx ?? '0');
+  const change24hPercent =
+    Number.isFinite(prevDayPriceNumber) && prevDayPriceNumber > 0
+      ? ((markPriceNumber - prevDayPriceNumber) / prevDayPriceNumber) * 100
+      : 0;
+
+  return {
+    change24hPercent: Number.isFinite(change24hPercent) ? change24hPercent : 0,
+    markPrice,
+  };
+}
+
+// ── Spot Token Utils ──
+
+/* cspell:disable -- HL spot token internal names (UBTC, HPENGU, FXRP, etc.) */
+const SPOT_TOKEN_DISPLAY_MAP: Record<string, string> = {
+  UBTC: 'BTC',
+  UETH: 'ETH',
+  USOL: 'SOL',
+  UFART: 'FARTCOIN',
+  UBONK: 'BONK',
+  UPUMP: 'PUMP',
+  UENA: 'ENA',
+  UXPL: 'XPL',
+  UZEC: 'ZEC',
+  UMON: 'MON',
+  UUUSPX: 'SPX',
+  UDOGE: 'DOGE',
+  UMOG: 'MOG',
+  UWLD: 'WLD',
+  UMEGA: 'MEGA',
+  UVIRT: 'VIRTUAL',
+  USPYX: 'SPYX',
+  UDZ: 'DZ',
+  LINK0: 'LINK',
+  AAVE0: 'AAVE',
+  AVAX0: 'AVAX',
+  BNB0: 'BNB',
+  CFX0: 'CFX',
+  PEPE0: 'PEPE',
+  TRX0: 'TRX',
+  USDT0: 'USDT',
+  XAUT0: 'XAUT',
+  HPENGU: 'PENGU',
+  HPEPE: 'PEPE',
+  FXRP: 'XRP',
+  XMR1: 'XMR',
+  HBNB: 'BNB',
+  HSEI: 'SEI',
+};
+/* cspell:enable */
+
+function getSpotTokenDisplayName(rawName: string): string {
+  return SPOT_TOKEN_DISPLAY_MAP[rawName] ?? rawName;
+}
+
+function getHyperliquidTokenImageUrl(tokenSymbol: string): string {
+  const normalizedSymbol = getSpotTokenDisplayName(tokenSymbol);
+  return `https://uni.onekey-asset.com/static/hyperliquid/${normalizedSymbol}.png`;
+}
+
+function formatSpotPairDisplayName(
+  baseName: string,
+  quoteName: string,
+): string {
+  return `${getSpotTokenDisplayName(baseName)}/${quoteName}`;
+}
+
+function isSpotInstrument(coin?: string | null): boolean {
+  if (!coin) return false;
+  return coin.startsWith('@') || coin.includes('/');
+}
+
+const SPOT_MIN_VOLUME_STRICT = 10;
+const SPOT_SELECTOR_MIN_VOLUME = 1000;
+
+function filterSpotTokensStrict(
+  tokens: Array<{ dayNtlVlm: number; midPx: boolean }>,
+): Array<{ dayNtlVlm: number; midPx: boolean }> {
+  return tokens.filter((t) => t.dayNtlVlm >= SPOT_MIN_VOLUME_STRICT && t.midPx);
+}
+
 export {
   formatAssetCtx,
   formatLargeNumber,
@@ -1466,6 +1785,7 @@ export {
   validateSizeInput,
   formatPercentage,
   validatePriceInput,
+  validateSpotPriceInput,
   formatPriceToSignificantDigits,
   calculateProfitLoss,
   findMarginTier,
@@ -1480,6 +1800,19 @@ export {
   mapTriggerOrderType,
   inferTpsl,
   getTriggerEffectivePrice,
+  getValidSpotPriceDecimals,
+  formatSpotPriceToValid,
+  formatSpotAssetCtx,
+  formatSpotPriceEntry,
+  isSpotInstrument,
+  getSpotTokenDisplayName,
+  formatSpotPairDisplayName,
+  filterSpotTokensStrict,
+  SPOT_TOKEN_DISPLAY_MAP,
+  SPOT_MIN_VOLUME_STRICT,
+  SPOT_SELECTOR_MIN_VOLUME,
+  formatHlSize,
+  formatHlPrice,
 };
 export default {
   formatAssetCtx,
@@ -1499,6 +1832,7 @@ export default {
   validateSizeInput,
   formatPercentage,
   validatePriceInput,
+  validateSpotPriceInput,
   formatPriceToSignificantDigits,
   calculateProfitLoss,
   findMarginTier,
@@ -1520,4 +1854,17 @@ export default {
   formatPerpsCompactUsd,
   getPerpsValueColor,
   formatChartUsdPrice,
+  formatSpotAssetCtx,
+  formatSpotPriceEntry,
+  isSpotInstrument,
+  getSpotTokenDisplayName,
+  formatSpotPairDisplayName,
+  filterSpotTokensStrict,
+  SPOT_TOKEN_DISPLAY_MAP,
+  SPOT_MIN_VOLUME_STRICT,
+  SPOT_SELECTOR_MIN_VOLUME,
+  getValidSpotPriceDecimals,
+  formatSpotPriceToValid,
+  formatHlSize,
+  formatHlPrice,
 };

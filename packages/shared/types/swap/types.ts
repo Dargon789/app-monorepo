@@ -234,6 +234,7 @@ export interface ISwapAutoSlippageSuggestedValue {
   value: number;
   from: string;
   to: string;
+  eventId: string;
 }
 
 // quote
@@ -502,6 +503,10 @@ export interface ISwapPreSwapData {
   providerInfo?: IFetchQuoteInfo;
   isHWAndExBatchTransfer?: boolean;
   slippage?: number;
+  rateDifference?: {
+    value: string;
+    unit: ESwapRateDifferenceUnit;
+  };
   swapType?: ESwapTabSwitchType;
   unSupportSlippage?: boolean;
   swapBuildResultData?: {
@@ -681,6 +686,7 @@ export interface ISwapState {
   noConnectWallet?: boolean;
   approveUnLimit?: boolean;
   isRefreshQuote?: boolean;
+  isWaitingAutoSlippage?: boolean;
 }
 
 export interface ISwapApproveAllowanceResponse {
@@ -932,6 +938,7 @@ export interface IFetchSwapTxHistoryStatusResponse {
   state: ESwapTxHistoryStatus;
   extraStatus?: ESwapExtraStatus;
   crossChainStatus?: ESwapCrossChainStatus;
+  stateDetail?: string;
   crossChainReceiveTxHash?: string;
   gasFee?: string;
   gasFeeFiatValue?: string;
@@ -955,6 +962,7 @@ export interface ISwapTxHistory {
   status: ESwapTxHistoryStatus;
   extraStatus?: ESwapExtraStatus;
   crossChainStatus?: ESwapCrossChainStatus;
+  stateDetail?: string;
   swapOrderHash?: ISwapOrderHash;
   ctx?: any;
   currency?: string;
