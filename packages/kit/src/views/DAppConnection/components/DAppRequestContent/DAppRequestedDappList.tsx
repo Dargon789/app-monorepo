@@ -5,12 +5,13 @@ import {
   Icon,
   Image,
   SizableText,
-  Skeleton,
   Tooltip,
   XStack,
   YStack,
 } from '@onekeyhq/components';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+
+import { DAppConnectionTestIDs } from '../../testIDs';
 
 export function DAppRequestedDappList({
   origins = [],
@@ -24,7 +25,7 @@ export function DAppRequestedDappList({
 }) {
   const intl = useIntl();
   return origins.length ? (
-    <YStack gap="$2">
+    <YStack gap="$2" testID={DAppConnectionTestIDs.ConnectionDappList}>
       <YStack>
         <SizableText size="$headingSm" flex={1}>
           {intl.formatMessage({

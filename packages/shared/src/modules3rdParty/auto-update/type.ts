@@ -13,6 +13,8 @@ export interface IDownloadPackageParams {
   downloadedFile?: string;
   headers?: Record<string, string>;
   targetVersion?: string;
+  /** Desktop only: effective only when ONEKEY_ALLOW_SKIP_GPG_VERIFICATION is enabled */
+  skipGPGVerification?: boolean;
 }
 
 export type IUpdateDownloadedEvent =
@@ -50,6 +52,13 @@ export interface IAppUpdate {
   installPackage: IInstallPackage;
   manualInstallPackage: IManualInstallPackage;
   clearPackage: IClearPackage;
+  /**
+   * Android only: wipe the standalone APK cache (cacheDir/apks). iOS /
+   * desktop / web are no-op stubs that resolve immediately. Callers must
+   * gate this on the app-update status (skip while an update is
+   * available / downloading / downloaded-pending-install).
+   */
+  clearApkCache: () => Promise<void>;
 }
 
 export type IElectronUpdateListeners = {
@@ -117,10 +126,41 @@ export interface IBundleUpdate {
   downloadBundleASC: IDownloadBundleASC;
   installBundle: IInstallBundle;
   clearBundle: IClearBundle;
+  clearDownload: () => Promise<void>;
+  resetToBuiltInBundle: () => Promise<void>;
+  /**
+   * Restart the app. On native this routes through
+   * `BackgroundThread.restart(mode=all, reason='ota.restart')`; on desktop it
+   * calls `app.relaunch`.
+   */
+  restart: () => void;
+  isSkipGpgVerificationAllowed: () => Promise<boolean>;
+  /**
+   * Delete every OTA bundle artifact (extracted dir, download staging,
+   * signature asc, stale fallback entries) whose appVersion differs from
+   * the running native binary version. The native / desktop implementation
+   * is self-contained: it computes the keep-set from the binary version and
+   * hard-refuses to delete the current appVersion (and never the active
+   * currentBundleVersion). Returns the count of deleted version directories.
+   * Missing files are tolerated (never throws).
+   */
+  pruneStaleAppVersionBundles: () => Promise<number>;
   clearAllJSBundleData: () => Promise<{ success: boolean; message: string }>;
   getFallbackBundles: () => Promise<IJSBundle[]>;
   switchBundle: (params: IJSBundle) => Promise<void>;
+  isBundleExists: (
+    appVersion: string,
+    bundleVersion: string,
+  ) => Promise<boolean>;
+  verifyExtractedBundle: (
+    appVersion: string,
+    bundleVersion: string,
+  ) => Promise<void>;
+  listLocalBundles: () => Promise<
+    { appVersion: string; bundleVersion: string }[]
+  >;
   testVerification: () => Promise<boolean>;
+  testSkipVerification: () => Promise<boolean>;
   testDeleteJsBundle: ITestDeleteJsBundle;
   testDeleteJsRuntimeDir: ITestDeleteJsRuntimeDir;
   testDeleteMetadataJson: ITestDeleteMetadataJson;
@@ -130,5 +170,7 @@ export interface IBundleUpdate {
   getNativeAppVersion: () => Promise<string>;
   getSha256FromFilePath: (filePath: string) => Promise<string>;
   getNativeBuildNumber: () => Promise<string>;
+  getBuiltinBundleVersion: () => Promise<string>;
   getJsBundlePath: () => Promise<string>;
+  getBackgroundJsBundlePath: () => Promise<string>;
 }

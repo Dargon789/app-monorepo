@@ -4,8 +4,8 @@ import BigNumber from 'bignumber.js';
 
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { useEarnAccount } from '@onekeyhq/kit/src/views/Staking/hooks/useEarnAccount';
 import { buildLocalTxStatusSyncId } from '@onekeyhq/kit/src/views/Staking/utils/utils';
-import type { ISupportedSymbol } from '@onekeyhq/shared/types/earn';
 import type {
   IEarnTokenInfo,
   IEarnWithdrawActionIcon,
@@ -23,30 +23,20 @@ export function useProtocolDetailData({
   accountId: string;
   networkId: string;
   indexedAccountId: string | undefined;
-  symbol: ISupportedSymbol;
+  symbol: string;
   provider: string;
   vault: string | undefined;
 }) {
   const {
-    result: earnAccount,
-    run: refreshAccount,
+    earnAccount,
+    refreshAccount,
     isLoading: isAccountLoading,
-  } = usePromiseResult(
-    async () => {
-      // If no account, don't fetch and don't block loading
-      if (!accountId && !indexedAccountId) {
-        return undefined;
-      }
-      return backgroundApiProxy.serviceStaking.getEarnAccount({
-        accountId,
-        networkId,
-        indexedAccountId,
-        btcOnlyTaproot: true,
-      });
-    },
-    [accountId, indexedAccountId, networkId],
-    { watchLoading: true },
-  );
+  } = useEarnAccount({
+    networkId,
+    accountId,
+    indexedAccountId,
+    btcOnlyTaproot: true,
+  });
 
   const {
     result: detailInfo,
@@ -66,6 +56,7 @@ export function useProtocolDetailData({
 
   const tokenInfo = useMemo<IEarnTokenInfo | undefined>(() => {
     if (detailInfo?.subscriptionValue?.token) {
+      const protocolVault = detailInfo.protocol?.vault ?? vault;
       const balanceBN = new BigNumber(
         detailInfo.subscriptionValue.balance || '0',
       );
@@ -77,7 +68,7 @@ export function useProtocolDetailData({
         price: detailInfo.subscriptionValue.token.price,
         networkId,
         provider,
-        vault,
+        vault: protocolVault,
         accountId: accountId ?? '',
       };
     }
@@ -109,6 +100,11 @@ export function useProtocolDetailData({
       minTransactionFee: detailInfo.nums?.minTransactionFee,
       remainingCap: detailInfo.nums?.remainingCap,
       claimable: detailInfo.nums?.claimable,
+      withdrawApprove: detailInfo.withdrawApprove,
+      receiptTokenRate:
+        detailInfo.protocol.receiptTokenRate ??
+        detailInfo.protocol.morphoTokenRate,
+      morphoTokenRate: detailInfo.protocol.morphoTokenRate,
     };
   }, [detailInfo, earnAccount, provider, symbol]);
 

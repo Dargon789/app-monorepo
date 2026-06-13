@@ -25,6 +25,14 @@ export enum EDAppConnectionModal {
   VerifyMessage = 'VerifyMessage',
   // Nostr
   NostrSignEventModal = 'NostrSignEventModal',
+  // Cosmos Enigma
+  CosmosEnigmaUnlockModal = 'CosmosEnigmaUnlockModal',
+  // Risk WhiteList
+  RiskWhiteListModal = 'RiskWhiteListModal',
+  // Clipboard Permission
+  ClipboardPermissionModal = 'ClipboardPermissionModal',
+  // BTC deriveContextHash
+  DeriveContextHashModal = 'DeriveContextHashModal',
 }
 
 export type IDAppConnectionModalParamList = {
@@ -61,5 +69,24 @@ export type IDAppConnectionModalParamList = {
     walletId: string;
     accountId: string;
     networkId: string;
+  };
+  // Cosmos Enigma
+  [EDAppConnectionModal.CosmosEnigmaUnlockModal]: {
+    walletId: string;
+    accountId: string;
+    networkId: string;
+  };
+  // Risk WhiteList
+  [EDAppConnectionModal.RiskWhiteListModal]: {
+    url: string;
+  };
+  // Clipboard Permission
+  [EDAppConnectionModal.ClipboardPermissionModal]: {
+    clipboardType: 'read' | 'write';
+    textNonce?: string;
+  };
+  // appName/context kept in ServiceDApp's in-memory store, not the route.
+  [EDAppConnectionModal.DeriveContextHashModal]: {
+    nonce: string;
   };
 };

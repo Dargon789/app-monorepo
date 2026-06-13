@@ -42,7 +42,6 @@ import {
   XStack,
   useForm,
   useKeyboardEvent,
-  useKeyboardState,
   useMedia,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
@@ -51,6 +50,8 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { parseSecretRecoveryPhrase } from '@onekeyhq/shared/src/utils/phrase';
 import type { EMnemonicType } from '@onekeyhq/shared/src/utils/secret';
+
+import { OnboardingTestIDs } from '../testIDs';
 
 import { PHRASE_LENGTHS, useSuggestion } from './useSuggestion';
 
@@ -90,6 +91,7 @@ function WordItem({
   return (
     <Stack position="relative">
       <Button
+        testID="onboardingv2-handle-press-btn"
         size="small"
         ref={buttonRef}
         onPress={handlePress}
@@ -142,7 +144,7 @@ function SuggestionList({
         word={word}
         onPress={onPressItem}
         m="$1.5"
-        testID={`suggest-${word}`}
+        testID={OnboardingTestIDs.phraseSuggestion(word)}
       />
     ));
 
@@ -167,8 +169,8 @@ function SuggestionList({
 }
 
 function PageFooter({
-  suggestions,
-  updateInputValue,
+  suggestions: _suggestions,
+  updateInputValue: _updateInputValue,
   onConfirm,
 }: {
   suggestions: string[];
@@ -178,7 +180,13 @@ function PageFooter({
   const intl = useIntl();
   // const isShow = useIsKeyboardShown();
   return (
-    <Button mt="$10" size="large" variant="primary" onPress={onConfirm}>
+    <Button
+      mt="$10"
+      size="large"
+      variant="primary"
+      onPress={onConfirm}
+      testID="onboardingv2-is-show-btn"
+    >
       {intl.formatMessage({ id: ETranslations.global_confirm })}
     </Button>
   );
@@ -241,6 +249,7 @@ function BasicPhaseInput(
   const inputRef: RefObject<TextInput | null> | null = useRef(null);
   const firstButtonRef = useRef<IElement>(null);
   const [tabFocusable, setTabFocusable] = useState(false);
+  const { gtMd } = useMedia();
 
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -359,7 +368,7 @@ function BasicPhaseInput(
     autoCorrect: false,
     spellCheck: false,
     autoComplete: 'off',
-    size: 'large',
+    size: gtMd ? 'medium' : 'large',
     leftAddOnProps: {
       label: `${index + 1}`,
       pr: '$0',
@@ -499,9 +508,8 @@ export function PhaseInputArea({
     const mnemonicEncoded = await servicePassword.encodeSensitiveText({
       text: mnemonic,
     });
-    const { mnemonicType } = await serviceAccount.validateMnemonic(
-      mnemonicEncoded,
-    );
+    const { mnemonicType } =
+      await serviceAccount.validateMnemonic(mnemonicEncoded);
     const result = { mnemonic: mnemonicEncoded, mnemonicType };
     onConfirm?.(result);
     return result;
@@ -572,8 +580,6 @@ export function PhaseInputArea({
     },
   }));
 
-  const { isVisible } = useKeyboardState?.() || { isVisible: true };
-
   const watched = useWatch({ control: form.control });
   const hasFilledPhrases = useMemo(
     () => compact(Object.values(watched)).length > 0,
@@ -586,6 +592,7 @@ export function PhaseInputArea({
         <XStack pt="$2" justifyContent="space-between">
           {showPhraseLengthSelector ? (
             <Select
+              testID="onboardingv2-has-filled-phrases-select"
               title={intl.formatMessage({
                 id: ETranslations.select_recovery_phrase_length,
               })}
@@ -598,7 +605,7 @@ export function PhaseInputArea({
                   iconAfter="ChevronDownSmallOutline"
                   size="small"
                   variant="tertiary"
-                  testID="phrase-length"
+                  testID={OnboardingTestIDs.phraseLengthSelector}
                 >
                   {intl.formatMessage(
                     { id: ETranslations.count_words },
@@ -615,7 +622,7 @@ export function PhaseInputArea({
               size="small"
               variant="tertiary"
               onPress={handleClear}
-              testID="clear-all"
+              testID={OnboardingTestIDs.clearAllButton}
             >
               {intl.formatMessage({ id: ETranslations.global_clear })}
             </Button>
@@ -625,7 +632,12 @@ export function PhaseInputArea({
       <Form form={form}>
         <XStack flexWrap="wrap" m="$-1">
           {Array.from({ length: phraseLengthNumber }).map((_, index) => (
-            <Stack key={index} flexBasis="50%" p="$1">
+            <Stack
+              key={index}
+              flexBasis="50%"
+              $gtMd={{ flexBasis: '33.3333%' }}
+              p="$1"
+            >
               <Form.Field name={`phrase${index + 1}`}>
                 <PhaseInput
                   index={index}
@@ -642,7 +654,7 @@ export function PhaseInputArea({
                   closePopover={closePopover}
                   onReturnKeyPressed={handleReturnKeyPressed}
                   getReturnKeyLabel={getReturnKeyLabel}
-                  testID={`phrase-input-index${index}`}
+                  testID={OnboardingTestIDs.phraseInput(index)}
                 />
               </Form.Field>
             </Stack>
@@ -671,9 +683,9 @@ export function PhaseInputArea({
         ) : null}
       </HeightTransition>
       {FooterComponent}
-      {isVisible ? (
+      {platformEnv.isNative ? (
         <Portal.Body container={Portal.Constant.SUGGESTION_LIST}>
-          {isVisible ? (
+          {suggestions.length > 0 ? (
             <SuggestionList
               suggestions={suggestions}
               onPressItem={updateInputValue}

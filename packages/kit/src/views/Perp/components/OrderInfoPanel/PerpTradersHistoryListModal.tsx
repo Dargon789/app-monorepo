@@ -6,12 +6,14 @@ import {
   Button,
   Page,
   SizableText,
+  Stack,
   XStack,
   YStack,
 } from '@onekeyhq/components';
 import { PageBody } from '@onekeyhq/components/src/layouts/Page/PageBody';
 import { PageHeader } from '@onekeyhq/components/src/layouts/Page/PageHeader';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { NotificationEnableAlert } from '@onekeyhq/kit/src/components/NotificationEnableAlert';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
 import { usePerpTradesHistoryViewAllUrl } from '../../hooks/usePerpOrderInfoPanel';
@@ -20,8 +22,27 @@ import { PerpsProviderMirror } from '../../PerpsProviderMirror';
 
 import { PerpAccountList } from './List/PerpAccountList';
 import { PerpTradesHistoryList } from './List/PerpTradesHistoryList';
+import { PerpTwapList } from './List/PerpTwapList';
 
-type ITabName = 'Trades' | 'Account';
+type ITabName = 'Trades' | 'Twap' | 'Account';
+
+const HISTORY_TABS: Array<{
+  name: ITabName;
+  labelId: ETranslations;
+}> = [
+  {
+    name: 'Trades',
+    labelId: ETranslations.perp_trades_history_title,
+  },
+  {
+    name: 'Twap',
+    labelId: ETranslations.perp_twap_order__title,
+  },
+  {
+    name: 'Account',
+    labelId: ETranslations.perp_account_history,
+  },
+];
 
 function TabHeader({
   activeTab,
@@ -38,31 +59,22 @@ function TabHeader({
       borderBottomWidth="$0.5"
       borderBottomColor="$borderSubdued"
     >
-      <XStack
-        py="$3"
-        ml="$5"
-        mr="$2"
-        borderBottomWidth={activeTab === 'Trades' ? '$0.5' : '$0'}
-        borderBottomColor="$borderActive"
-        onPress={() => onTabChange('Trades')}
-        mb={-2}
-      >
-        <SizableText size="$headingXs">
-          {intl.formatMessage({ id: ETranslations.perp_trades_history_title })}
-        </SizableText>
-      </XStack>
-      <XStack
-        py="$3"
-        mx="$2"
-        borderBottomWidth={activeTab === 'Account' ? '$0.5' : '$0'}
-        borderBottomColor="$borderActive"
-        onPress={() => onTabChange('Account')}
-        mb={-2}
-      >
-        <SizableText size="$headingXs">
-          {intl.formatMessage({ id: ETranslations.perp_account_history })}
-        </SizableText>
-      </XStack>
+      {HISTORY_TABS.map((tab, index) => (
+        <XStack
+          key={tab.name}
+          py="$3"
+          ml={index === 0 ? '$5' : '$2'}
+          mr="$2"
+          borderBottomWidth={activeTab === tab.name ? '$0.5' : '$0'}
+          borderBottomColor="$borderActive"
+          onPress={() => onTabChange(tab.name)}
+          mb={-2}
+        >
+          <SizableText size="$headingXs">
+            {intl.formatMessage({ id: tab.labelId })}
+          </SizableText>
+        </XStack>
+      ))}
     </XStack>
   );
 }
@@ -83,13 +95,18 @@ export function PerpTradersHistoryListModal() {
       return null;
     }
     return (
-      <Button onPress={onViewAllUrl} variant="tertiary" size="small">
+      <Button
+        onPress={onViewAllUrl}
+        variant="tertiary"
+        size="small"
+        testID="perp-header-right-btn"
+      >
         {intl.formatMessage({
           id: ETranslations.global_view_more,
         })}
       </Button>
     );
-  }, [onViewAllUrl, intl, activeTab]);
+  }, [activeTab, intl, onViewAllUrl]);
 
   return (
     <Page>
@@ -102,12 +119,29 @@ export function PerpTradersHistoryListModal() {
       <PageBody>
         <YStack flex={1}>
           <TabHeader activeTab={activeTab} onTabChange={setActiveTab} />
-          <YStack flex={1}>
+          <YStack flex={1} pt={activeTab === 'Trades' ? '$3' : '$0'}>
             {activeTab === 'Trades' ? (
               <PerpTradesHistoryList isMobile useTabsList={false} />
-            ) : (
-              <PerpAccountList isMobile useTabsList={false} />
-            )}
+            ) : null}
+            {activeTab === 'Twap' ? (
+              <PerpTwapList
+                isMobile
+                useTabsList={false}
+                initialTab="history"
+                enabledTabs={['history', 'fills']}
+              />
+            ) : null}
+            {activeTab === 'Account' ? (
+              <PerpAccountList
+                isMobile
+                useTabsList={false}
+                ListHeaderComponent={
+                  <Stack pt="$2">
+                    <NotificationEnableAlert scene="perpHistory" />
+                  </Stack>
+                }
+              />
+            ) : null}
           </YStack>
         </YStack>
       </PageBody>

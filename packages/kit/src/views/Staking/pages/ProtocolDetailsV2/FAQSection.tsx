@@ -6,7 +6,12 @@ import {
   SizableText,
   Stack,
   YStack,
+  useMedia,
 } from '@onekeyhq/components';
+import {
+  ANIMATE_ONLY_OPACITY,
+  ANIMATE_ONLY_TRANSFORM,
+} from '@onekeyhq/components/src/utils/animationConstants';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfile';
@@ -33,6 +38,7 @@ export function FAQSection({
   faqs: IStakeEarnDetail['faqs'];
   tokenInfo?: IEarnTokenInfo;
 }) {
+  const media = useMedia();
   const navigation = useAppNavigation();
   const {
     activeAccount: { wallet },
@@ -67,7 +73,7 @@ export function FAQSection({
           screen: EModalSwapRoutes.SwapMainLand,
           params: {
             importToToken: {
-              ...(tokenInfo?.token ?? {}),
+              ...tokenInfo?.token,
               contractAddress: tokenInfo?.token?.address ?? '',
               networkId,
               networkLogoURI: network.logoURI,
@@ -90,45 +96,43 @@ export function FAQSection({
     ],
   );
   return faqs?.items?.length ? (
-    <YStack gap="$6">
-      <EarnText text={faqs.title} size="$headingLg" />
-      <YStack>
-        <Accordion type="multiple" gap="$2">
-          {faqs.items.map(({ title, description }, index) => (
-            <Accordion.Item value={String(index)} key={String(index)}>
+    <YStack pb="$8">
+      <Accordion type="multiple">
+        {faqs.items.map((item, index) => (
+          <YStack key={String(index)}>
+            <Accordion.Item value={String(index)}>
               <Accordion.Trigger
                 unstyled
                 flexDirection="row"
                 alignItems="center"
+                justifyContent="space-between"
                 borderWidth={0}
                 bg="$transparent"
-                px="$2"
-                py="$1"
-                mx="$-2"
-                my="$-1"
-                hoverStyle={{
-                  bg: '$bgHover',
-                }}
-                pressStyle={{
-                  bg: '$bgActive',
-                }}
-                borderRadius="$2"
+                p={0}
+                py="$5"
+                m={0}
+                cursor="pointer"
               >
                 {({ open }: { open: boolean }) => (
                   <>
                     <SizableText
                       textAlign="left"
                       flex={1}
-                      size="$bodyLgMedium"
-                      color={open ? '$text' : '$textSubdued'}
+                      size={media.gtMd ? '$headingLg' : '$headingMd'}
+                      color="$text"
+                      pr="$2"
                     >
-                      {title.text}
+                      {item.title.text}
                     </SizableText>
-                    <Stack animation="quick" rotate={open ? '180deg' : '0deg'}>
+                    <Stack
+                      animation="quick"
+                      animateOnly={ANIMATE_ONLY_TRANSFORM}
+                      rotate={open ? '180deg' : '0deg'}
+                    >
                       <Icon
                         name="ChevronDownSmallOutline"
-                        color={open ? '$iconActive' : '$iconSubdued'}
-                        size="$5"
+                        color="$iconSubdued"
+                        size="$6"
                       />
                     </Stack>
                   </>
@@ -137,15 +141,19 @@ export function FAQSection({
               <Accordion.HeightAnimator animation="quick">
                 <Accordion.Content
                   unstyled
-                  pt="$2"
+                  p={0}
+                  pt="$1"
                   pb="$5"
+                  pr="$8"
                   animation="100ms"
+                  animateOnly={ANIMATE_ONLY_OPACITY}
                   enterStyle={{ opacity: 0 }}
                   exitStyle={{ opacity: 0 }}
                 >
                   <EarnText
-                    text={description}
-                    size="$bodyMd"
+                    text={item.description}
+                    size="$bodyLg"
+                    color="$textSubdued"
                     onAction={handleAction}
                     underlineTextProps={{
                       color: '$textInfo',
@@ -154,9 +162,9 @@ export function FAQSection({
                 </Accordion.Content>
               </Accordion.HeightAnimator>
             </Accordion.Item>
-          ))}
-        </Accordion>
-      </YStack>
+          </YStack>
+        ))}
+      </Accordion>
     </YStack>
   ) : null;
 }

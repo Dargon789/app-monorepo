@@ -12,6 +12,7 @@ import type {
   IDecodedTxActionUnknown,
 } from '@onekeyhq/shared/types/tx';
 import {
+  EApproveType,
   EDecodedTxActionType,
   EDecodedTxDirection,
 } from '@onekeyhq/shared/types/tx';
@@ -240,6 +241,26 @@ export function getStakingActionLabel({
       return appLocale.intl.formatMessage({
         id: ETranslations.global_withdraw,
       });
+    case EEarnLabels.Supply:
+      return appLocale.intl.formatMessage({
+        id: ETranslations.defi_supply,
+      });
+    case EEarnLabels.Borrow:
+      return appLocale.intl.formatMessage({
+        id: ETranslations.global_borrow,
+      });
+    case EEarnLabels.Repay:
+      return appLocale.intl.formatMessage({
+        id: ETranslations.defi_repay,
+      });
+    case EEarnLabels.Sell:
+      return appLocale.intl.formatMessage({
+        id: ETranslations.global_sell,
+      });
+    case EEarnLabels.Buy:
+      return appLocale.intl.formatMessage({
+        id: ETranslations.global_buy,
+      });
     default:
       return appLocale.intl.formatMessage({
         id: ETranslations.global_unknown,
@@ -285,6 +306,10 @@ export function convertNetworkToSignatureConfirmNetwork({
       }),
     networkId,
   };
+}
+
+function getUniqueAddresses(addresses: string[]) {
+  return Array.from(new Set(addresses.filter(Boolean)));
 }
 
 function convertAssetTransferActionToSignatureConfirmComponent({
@@ -362,20 +387,29 @@ function convertAssetTransferActionToSignatureConfirmComponent({
       address: unsignedTx.swapInfo.receivingAddress,
       tags: [],
       networkId: unsignedTx.swapInfo.receiver.accountInfo.networkId,
+      highlight: true,
     };
 
     components.push(receiveAddressComponent);
   }
 
-  if (action.to) {
-    let showInteractWithContract = false;
+  let showInteractWithContract = false;
 
-    if (isInternalSwap) {
-      showInteractWithContract = true;
-    } else if (isInternalStake) {
-      showInteractWithContract = !isUTXO;
-    }
+  if (isInternalSwap) {
+    showInteractWithContract = true;
+  } else if (isInternalStake) {
+    showInteractWithContract = !isUTXO;
+  }
 
+  const toAddresses = showInteractWithContract
+    ? getUniqueAddresses(action.to ? [action.to] : [])
+    : getUniqueAddresses(action.sends.map((send) => send.to));
+
+  const addressComponents = toAddresses.length
+    ? toAddresses
+    : getUniqueAddresses(action.to ? [action.to] : []);
+
+  addressComponents.forEach((address) => {
     const toAddressComponent: IDisplayComponentAddress = {
       type: EParseTxComponentType.Address,
       label: showInteractWithContract
@@ -385,13 +419,14 @@ function convertAssetTransferActionToSignatureConfirmComponent({
         : appLocale.intl.formatMessage({
             id: ETranslations.global_to,
           }),
-      address: action.to,
+      address,
       tags: [],
       isNavigable: showInteractWithContract,
+      highlight: !showInteractWithContract,
     };
 
     components.push(toAddressComponent);
-  }
+  });
 
   return components;
 }
@@ -405,7 +440,12 @@ function convertTokenApproveActionToSignatureConfirmComponent({
   isMultiTxs?: boolean;
   networkId: string;
 }) {
-  const isRevoke = new BigNumber(action.amount).isZero();
+  // Only absolute `approve(spender, 0)` is a revoke. `increaseAllowance(spender, 0)`
+  // and `increaseApproval(spender, 0)` are no-op increments, not revocations.
+  // Treat undefined approveType as absolute approve for legacy chains that don't tag it.
+  const isAbsoluteApprove =
+    !action.approveType || action.approveType === EApproveType.Approve;
+  const isRevoke = isAbsoluteApprove && new BigNumber(action.amount).isZero();
   let approveLabel = '';
 
   if (isMultiTxs) {
@@ -440,6 +480,8 @@ function convertTokenApproveActionToSignatureConfirmComponent({
     isEditable: !isRevoke && !isMultiTxs,
     isInfiniteAmount: action.isInfiniteAmount,
     networkId,
+    approveType: action.approveType,
+    spender: action.spender,
   };
 
   const spenderComponent: IDisplayComponentAddress | null = isMultiTxs
@@ -675,7 +717,11 @@ export function convertDecodedTxActionsToSignatureConfirmTxDisplayTitle({
       action.type === EDecodedTxActionType.TOKEN_APPROVE &&
       action.tokenApprove
     ) {
-      const isRevoke = new BigNumber(action.tokenApprove.amount).isZero();
+      const isAbsoluteApprove =
+        !action.tokenApprove.approveType ||
+        action.tokenApprove.approveType === EApproveType.Approve;
+      const isRevoke =
+        isAbsoluteApprove && new BigNumber(action.tokenApprove.amount).isZero();
 
       return isRevoke
         ? appLocale.intl.formatMessage({

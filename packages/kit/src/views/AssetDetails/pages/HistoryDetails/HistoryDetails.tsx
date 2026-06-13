@@ -17,7 +17,6 @@ import {
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { AddressInfo } from '@onekeyhq/kit/src/components/AddressInfo';
-import { Currency } from '@onekeyhq/kit/src/components/Currency';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import NumberSizeableTextWrapper from '@onekeyhq/kit/src/components/NumberSizeableTextWrapper';
 import { Token } from '@onekeyhq/kit/src/components/Token';
@@ -28,9 +27,16 @@ import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useReplaceTx } from '@onekeyhq/kit/src/hooks/useReplaceTx';
 import { openTransactionDetailsUrl } from '@onekeyhq/kit/src/utils/explorerUtils';
 import { withBrowserProvider } from '@onekeyhq/kit/src/views/Discovery/pages/Browser/WithBrowserProvider';
+import {
+  isPrivateSendHistoryTx,
+  maybeOpenPrivateSendHistoryDetail,
+} from '@onekeyhq/kit/src/views/Swap/utils/privateSendHistory';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import { POLLING_INTERVAL_FOR_HISTORY } from '@onekeyhq/shared/src/consts/walletConsts';
-import { IMPL_DOT } from '@onekeyhq/shared/src/engine/engineConsts';
+import {
+  POLLING_DEBOUNCE_INTERVAL,
+  POLLING_INTERVAL_FOR_HISTORY,
+} from '@onekeyhq/shared/src/consts/walletConsts';
+import { IMPL_DOT, IMPL_SOL } from '@onekeyhq/shared/src/engine/engineConsts';
 import {
   EAppEventBusNames,
   appEventBus,
@@ -38,6 +44,7 @@ import {
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type { IModalAssetDetailsParamList } from '@onekeyhq/shared/src/routes/assetDetails';
 import { EModalAssetDetailRoutes } from '@onekeyhq/shared/src/routes/assetDetails';
+import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { getHistoryTxDetailInfo } from '@onekeyhq/shared/src/utils/historyUtils';
 import type { IAddressInfo } from '@onekeyhq/shared/types/address';
 import type { IAccountHistoryTx } from '@onekeyhq/shared/types/history';
@@ -60,6 +67,7 @@ import {
 import { getHistoryTxMeta } from '../../utils';
 
 import { InfoItem, InfoItemGroup } from './components/TxDetailsInfoItem';
+import { TxKYTRiskCheck } from './components/TxKYTRiskCheck';
 
 import type { RouteProp } from '@react-navigation/core';
 import type { ColorValue } from 'react-native';
@@ -335,6 +343,7 @@ function HistoryDetails() {
 
   const historyInit = useRef(false);
   const historyConfirmed = useRef(false);
+  const privateSendSwapDetailOpened = useRef(false);
 
   const navigation = useAppNavigation();
   const [settings] = useSettingsPersistAtom();
@@ -346,6 +355,41 @@ function HistoryDetails() {
 
   const accountAddress = route.params?.accountAddress || account?.address;
   const txid = transactionHash || historyTxParam?.decodedTx.txid || '';
+  const isInitialPrivateSendHistory = historyTxParam
+    ? isPrivateSendHistoryTx(historyTxParam)
+    : false;
+
+  useEffect(() => {
+    privateSendSwapDetailOpened.current = false;
+  }, [isInitialPrivateSendHistory, txid]);
+
+  const openPrivateSendHistoryDetailOnce = useCallback(
+    async (historyTx: IAccountHistoryTx) => {
+      if (!isPrivateSendHistoryTx(historyTx)) {
+        return false;
+      }
+      if (privateSendSwapDetailOpened.current) {
+        return true;
+      }
+      privateSendSwapDetailOpened.current = true;
+      return maybeOpenPrivateSendHistoryDetail({
+        historyTx,
+        navigation,
+        accountId,
+        accountAddress,
+        network,
+        currencySymbol: settings.currencyInfo.symbol,
+      });
+    },
+    [
+      accountAddress,
+      accountId,
+      navigation,
+      network,
+      settings.currencyInfo.symbol,
+    ],
+  );
+
   const nativeToken = usePromiseResult(
     () =>
       backgroundApiProxy.serviceToken.getNativeToken({
@@ -357,6 +401,16 @@ function HistoryDetails() {
 
   const { result, isLoading } = usePromiseResult(
     async () => {
+      if (isInitialPrivateSendHistory && historyTxParam) {
+        historyInit.current = true;
+        await openPrivateSendHistoryDetailOnce(historyTxParam);
+        return {
+          txDetails: undefined,
+          decodedOnChainTx: historyTxParam,
+          addressMap: undefined,
+        };
+      }
+
       if (!accountAddress) return;
       const r = await backgroundApiProxy.serviceHistory.fetchHistoryTxDetails({
         accountId,
@@ -389,13 +443,16 @@ function HistoryDetails() {
           });
       }
 
-      const swapHistoryInfo =
-        await backgroundApiProxy.serviceSwap.getSwapHistoryByTxId({
-          txId: txid,
-        });
+      if (decodedOnChainTx && isPrivateSendHistoryTx(decodedOnChainTx)) {
+        await openPrivateSendHistoryDetailOnce(decodedOnChainTx);
+        return {
+          txDetails: undefined,
+          decodedOnChainTx,
+          addressMap: undefined,
+        };
+      }
 
       return {
-        swapHistoryInfo,
         txDetails: r?.data,
         decodedOnChainTx,
         addressMap: r?.addressMap,
@@ -409,14 +466,18 @@ function HistoryDetails() {
       txid,
       vaultSettings?.fixConfirmedTxEnabled,
       historyTxParam,
+      isInitialPrivateSendHistory,
+      openPrivateSendHistoryDetailOnce,
     ],
     {
+      debounced: POLLING_DEBOUNCE_INTERVAL,
       watchLoading: true,
       alwaysSetState: true,
       pollingInterval: POLLING_INTERVAL_FOR_HISTORY,
       checkIsFocused,
       overrideIsFocused: (isPageFocused) =>
         isPageFocused &&
+        !privateSendSwapDetailOpened.current &&
         (!historyInit.current ||
           ((historyTxParam?.decodedTx.status ?? EDecodedTxStatus.Pending) ===
             EDecodedTxStatus.Pending &&
@@ -424,9 +485,22 @@ function HistoryDetails() {
     },
   );
 
-  const { txDetails, decodedOnChainTx, addressMap, swapHistoryInfo } =
-    result || {};
+  const { txDetails, decodedOnChainTx, addressMap } = result || {};
   const historyTx = historyTxParam ?? decodedOnChainTx;
+
+  // Prefer the detail response's KYT block, falling back to the one carried from
+  // the history list so the section renders before the detail request resolves.
+  const kytResult = useMemo(
+    () => txDetails?.kyt ?? historyTx?.decodedTx.kyt,
+    [txDetails?.kyt, historyTx?.decodedTx.kyt],
+  );
+  const kytReceives = useMemo(
+    () =>
+      historyTx?.decodedTx.actions?.flatMap(
+        (action) => action.assetTransfer?.receives ?? [],
+      ) ?? [],
+    [historyTx?.decodedTx.actions],
+  );
 
   useEffect(() => {
     if (txDetails && notificationId) {
@@ -487,7 +561,7 @@ function HistoryDetails() {
               { id: ETranslations.explore_addresses_count },
               { 'number': utxoSends.length },
             )
-          : utxoSends[0]?.from ?? sends[0]?.from ?? decodedTx.signer;
+          : (utxoSends[0]?.from ?? sends[0]?.from ?? decodedTx.signer);
 
       const to =
         utxoReceives.length > 1
@@ -495,10 +569,10 @@ function HistoryDetails() {
               { id: ETranslations.explore_addresses_count },
               { 'number': utxoReceives.length },
             )
-          : utxoReceives[0]?.to ??
+          : (utxoReceives[0]?.to ??
             receives[0]?.to ??
             decodedTx.to ??
-            decodedTx.actions[0]?.assetTransfer?.to;
+            decodedTx.actions[0]?.assetTransfer?.to);
       return {
         from,
         to,
@@ -515,6 +589,14 @@ function HistoryDetails() {
     let to = decodedTx.actions[0]?.assetTransfer?.to ?? decodedTx.to;
     if (vaultSettings?.impl === IMPL_DOT && !to) {
       to = txDetails?.to;
+    }
+    // Solana: For Receive type transactions, get the actual receiving address from receives array
+    if (
+      vaultSettings?.impl === IMPL_SOL &&
+      isEmpty(sends) &&
+      !isEmpty(receives)
+    ) {
+      to = receives[0]?.to ?? to;
     }
 
     return {
@@ -765,6 +847,7 @@ function HistoryDetails() {
         />
         {cancelTxEnabled ? (
           <Button
+            testID="asset-details-render-cancel-actions-btn"
             size="small"
             onPress={() =>
               handleReplaceTx({ replaceType: EReplaceTxType.Cancel })
@@ -780,6 +863,7 @@ function HistoryDetails() {
       <>
         {speedUpCancelEnabled ? (
           <Button
+            testID="asset-details-render-speed-up-cancel-action-btn"
             size="small"
             variant="primary"
             onPress={() =>
@@ -796,6 +880,7 @@ function HistoryDetails() {
 
     const renderCheckSpeedUpState = () => (
       <Button
+        testID="asset-details-render-check-speed-up-state-btn"
         size="small"
         variant="primary"
         onPress={() => handleCheckSpeedUpState()}
@@ -1095,7 +1180,16 @@ function HistoryDetails() {
   );
 
   const renderHistoryDetails = useCallback(() => {
-    if (isLoading && !historyInit.current) {
+    // On the notification path no `historyTx` is passed in, so the detail is
+    // fetched on mount. `isLoading` starts as `undefined` and, because the
+    // request is debounced, only flips to `true` after the debounce window —
+    // during that gap the previous `isLoading &&` guard fell through and
+    // rendered the detail skeleton whose empty (undefined) status shows as
+    // "Pending", flashing a brief "待处理" frame before the spinner. Treat
+    // "fetch path, not yet initialized, loading not settled to false" as
+    // loading so the spinner shows immediately and the pending placeholder is
+    // never rendered.
+    if (!historyTxParam && !historyInit.current && isLoading !== false) {
       return (
         <Stack pt={240} justifyContent="center" alignItems="center">
           <Spinner size="large" />
@@ -1131,6 +1225,15 @@ function HistoryDetails() {
               compact
             />
           </InfoItemGroup>
+
+          {/* KYT Risk Check — hidden for watch-only accounts */}
+          {accountId && accountUtils.isWatchingAccount({ accountId }) ? null : (
+            <TxKYTRiskCheck
+              kyt={kytResult}
+              transfers={kytReceives}
+              networkName={network?.name}
+            />
+          )}
 
           {/* Notification account */}
           {notificationAccountId ? (
@@ -1170,28 +1273,6 @@ function HistoryDetails() {
               renderContent={renderFeeInfo()}
               compact
             />
-
-            {swapHistoryInfo?.swapInfo?.oneKeyFeeExtraInfo?.oneKeyFeeUsd ? (
-              <InfoItem
-                label={intl.formatMessage({
-                  id: ETranslations.provider_ios_popover_onekey_fee,
-                })}
-                renderContent={
-                  <Currency
-                    formatter="value"
-                    size="$bodyMd"
-                    color="$textSubdued"
-                    sourceCurrency="usd"
-                  >
-                    {
-                      swapHistoryInfo?.swapInfo?.oneKeyFeeExtraInfo
-                        ?.oneKeyFeeUsd
-                    }
-                  </Currency>
-                }
-                compact
-              />
-            ) : null}
 
             <InfoItem
               label={intl.formatMessage({
@@ -1233,6 +1314,7 @@ function HistoryDetails() {
               <InfoItem
                 renderContent={
                   <Button
+                    testID="asset-details-btn"
                     size="medium"
                     onPress={handleViewUTXOsOnPress}
                     variant="secondary"
@@ -1255,6 +1337,7 @@ function HistoryDetails() {
     );
   }, [
     isLoading,
+    historyTxParam,
     transfersToRender,
     intl,
     renderTxStatus,
@@ -1273,12 +1356,14 @@ function HistoryDetails() {
     vaultSettings?.isUtxo,
     vaultSettings?.hideTxUtxoListWhenPending,
     renderFeeInfo,
-    swapHistoryInfo?.swapInfo?.oneKeyFeeExtraInfo?.oneKeyFeeUsd,
     network?.name,
     network?.id,
     historyTx?.decodedTx.status,
     handleViewUTXOsOnPress,
     renderAssetsChange,
+    kytResult,
+    kytReceives,
+    accountId,
   ]);
 
   return (

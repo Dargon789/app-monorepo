@@ -2,21 +2,22 @@ import { useCallback, useMemo, useState } from 'react';
 
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
-import {
-  EAppEventBusNames,
-  appEventBus,
-} from '@onekeyhq/shared/src/eventBus/appEventBus';
 import earnUtils from '@onekeyhq/shared/src/utils/earnUtils';
-import { EEarnLabels } from '@onekeyhq/shared/types/staking';
+import {
+  EEarnLabels,
+  EStakingActionType,
+} from '@onekeyhq/shared/types/staking';
 import type {
   IEarnActionIcon,
   IEarnClaimActionIcon,
+  IEarnClaimType,
   IEarnClaimWithKycActionIcon,
   IEarnToken,
 } from '@onekeyhq/shared/types/staking';
 
 import { showClaimWithKycDialog } from '../../Staking/components/ProtocolDetails/showKYCDialog';
 import { useEarnSignMessage } from '../../Staking/hooks/useEarnSignMessage';
+import { useUniversalWithdraw } from '../../Staking/hooks/useUniversalHooks';
 import { useHandleClaim } from '../../Staking/pages/ProtocolDetails/useHandleClaim';
 
 interface IUsePortfolioActionParams {
@@ -53,6 +54,7 @@ export const usePortfolioAction = ({
       accountId,
       networkId,
       indexedAccountId,
+      btcOnlyTaproot: true,
     });
   }, [accountId, networkId, indexedAccountId]);
 
@@ -62,16 +64,19 @@ export const usePortfolioAction = ({
   );
 
   const handleClaim = useHandleClaim({ accountId: earnAccountId, networkId });
+  const handleWithdraw = useUniversalWithdraw({
+    accountId: earnAccountId,
+    networkId,
+  });
   const signMessage = useEarnSignMessage();
 
   const handleListaCheckAction = useCallback(
-    async ({
-      stakedSymbol: actionStakedSymbol,
-      rewardSymbol: actionRewardSymbol,
-    }: {
-      stakedSymbol?: string;
-      rewardSymbol?: string;
-    } = {}) => {
+    async (
+      _: {
+        stakedSymbol?: string;
+        rewardSymbol?: string;
+      } = {},
+    ) => {
       setLoading(true);
       try {
         await signMessage({
@@ -95,6 +100,7 @@ export const usePortfolioAction = ({
       actionIcon,
       token,
       rewardTokenAddress,
+      claimRequestType,
       stakedSymbol,
       rewardSymbol,
     }: {
@@ -104,6 +110,7 @@ export const usePortfolioAction = ({
         info: IEarnToken;
       };
       rewardTokenAddress?: string;
+      claimRequestType?: IEarnClaimType;
       stakedSymbol?: string;
       rewardSymbol?: string;
     }) => {
@@ -149,6 +156,7 @@ export const usePortfolioAction = ({
             : undefined,
           claimAmount,
           claimTokenAddress,
+          claimRequestType,
           isMorphoClaim,
           stakingInfo: {
             label: EEarnLabels.Claim,
@@ -235,7 +243,7 @@ export const usePortfolioAction = ({
             actionData: actionIcon,
           });
         }
-      } catch (error) {
+      } catch (_error) {
         showClaimWithKycDialog({
           actionData: actionIcon,
         });
@@ -254,11 +262,49 @@ export const usePortfolioAction = ({
     ],
   );
 
+  const handleCancelWithdrawalAction = useCallback(async () => {
+    setLoading(true);
+    try {
+      await handleWithdraw({
+        amount: '0',
+        symbol,
+        provider,
+        protocolVault: earnUtils.shouldSendEarnProtocolVault({
+          providerName: provider,
+        })
+          ? vault
+          : undefined,
+        withdrawAll: false,
+        withdrawType: 'cancel',
+        stakingInfo: {
+          label: EEarnLabels.Withdraw,
+          protocol: earnUtils.getEarnProviderName({ providerName: provider }),
+          protocolLogoURI: providerLogoURI || '',
+          tags: stakeTag ? [stakeTag] : [],
+        },
+        onSuccess: async () => {
+          await onSuccess?.();
+        },
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    handleWithdraw,
+    onSuccess,
+    provider,
+    providerLogoURI,
+    stakeTag,
+    symbol,
+    vault,
+  ]);
+
   const handleAction = useCallback(
     ({
       actionIcon,
       token,
       rewardTokenAddress,
+      claimRequestType,
       indexedAccountId: actionIndexedAccountId,
       stakedSymbol,
       rewardSymbol,
@@ -269,6 +315,7 @@ export const usePortfolioAction = ({
         info: IEarnToken;
       };
       rewardTokenAddress?: string;
+      claimRequestType?: IEarnClaimType;
       indexedAccountId?: string;
       stakedSymbol?: string;
       rewardSymbol?: string;
@@ -281,6 +328,7 @@ export const usePortfolioAction = ({
             actionIcon: actionIcon as IEarnClaimActionIcon,
             token,
             rewardTokenAddress,
+            claimRequestType,
             stakedSymbol,
             rewardSymbol,
           });
@@ -297,6 +345,9 @@ export const usePortfolioAction = ({
             rewardSymbol,
           });
           break;
+        case EStakingActionType.CancelWithdrawal:
+          void handleCancelWithdrawalAction();
+          break;
         default:
           break;
       }
@@ -305,6 +356,7 @@ export const usePortfolioAction = ({
       handleClaimAction,
       handleClaimWithKycAction,
       handleListaCheckAction,
+      handleCancelWithdrawalAction,
       symbol,
     ],
   );

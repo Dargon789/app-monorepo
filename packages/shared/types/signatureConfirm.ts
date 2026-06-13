@@ -4,7 +4,7 @@ import type { IEncodedTx } from '@onekeyhq/core/src/types';
 import type { ENFTType, IAccountNFT } from './nft';
 import type { ISwapTxInfo } from './swap/types';
 import type { IToken, ITokenFiat } from './token';
-import type { ISendTxOnSuccessData } from './tx';
+import type { EApproveType, ISendTxOnSuccessData } from './tx';
 
 export enum EParseTxComponentType {
   Default = 'default',
@@ -66,6 +66,7 @@ export interface IDisplayComponentAddress {
   label: string;
   address: string;
   tags: {
+    key?: string;
     value: string;
     displayType: IBadgeType;
     icon?: IKeyOfIcons;
@@ -74,6 +75,7 @@ export interface IDisplayComponentAddress {
   isNavigable?: boolean;
   networkId?: string;
   showAccountName?: boolean;
+  highlight?: boolean;
 }
 
 export interface IDisplayComponentAmount {
@@ -157,6 +159,8 @@ export interface IDisplayComponentApprove {
   networkId: string;
   showNetwork: boolean;
   isSmallSize?: boolean;
+  approveType?: EApproveType;
+  spender?: string;
 }
 
 export interface IDisplayComponentDefault {
@@ -227,6 +231,7 @@ export interface IParseMessageParams {
   accountAddress?: string;
   message: string;
   swapInfo?: ISwapTxInfo;
+  origin?: string;
 }
 
 export interface IParseMessageResp {

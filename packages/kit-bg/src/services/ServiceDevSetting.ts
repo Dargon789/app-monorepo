@@ -1,11 +1,17 @@
 import { analytics } from '@onekeyhq/shared/src/analytics';
+import appCrypto from '@onekeyhq/shared/src/appCrypto';
 import {
   backgroundClass,
   backgroundMethod,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import { buildServiceEndpoint } from '@onekeyhq/shared/src/config/appConfig';
+import { BundleUpdate } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
 import appStorage from '@onekeyhq/shared/src/storage/appStorage';
-import { EAppSyncStorageKeys } from '@onekeyhq/shared/src/storage/syncStorageKeys';
+import { devSettingSyncStorage } from '@onekeyhq/shared/src/storage/instance/devSettingSyncStorageInstance';
+import {
+  EAppSyncStorageKeys,
+  EDevSettingSyncStorageKeys,
+} from '@onekeyhq/shared/src/storage/syncStorageKeys';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 
 import {
@@ -34,6 +40,20 @@ class ServiceDevSetting extends ServiceBase {
       EAppSyncStorageKeys.onekey_developer_mode_enabled,
       !!devSettings.enabled,
     );
+    // Also write to the dedicated dev-setting MMKV instance for native code access
+    devSettingSyncStorage.set(
+      EDevSettingSyncStorageKeys.onekey_developer_mode_enabled,
+      !!devSettings.enabled,
+    );
+  }
+
+  async syncCryptoSettings() {
+    const devSettings = await devSettingsPersistAtom.get();
+    appCrypto.pbkdf2.setPbkdf2NativeBackend(
+      devSettings.enabled && devSettings.settings?.useFastPbkdf2NativeBackend
+        ? 'react-native-fast-pbkdf2'
+        : undefined,
+    );
   }
 
   @backgroundMethod()
@@ -43,6 +63,7 @@ class ServiceDevSetting extends ServiceBase {
       settings: isOpen ? prev.settings : {},
     }));
     void this.saveDevModeToSyncStorage();
+    void this.syncCryptoSettings();
   }
 
   @backgroundMethod()
@@ -55,6 +76,7 @@ class ServiceDevSetting extends ServiceBase {
       },
     }));
     void this.saveDevModeToSyncStorage();
+    void this.syncCryptoSettings();
   }
 
   @backgroundMethod()
@@ -82,6 +104,36 @@ class ServiceDevSetting extends ServiceBase {
       ...prev,
       ...values,
     }));
+  }
+
+  @backgroundMethod()
+  public async isSkipBundleGPGVerificationAllowed(): Promise<boolean> {
+    // desktop keeps env-gated behavior in main process; native uses module API.
+    // UI/background should use a unified capability check from BundleUpdate.
+    return BundleUpdate.isSkipGpgVerificationAllowed().catch(() => false);
+  }
+
+  @backgroundMethod()
+  public async setSkipBundleGPGVerification(enabled: boolean) {
+    if (!(await this.isSkipBundleGPGVerificationAllowed())) {
+      return;
+    }
+    devSettingSyncStorage.set(
+      EDevSettingSyncStorageKeys.onekey_bundle_skip_gpg_verification,
+      enabled,
+    );
+  }
+
+  @backgroundMethod()
+  public async getSkipBundleGPGVerification(): Promise<boolean> {
+    if (!(await this.isSkipBundleGPGVerificationAllowed())) {
+      return false;
+    }
+    return (
+      devSettingSyncStorage.getBoolean(
+        EDevSettingSyncStorageKeys.onekey_bundle_skip_gpg_verification,
+      ) ?? false
+    );
   }
 
   @backgroundMethod()

@@ -15,6 +15,7 @@ import type {
 } from '@onekeyhq/shared/types/signatureConfirm';
 import { EParseTxComponentType } from '@onekeyhq/shared/types/signatureConfirm';
 
+import { SignatureConfirmTestIDs } from '../../testIDs';
 import { SignatureConfirmItem } from '../SignatureConfirmItem';
 
 import SignatureConfirmDetails from './SignatureConfirmDetails';
@@ -45,7 +46,7 @@ function TxConfirmDetails(props: IProps) {
         swapTx.swapInfo.sender.accountInfo.networkId !==
         swapTx.swapInfo.receiver.accountInfo.networkId
       );
-    } catch (e) {
+    } catch (_e) {
       return false;
     }
   }, [unsignedTxs]);
@@ -148,7 +149,10 @@ function TxConfirmDetails(props: IProps) {
   ]);
 
   return (
-    <SignatureConfirmItem gap="$5">
+    <SignatureConfirmItem
+      gap="$5"
+      testID={SignatureConfirmTestIDs.TxConfirmDetails}
+    >
       {renderSignatureConfirmDetails()}
     </SignatureConfirmItem>
   );

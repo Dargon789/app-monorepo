@@ -6,17 +6,21 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { ERootRoutes } from '@onekeyhq/shared/src/routes';
 
 import {
+  FullScreenPushNavigator,
   IOSFullScreenNavigator,
   ModalNavigator,
   OnboardingNavigator,
 } from './Modal/Navigator';
 import {
   fullModalRouter,
+  fullScreenPushRouterConfig,
   modalRouter,
   onboardingRouterV2Config,
 } from './Modal/router';
 import { TabNavigator } from './Tab/Navigator';
 import { useTabRouterConfig } from './Tab/router';
+import { WebViewNavigator } from './WebView/Navigator';
+import { webViewRouter } from './WebView/router';
 
 const buildPermissionRouter = () => {
   const PromptWebDeviceAccessPage = LazyLoad(
@@ -56,6 +60,16 @@ export const rootRouter: IRootStackNavigatorConfig<ERootRoutes, any>[] = [
     component: IOSFullScreenNavigator,
     type: 'iOSFullScreen',
   },
+  {
+    name: ERootRoutes.FullScreenPush,
+    component: FullScreenPushNavigator,
+    type: 'fullScreenPush',
+  },
+  {
+    name: ERootRoutes.WebView,
+    component: WebViewNavigator,
+    type: 'webView',
+  },
   ...buildPermissionRouter(),
 ];
 
@@ -86,6 +100,14 @@ export const useRootRouter = () => {
       {
         name: ERootRoutes.iOSFullScreen,
         children: fullModalRouter,
+      },
+      {
+        name: ERootRoutes.FullScreenPush,
+        children: fullScreenPushRouterConfig,
+      },
+      {
+        name: ERootRoutes.WebView,
+        children: webViewRouter,
       },
 
       ...buildPermissionRouter(),

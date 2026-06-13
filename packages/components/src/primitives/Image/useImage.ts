@@ -12,14 +12,20 @@ import {
   type ImageLoadOptions,
   type ImageRef,
   type ImageSource,
+  resolveSource,
 } from 'expo-image';
-import { resolveSource } from 'expo-image';
 
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
+import {
+  deleteCachedImagePath,
+  getCachedImagePath,
+  getCachedImageRef,
+  refreshCachedImagePath,
+  releaseCachedImageRef,
+  retainCachedImageRef,
+} from './cache';
 import { isEmptyResolvedSource } from './utils';
-
-const IMAGE_CACHE_MAP = new Map<string, string>();
 
 interface IUseImageOptions extends ImageLoadOptions {
   onSuccess?: (image: ImageRef) => void;
@@ -37,23 +43,38 @@ export function useImage(
   const resolvedSource = useMemo(() => {
     return resolveSource(source);
   }, [source]);
-  const cachedImage: ImageSource | null = useMemo(() => {
+  const cachedImageRef = useMemo(() => {
     if (resolvedSource?.uri && !/^https?:\/\//.test(resolvedSource.uri)) {
-      return {
-        uri: resolvedSource.uri,
-      };
+      return null;
     }
     if (platformEnv.isNativeAndroid) {
       return null;
     }
     const imageUri = resolvedSource?.uri;
-    if (imageUri && IMAGE_CACHE_MAP.has(imageUri)) {
+    return getCachedImageRef(imageUri) ?? null;
+  }, [resolvedSource?.uri]);
+
+  const cachedImage: ImageRef | ImageSource | null = useMemo(() => {
+    if (resolvedSource?.uri && !/^https?:\/\//.test(resolvedSource.uri)) {
       return {
-        uri: IMAGE_CACHE_MAP.get(imageUri),
+        uri: resolvedSource.uri,
+      };
+    }
+    if (cachedImageRef) {
+      return cachedImageRef;
+    }
+    if (platformEnv.isNativeAndroid) {
+      return null;
+    }
+    const imageUri = resolvedSource?.uri;
+    const cachedPath = getCachedImagePath(imageUri);
+    if (cachedPath) {
+      return {
+        uri: cachedPath,
       };
     }
     return null;
-  }, [resolvedSource?.uri]);
+  }, [cachedImageRef, resolvedSource?.uri]);
 
   // Since options are not dependencies of the below effect, we store them in a ref.
   // Once the image is asynchronously loaded, the effect will use the most recent options,
@@ -77,11 +98,7 @@ export function useImage(
           setImage(remoteImage);
           const uri = resolvedSource?.uri;
           if (uri) {
-            void Image.getCachePathAsync(uri).then((cachePath) => {
-              if (cachePath) {
-                IMAGE_CACHE_MAP.set(uri, cachePath);
-              }
-            });
+            void refreshCachedImagePath(uri);
           }
         }
       })
@@ -110,13 +127,42 @@ export function useImage(
       return;
     }
     if (resolvedSource?.uri) {
-      IMAGE_CACHE_MAP.delete(resolvedSource?.uri);
+      deleteCachedImagePath(resolvedSource?.uri);
     }
     if (isEffectValid.current) {
       fetchImageTimesLimit.current += 1;
       loadImage();
     }
   }, [loadImage, resolvedSource]);
+
+  // Track the current ImageRef for proper lifecycle management.
+  // Using a ref avoids the closure capture bug where the effect cleanup
+  // would release a stale image value instead of the current one.
+  const currentImageRef = useRef<ImageRef | null>(null);
+
+  // Release the previous ImageRef when the image state changes.
+  // This ensures each ImageRef is released exactly once, only after
+  // it has been replaced by a new one (preventing use-after-free).
+  useEffect(() => {
+    currentImageRef.current = image;
+    return () => {
+      if (currentImageRef.current) {
+        currentImageRef.current.release();
+        currentImageRef.current = null;
+      }
+    };
+  }, [image]);
+
+  useEffect(() => {
+    const imageUri = resolvedSource?.uri;
+    if (!cachedImageRef || !imageUri) {
+      return;
+    }
+    retainCachedImageRef(imageUri);
+    return () => {
+      releaseCachedImageRef(imageUri);
+    };
+  }, [cachedImageRef, resolvedSource?.uri]);
 
   useEffect(() => {
     isEffectValid.current = true;
@@ -125,9 +171,7 @@ export function useImage(
     }
     loadImage();
     return () => {
-      // Invalidate the effect and release the shared object to free up memory.
       isEffectValid.current = false;
-      image?.release();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedSource?.uri, cachedImage, loadImage, ...dependencies]);

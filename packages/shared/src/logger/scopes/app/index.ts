@@ -3,14 +3,18 @@ import { EScopeName } from '../../types';
 
 import { AppUpdateScene } from './scenes/appUpdate';
 import { BackgroundScene } from './scenes/background';
+import { BootRecoveryScene } from './scenes/bootRecovery';
 import { BootstrapScene } from './scenes/bootstrap';
 import { ComponentScene } from './scenes/component';
+import { CustomUAScene } from './scenes/customUA';
 import { ErrorScene } from './scenes/error';
 import { EventBusScene } from './scenes/eventBus';
 import { InstallScene } from './scenes/install';
+import { JsBundleDevScene } from './scenes/jsBundleDev';
 import { NetworkScene } from './scenes/network';
 import { PageScene } from './scenes/page';
 import { AppPerfScene } from './scenes/perf';
+import { RouterScene } from './scenes/router';
 import { WebembedScene } from './scenes/webembed';
 
 export class AppScope extends BaseScope {
@@ -36,5 +40,13 @@ export class AppScope extends BaseScope {
 
   webembed = this.createScene('webembed', WebembedScene);
 
+  router = this.createScene('router', RouterScene);
+
   appUpdate = this.createScene('appUpdate', AppUpdateScene);
+
+  bootRecovery = this.createScene('bootRecovery', BootRecoveryScene);
+
+  jsBundleDev = this.createScene('jsBundleDev', JsBundleDevScene);
+
+  customUA = this.createScene('customUA', CustomUAScene);
 }

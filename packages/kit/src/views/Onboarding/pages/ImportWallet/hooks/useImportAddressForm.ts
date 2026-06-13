@@ -7,7 +7,12 @@ import type {
   IReValidateMode,
   UseFormReturn,
 } from '@onekeyhq/components';
-import { Toast, useForm, useFormWatch } from '@onekeyhq/components';
+import {
+  Toast,
+  useForm,
+  useFormState,
+  useFormWatch,
+} from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { useAccountSelectorTrigger } from '@onekeyhq/kit/src/components/AccountSelector/hooks/useAccountSelectorTrigger';
 import type { IAddressInputValue } from '@onekeyhq/kit/src/components/AddressInput';
@@ -105,6 +110,13 @@ export function useImportAddressForm({
 
   const form = useForm<IFormValues>(formOptions);
   const { control } = form;
+  // Subscribe to isValid/errors explicitly. RHF v7's formState Proxy only
+  // registers subscription on render-phase reads; reading it inside a useMemo
+  // callback doesn't, so the submit button wouldn't re-enable when validation
+  // transitions to valid.
+  const { isValid: formIsValid, errors: formErrors } = useFormState({
+    control,
+  });
 
   const [validateResult, setValidateResult] = useState<
     IGeneralInputValidation | undefined
@@ -153,7 +165,7 @@ export function useImportAddressForm({
             },
           );
         setValidateResult(result);
-      } catch (error) {
+      } catch (_error) {
         setValidateResult({
           isValid: false,
         });
@@ -181,26 +193,30 @@ export function useImportAddressForm({
   }, [validateFn]);
 
   const isEnable = useMemo(() => {
-    const errorsCount = Object.keys(form.formState.errors).reduce(
-      (count, name) => {
-        if (method === EImportMethod.PublicKey) {
-          return name !== 'addressValue' ? count + 1 : count;
-        }
-        if (method === EImportMethod.Address) {
-          return name !== 'publicKeyValue' ? count + 1 : count;
-        }
-        return count;
-      },
-      0,
-    );
+    const errorsCount = Object.keys(formErrors).reduce((count, name) => {
+      if (method === EImportMethod.PublicKey) {
+        return name !== 'addressValue' ? count + 1 : count;
+      }
+      if (method === EImportMethod.Address) {
+        return name !== 'publicKeyValue' ? count + 1 : count;
+      }
+      return count;
+    }, 0);
     if (errorsCount > 0) {
       return false;
     }
     if (method === EImportMethod.Address) {
-      return !addressValue.pending && form.formState.isValid;
+      return !addressValue.pending && !!addressValue.resolved && formIsValid;
     }
     return validateResult?.isValid ?? false;
-  }, [method, addressValue.pending, validateResult, form.formState]);
+  }, [
+    method,
+    addressValue.pending,
+    addressValue.resolved,
+    validateResult,
+    formIsValid,
+    formErrors,
+  ]);
 
   const isKeyExportEnabled = useMemo(
     () =>
@@ -239,9 +255,8 @@ export function useImportAddressForm({
             networkId: values.networkId ?? '',
             shouldCheckDuplicateName: true,
           };
-      const r = await backgroundApiProxy.serviceAccount.addWatchingAccount(
-        data,
-      );
+      const r =
+        await backgroundApiProxy.serviceAccount.addWatchingAccount(data);
 
       const accountId = r?.accounts?.[0]?.id;
       if (accountId) {

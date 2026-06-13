@@ -16,6 +16,7 @@ import {
   YStack,
   useDialogInstance,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_OPACITY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type { IFeeUTXO } from '@onekeyhq/shared/types/fee';
 
@@ -128,6 +129,7 @@ const BtcFeeRateInputDialogContent = ({
       {feeType === 'custom' ? (
         <YStack>
           <Input
+            testID="staking-is-disabled-input"
             addOns={[
               {
                 label: 'sat/vB',
@@ -145,6 +147,7 @@ const BtcFeeRateInputDialogContent = ({
             <SizableText
               pt="$1.5"
               animation="quick"
+              animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
               enterStyle={{
                 opacity: 0,
                 y: -6,
@@ -172,6 +175,7 @@ const BtcFeeRateInputDialogContent = ({
       )}
       <Stack pt="$5">
         <Button
+          testID="staking-btn"
           size="large"
           variant="primary"
           onPress={onSave}

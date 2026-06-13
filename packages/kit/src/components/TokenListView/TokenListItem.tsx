@@ -1,9 +1,12 @@
 import { memo, useCallback } from 'react';
 
-import { Stack, XStack, YStack } from '@onekeyhq/components';
+import { Spinner, Stack, XStack, YStack } from '@onekeyhq/components';
 import type { IListItemProps } from '@onekeyhq/kit/src/components/ListItem';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
+import { isTokenSelectorDappToken } from '@onekeyhq/shared/src/utils/tokenSelectorFilterUtils';
 import type { IAccountToken } from '@onekeyhq/shared/types/token';
+
+import { useProcessingTokenStateAtom } from '../../states/jotai/contexts/tokenList';
 
 import CreateAccountView from './CreateAccountView';
 import TokenActionsView from './TokenActionsView';
@@ -23,9 +26,15 @@ export type ITokenListItemProps = {
   isAllNetworks?: boolean;
   isTokenSelector?: boolean;
   hideValue?: boolean;
+  hideBalanceAndValue?: boolean;
   withSwapAction?: boolean;
   showNetworkIcon?: boolean;
   withAggregateBadge?: boolean;
+  showProcessingState?: boolean;
+  // Caller-supplied scene prefix so this shared component produces unique
+  // selectors per scene (Home, AssetList, TokenSelector, ...) instead of
+  // always emitting `home-token-item-*` regardless of context.
+  testIDPrefix?: string;
 } & Omit<IListItemProps, 'onPress'>;
 
 function BasicTokenListItem(props: ITokenListItemProps) {
@@ -38,11 +47,36 @@ function BasicTokenListItem(props: ITokenListItemProps) {
     withNetwork,
     isTokenSelector,
     hideValue,
+    hideBalanceAndValue,
     withSwapAction,
     showNetworkIcon,
     withAggregateBadge,
+    showProcessingState,
+    testIDPrefix,
     ...rest
   } = props;
+
+  // Use networkId + symbol so multi-network duplicates (e.g. USDC on Ethereum
+  // vs Polygon) get distinct selectors. Fall back to `$key` when either
+  // component is missing — `$key` is the canonical unique token identifier.
+  const resolvedTestIDPrefix = testIDPrefix ?? 'home-token-item';
+  const networkIdPart = token.networkId ?? 'any';
+  const symbolPart = token.symbol ?? token.$key ?? 'unknown';
+  const resolvedTestID = `${resolvedTestIDPrefix}-${networkIdPart}-${symbolPart}`;
+
+  const [processingTokenState] = useProcessingTokenStateAtom();
+
+  const isCurrentTokenProcessing =
+    showProcessingState &&
+    processingTokenState.isProcessing &&
+    processingTokenState.token?.$key === token.$key;
+
+  const isOtherTokenProcessing =
+    showProcessingState &&
+    processingTokenState.isProcessing &&
+    processingTokenState.token?.$key !== token.$key;
+
+  const showDeFiReceiptTokenBadge = isTokenSelectorDappToken(token);
 
   const renderFirstColumn = useCallback(() => {
     if (!tableLayout && !isTokenSelector) {
@@ -62,7 +96,7 @@ function BasicTokenListItem(props: ITokenListItemProps) {
               $key={token.$key}
               name={
                 token.isAggregateToken
-                  ? token.commonSymbol ?? token.symbol
+                  ? (token.commonSymbol ?? token.symbol)
                   : token.symbol
               }
               isAggregateToken={token.isAggregateToken}
@@ -70,6 +104,7 @@ function BasicTokenListItem(props: ITokenListItemProps) {
               isAllNetworks={isAllNetworks}
               networkId={token.networkId}
               withNetwork={withNetwork}
+              showDeFiReceiptTokenBadge={showDeFiReceiptTokenBadge}
               textProps={{
                 size: '$bodyLgMedium',
                 flexShrink: 0,
@@ -109,7 +144,7 @@ function BasicTokenListItem(props: ITokenListItemProps) {
             withAggregateBadge={withAggregateBadge ?? isTokenSelector}
             name={
               token.isAggregateToken
-                ? token.commonSymbol ?? token.symbol
+                ? (token.commonSymbol ?? token.symbol)
                 : token.symbol
             }
             isAggregateToken={token.isAggregateToken}
@@ -117,8 +152,9 @@ function BasicTokenListItem(props: ITokenListItemProps) {
             isAllNetworks={isAllNetworks}
             networkId={token.networkId}
             withNetwork={withNetwork}
+            showDeFiReceiptTokenBadge={showDeFiReceiptTokenBadge}
             textProps={{
-              size: tableLayout ? '$bodyMdMedium' : '$bodyLgMedium',
+              size: '$bodyLgMedium',
               flexShrink: 0,
             }}
           />
@@ -147,9 +183,14 @@ function BasicTokenListItem(props: ITokenListItemProps) {
     isTokenSelector,
     showNetworkIcon,
     withAggregateBadge,
+    showDeFiReceiptTokenBadge,
   ]);
 
   const renderSecondColumn = useCallback(() => {
+    if (hideBalanceAndValue) {
+      return null;
+    }
+
     if (isTokenSelector) {
       return (
         <YStack
@@ -191,7 +232,7 @@ function BasicTokenListItem(props: ITokenListItemProps) {
         <TokenBalanceView
           hideValue={hideValue}
           numberOfLines={1}
-          size={tableLayout ? '$bodyMdMedium' : '$bodyLgMedium'}
+          size="$bodyLgMedium"
           $key={token.$key ?? ''}
           symbol=""
         />
@@ -204,7 +245,13 @@ function BasicTokenListItem(props: ITokenListItemProps) {
         />
       </YStack>
     );
-  }, [hideValue, tableLayout, token.$key, isTokenSelector]);
+  }, [
+    hideValue,
+    hideBalanceAndValue,
+    tableLayout,
+    token.$key,
+    isTokenSelector,
+  ]);
 
   const renderThirdColumn = useCallback(() => {
     if (isTokenSelector || !tableLayout) {
@@ -215,7 +262,7 @@ function BasicTokenListItem(props: ITokenListItemProps) {
       <YStack alignItems="flex-end" flexGrow={1} flexBasis={0}>
         <TokenPriceView
           $key={token.$key ?? ''}
-          size="$bodyMdMedium"
+          size="$bodyLgMedium"
           numberOfLines={1}
         />
         <TokenPriceChangeView
@@ -247,11 +294,14 @@ function BasicTokenListItem(props: ITokenListItemProps) {
   return (
     <ListItem
       key={token.name}
+      testID={resolvedTestID}
       userSelect="none"
       onPress={() => {
         onPress?.(token);
       }}
       gap={tableLayout ? '$3' : '$1'}
+      disabled={isOtherTokenProcessing}
+      opacity={isOtherTokenProcessing ? 0.5 : 1}
       {...rest}
     >
       {renderFirstColumn()}
@@ -260,6 +310,7 @@ function BasicTokenListItem(props: ITokenListItemProps) {
         networkId={token.networkId ?? ''}
         $key={token.$key ?? ''}
       />
+      {isCurrentTokenProcessing ? <Spinner size="small" /> : null}
       {renderThirdColumn()}
       {renderFourthColumn()}
     </ListItem>

@@ -1,8 +1,9 @@
 import type { ISizableTextProps } from '@onekeyhq/components';
-import type { ICurrencyItem } from '@onekeyhq/kit/src/views/Setting/pages/Currency';
 import type { ETranslations } from '@onekeyhq/shared/src/locale';
 
 import type { IAddressBadge, IAddressInfo } from './address';
+import type { ICurrencyItem } from './currency';
+import type { IKytHistoryResult } from './kyt';
 import type { IAccountNFT } from './nft';
 import type { IStakingInfo } from './staking';
 import type { IToken } from './token';
@@ -33,6 +34,7 @@ export enum EOnChainHistoryTxType {
   Send = 'Send',
   Receive = 'Receive',
   Approve = 'Approve',
+  PrivateSend = 'PrivateSend',
 }
 
 export type IOnChainHistoryTxApprove = {
@@ -53,6 +55,7 @@ export type IOnChainHistoryTxTransfer = {
   label: string;
   isNative?: boolean;
   isOwn?: boolean; // for UTXO
+  comment?: string; // TON
 };
 
 export type IOnChainHistoryTxUTXOInput = {
@@ -84,6 +87,8 @@ export type IOnChainHistoryTx = {
   networkId: string;
   tx: string;
   riskLevel: number;
+  // Per-user KYT risk data; present only for supported inbound transfers.
+  kyt?: IKytHistoryResult;
   type: EOnChainHistoryTxType;
   sends: IOnChainHistoryTxTransfer[];
   receives: IOnChainHistoryTxTransfer[];
@@ -117,6 +122,18 @@ export type IOnChainHistoryTx = {
   // TODO: on chain swap info
   swapInfo?: any;
 
+  isPrivateSend?: boolean;
+  privateSend?: {
+    orderId?: string;
+    rocketXOrderId?: string;
+    payinAddress?: string;
+    provider?: string;
+    providerName?: string;
+    providerLogo?: string;
+    supportUrl?: string;
+    originalRecipient?: string;
+  };
+
   // Lightning network attributes
   description?: string;
   preimage?: string;
@@ -125,6 +142,9 @@ export type IOnChainHistoryTx = {
   destinationTag?: number;
   ledgerIndex?: number;
   lastLedgerSequence?: number;
+
+  // Cosmos / Stellar
+  memo?: string;
 
   // Dynex
   paymentId?: string;
@@ -151,6 +171,9 @@ export type IAccountHistoryTx = {
   key?: string;
 
   isLocalCreated?: boolean;
+
+  displayStatus?: EDecodedTxStatus;
+  displayStatusSource?: 'privateSendOrder';
 
   replacedPrevId?: string; // cancel speedUp replacedId
   replacedNextId?: string;
@@ -183,6 +206,35 @@ export type IFetchAccountHistoryParams = {
   targetCurrency?: string;
   currencyMap?: Record<string, ICurrencyItem>;
   limit?: number;
+  // Pagination & time range. First page passes page=1 and no cursor.
+  // Subsequent pages pass page=N and cursor=previous response.next.
+  page?: number;
+  cursor?: string;
+  minTimestampMs?: number;
+  maxTimestampMs?: number;
+};
+
+// Aggregated history fetch for chains whose vault has
+// `mergeDeriveAssetsEnabled: true` (e.g. BTC / LTC). One indexed account fans
+// out into multiple network accounts (one per deriveType), each with its own
+// xpub and its own pagination cursor. The opaque `cursor` returned to callers
+// is a JSON-encoded Record<deriveType, perTypeCursor | '__exhausted__'> — the
+// background service decodes it, calls each non-exhausted deriveType in
+// parallel, and re-encodes the next cursor map for the next page.
+export type IFetchMergeDeriveAccountHistoryParams = {
+  indexedAccountId: string;
+  networkId: string;
+  tokenIdOnNetwork?: string;
+  isManualRefresh?: boolean;
+  filterScam?: boolean;
+  filterLowValue?: boolean;
+  excludeTestNetwork?: boolean;
+  sourceCurrency?: string;
+  targetCurrency?: string;
+  currencyMap?: Record<string, ICurrencyItem>;
+  limit?: number;
+  page?: number;
+  cursor?: string;
 };
 
 export type IOnChainHistoryTxToken = {
@@ -198,6 +250,7 @@ export type IFetchAccountHistoryResp = {
   nfts: Record<string, IOnChainHistoryTxNFT>; // <nftAddress, nft>
   addressMap?: Record<string, IAddressBadge>; // <networkId_address, {label, tip, type}>
   hasMore?: boolean;
+  next?: string; // Cursor for the next page; pass back as request `cursor`.
 };
 
 export type IFetchHistoryTxDetailsParams = {
@@ -264,4 +317,37 @@ export interface IServerFetchAccountHistoryDetailResp {
   data: {
     data: IFetchHistoryTxDetailsResp;
   };
+}
+
+// Transfer Recipient API Types
+export interface ITransferRecipientBadge {
+  type: string;
+  title: string;
+  tip?: string;
+  icon?: string;
+}
+
+export interface ITransferRecipient {
+  address: string;
+  networkId?: string;
+  time: number;
+  label?: string;
+  amount?: string;
+  symbol?: string;
+  memo?: string;
+  isContract?: boolean;
+  isCex?: boolean;
+  isScam?: boolean;
+  badges?: ITransferRecipientBadge[];
+}
+
+export interface IFetchTransferRecipientsParams {
+  networkId: string;
+  accountAddress: string;
+  limit?: number;
+}
+
+export interface IFetchTransferRecipientsResp {
+  supported: boolean;
+  data: ITransferRecipient[];
 }

@@ -24,10 +24,12 @@ export function useTokenManagement({
   networkId,
   accountId,
   indexedAccountId,
+  enabled = true,
 }: {
   networkId: string;
   accountId: string;
   indexedAccountId?: string;
+  enabled?: boolean;
 }) {
   const intl = useIntl();
   const isAllNetwork = networkId === getNetworkIdsMap().onekeyall;
@@ -39,6 +41,13 @@ export function useTokenManagement({
     isLoading: isLoadingLocalData,
   } = usePromiseResult(
     async () => {
+      if (!enabled) {
+        return {
+          sectionTokens: [],
+          addedTokens: [],
+          customTokens: [],
+        };
+      }
       const pair: {
         accountId: string;
         networkId: string;
@@ -103,15 +112,20 @@ export function useTokenManagement({
         ),
       );
 
-      const allTokens = await Promise.all(
-        [...tokenList.tokens, ...customTokens].map((token) =>
-          backgroundApiProxy.serviceToken.mergeTokenMetadataWithCustomData({
-            token,
+      // One bridge round-trip for the whole list. The single-item bg method
+      // is `Promise.resolve(syncMerge)` so a Promise.all over .map paid 1
+      // BgTransport round-trip per token for zero real async work — this
+      // pattern shows up as 808 mergeTokenMetadataWithCustomData calls in
+      // the OK-perp/swap freeze trace. See ServiceToken
+      // .mergeTokenMetadataWithCustomDataBatch for the contract.
+      const allTokens =
+        await backgroundApiProxy.serviceToken.mergeTokenMetadataWithCustomDataBatch(
+          {
+            tokens: [...tokenList.tokens, ...customTokens],
             customTokens,
             networkId,
-          }),
-        ),
-      );
+          },
+        );
 
       const uniqueTokens = uniqBy(
         allTokens,
@@ -189,6 +203,7 @@ export function useTokenManagement({
       };
     },
     [
+      enabled,
       isAllNetwork,
       indexedAccountId,
       tokenList.tokens,

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { usePreventRemove } from '@react-navigation/core';
 import { useIntl } from 'react-intl';
@@ -12,20 +12,22 @@ import {
   Stepper,
   XStack,
 } from '@onekeyhq/components';
+import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { EAppUpdateStatus } from '@onekeyhq/shared/src/appUpdate/type';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { useDownloadProgress } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
+import { showIntercom } from '@onekeyhq/shared/src/modules3rdParty/intercom';
 import type { IAppUpdatePagesParamList } from '@onekeyhq/shared/src/routes';
 import { EAppUpdateRoutes, EModalRoutes } from '@onekeyhq/shared/src/routes';
 import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
 
-import { HyperlinkText } from '../../../components/HyperlinkText';
 import {
   useAppUpdateInfo,
   useDownloadPackage,
-} from '../../../components/UpdateReminder/hooks';
-import { useHelpLink } from '../../../hooks/useHelpLink';
+} from '../../../components/AppUpdate';
+import { HyperlinkText } from '../../../components/HyperlinkText';
+import { AppUpdateTestIDs } from '../testIDs';
 
 const STEP_INDEX_MAP: Record<EAppUpdateStatus, number> = {
   [EAppUpdateStatus.failed]: -2,
@@ -56,7 +58,7 @@ function RetryButton({ onPress }: IButtonProps) {
   const intl = useIntl();
   return (
     <XStack>
-      <Button onPress={onPress}>
+      <Button testID={AppUpdateTestIDs.retryBtn} onPress={onPress}>
         {intl.formatMessage({ id: ETranslations.global_retry })}
       </Button>
     </XStack>
@@ -65,13 +67,12 @@ function RetryButton({ onPress }: IButtonProps) {
 
 function ContactUsButton() {
   const intl = useIntl();
-  const requestsUrl = useHelpLink({ path: 'requests/new' });
   const onPress = useCallback(() => {
-    openUrlExternal(requestsUrl);
-  }, [requestsUrl]);
+    void showIntercom();
+  }, []);
   return (
     <XStack>
-      <Button onPress={onPress}>
+      <Button testID={AppUpdateTestIDs.contactUsBtn} onPress={onPress}>
         {intl.formatMessage({ id: ETranslations.global_contact_us })}
       </Button>
     </XStack>
@@ -104,6 +105,13 @@ function DownloadVerify({
   }, [navigation, showUpdateInCompleteDialog]);
 
   const [installing, setIsInstalling] = useState(false);
+  const [isGPGSkipped, setIsGPGSkipped] = useState(false);
+
+  useEffect(() => {
+    void backgroundApiProxy.serviceDevSetting
+      .getSkipBundleGPGVerification()
+      .then(setIsGPGSkipped);
+  }, []);
 
   const handleToManualInstall = useCallback(() => {
     navigation.pushModal(EModalRoutes.AppUpdateModal, {
@@ -130,6 +138,19 @@ function DownloadVerify({
   const hasError = checkIsError(data.status);
 
   const percent = useDownloadProgress();
+
+  // Self-heal stale failure UI: native progress events imply the download
+  // is actually running. If the atom still says downloadPackageFailed
+  // (race in the AppState 'active' resume path or a previous JS
+  // rejection that outlived the native transfer), nudge bg to flip
+  // status back. percent is integer-bucketed so this fires ~once per
+  // 1% change — the bg method is cheap and a no-op outside the failed
+  // status.
+  useEffect(() => {
+    if (percent > 0 && data.status === EAppUpdateStatus.downloadPackageFailed) {
+      void backgroundApiProxy.serviceAppUpdate.onDownloadProgressHeartbeat();
+    }
+  }, [percent, data.status]);
 
   const renderDownloadError = useCallback(
     () => (
@@ -227,6 +248,13 @@ function DownloadVerify({
             title={intl.formatMessage({
               id: ETranslations.update_download_asc_label,
             })}
+            renderTitle={({ status }) =>
+              isGPGSkipped && status === EStepItemStatus.Done ? (
+                <SizableText size="$bodySm" color="$textCritical">
+                  ASC Download Skipped (Dev)
+                </SizableText>
+              ) : null
+            }
             renderDescription={({ status }) => {
               if (status === EStepItemStatus.Failed) {
                 return renderDownloadError();
@@ -249,6 +277,13 @@ function DownloadVerify({
             title={intl.formatMessage({
               id: ETranslations.update_verify_asc_label,
             })}
+            renderTitle={({ status }) =>
+              isGPGSkipped && status === EStepItemStatus.Done ? (
+                <SizableText size="$bodySm" color="$textCritical">
+                  GPG Verification Skipped (Dev)
+                </SizableText>
+              ) : null
+            }
             renderDescription={({ status }) => {
               if (status === EStepItemStatus.Done) {
                 return (
@@ -316,6 +351,13 @@ function DownloadVerify({
             title={intl.formatMessage({
               id: ETranslations.update_verify_package_label,
             })}
+            renderTitle={({ status }) =>
+              isGPGSkipped && status === EStepItemStatus.Done ? (
+                <SizableText size="$bodySm" color="$textCritical">
+                  Package Verification Skipped (Dev)
+                </SizableText>
+              ) : null
+            }
             renderDescription={({ status }) => {
               if (status === EStepItemStatus.Done) {
                 return (

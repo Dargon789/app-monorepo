@@ -74,7 +74,7 @@ function GenericDialogContent({
         if (onConfirm) {
           onConfirm()
             .then(() => resolve())
-            .catch(() => reject());
+            .catch(() => reject(new Error('KYC confirmation failed')));
         } else {
           resolve();
         }
@@ -162,6 +162,7 @@ function GenericDialogContent({
           {data.accordions.map(({ title, description }, index) => (
             <YStack key={String(index)}>
               <Button
+                testID="staking-btn"
                 variant="secondary"
                 size="small"
                 onPress={() => toggleExpandedItem(index)}
@@ -220,6 +221,7 @@ function GenericDialogContent({
           {(data.checkboxes ?? []).map((checkbox, index) => (
             <XStack key={index} alignItems="flex-start" gap="$2">
               <Checkbox
+                testID="staking-checkbox"
                 labelContainerProps={{
                   flex: 1,
                 }}
@@ -364,7 +366,7 @@ function KYCDialogContent({
         const booleanStates = checkboxStates.map((state) => Boolean(state));
         onConfirm(booleanStates)
           .then(() => resolve())
-          .catch(() => reject());
+          .catch(() => reject(new Error('KYC confirmation failed')));
       }),
     [checkboxStates, onConfirm],
   );
@@ -382,6 +384,7 @@ function KYCDialogContent({
           {data.accordions.map(({ title, description }, index) => (
             <YStack key={String(index)}>
               <Button
+                testID="staking-is-confirm-disabled-btn"
                 variant="secondary"
                 size="small"
                 onPress={() => toggleExpandedItem(index)}
@@ -439,6 +442,7 @@ function KYCDialogContent({
           {checkboxes.map((checkbox, index) => (
             <XStack key={index} alignItems="flex-start" gap="$2">
               <Checkbox
+                testID="staking-checkbox"
                 labelContainerProps={{
                   flex: 1,
                 }}

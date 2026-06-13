@@ -6,7 +6,6 @@ import { Checkbox, Dialog } from '@onekeyhq/components';
 import { formatApy } from '@onekeyhq/kit/src/views/Staking/components/utils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import earnUtils from '@onekeyhq/shared/src/utils/earnUtils';
-import type { IStakeProtocolDetails } from '@onekeyhq/shared/types/staking';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
 import { usePromiseResult } from '../../../hooks/usePromiseResult';
@@ -71,6 +70,7 @@ export function useFalconEventEndedDialog({
             >
               <Dialog.FormField name="showAgain">
                 <Checkbox
+                  testID="staking-checkbox"
                   label={intl.formatMessage({
                     id: ETranslations.earn_dont_show_again,
                   })}

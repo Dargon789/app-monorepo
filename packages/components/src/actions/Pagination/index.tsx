@@ -7,6 +7,54 @@ import { DOTS, usePagination } from './usePagination';
 
 import type { IXStackProps } from '../../primitives';
 
+const pressStyleConst = { bg: '$bgActive' } as const;
+const activeHoverStyle = { bg: '$bgStrong' } as const;
+const inactiveHoverStyle = { bg: '$bgHover' } as const;
+
+function PageButton({
+  page,
+  active,
+  onPageChange,
+  testID,
+}: {
+  page: number;
+  active: boolean;
+  onPageChange: (page: number) => void;
+  testID?: string;
+}) {
+  const handlePress = useCallback(() => {
+    onPageChange(page);
+  }, [onPageChange, page]);
+
+  return (
+    <ButtonFrame
+      borderWidth={0}
+      key={page}
+      py="$1"
+      px="$2.5"
+      borderRadius="$2"
+      borderCurve="continuous"
+      userSelect="none"
+      pressStyle={pressStyleConst}
+      hoverStyle={active ? activeHoverStyle : inactiveHoverStyle}
+      bg={active ? '$bgStrong' : '$transparent'}
+      onPress={handlePress}
+      role="button"
+      aria-label={`Page ${page}${active ? ', current page' : ''}`}
+      aria-current={active ? 'page' : undefined}
+      testID={testID}
+    >
+      <SizableText
+        size="$bodyMdMedium"
+        textAlign="center"
+        color={active ? '$text' : '$textSubdued'}
+      >
+        {page}
+      </SizableText>
+    </ButtonFrame>
+  );
+}
+
 export interface IPaginationProps extends IXStackProps {
   current: number;
   total: number;
@@ -16,6 +64,7 @@ export interface IPaginationProps extends IXStackProps {
   disableControls?: boolean;
   pageButtonSize?: 'small' | 'medium' | 'large';
   maxPages?: number;
+  testID?: string;
 }
 
 function PaginationFrame({
@@ -27,6 +76,7 @@ function PaginationFrame({
   disableControls = false,
   pageButtonSize = 'small',
   maxPages,
+  testID,
   ...rest
 }: IPaginationProps) {
   const { paginationRange, effectiveCurrent, effectiveTotal } = usePagination({
@@ -67,7 +117,7 @@ function PaginationFrame({
           icon="ChevronLeftSmallOutline"
           disabled={disableControls || isFirstPage}
           onPress={onPrev}
-          title="Previous Page"
+          testID={testID ? `${testID}-prev` : undefined}
         />
       ) : null}
       {paginationRange.map((page, idx) => {
@@ -84,30 +134,13 @@ function PaginationFrame({
         }
         const active = page === effectiveCurrent;
         return (
-          <ButtonFrame
-            borderWidth={0}
+          <PageButton
             key={page}
-            py="$1"
-            px="$2.5"
-            borderRadius="$2"
-            borderCurve="continuous"
-            userSelect="none"
-            pressStyle={{ bg: '$bgActive' }}
-            hoverStyle={{ bg: active ? '$bgStrong' : '$bgHover' }}
-            bg={active ? '$bgStrong' : '$transparent'}
-            onPress={() => onPageChange(page)}
-            role="button"
-            aria-label={`Page ${page}${active ? ', current page' : ''}`}
-            aria-current={active ? 'page' : undefined}
-          >
-            <SizableText
-              size="$bodyMdMedium"
-              textAlign="center"
-              color={active ? '$text' : '$textSubdued'}
-            >
-              {page}
-            </SizableText>
-          </ButtonFrame>
+            page={page}
+            active={active}
+            onPageChange={onPageChange}
+            testID={testID ? `${testID}-page-${page}` : undefined}
+          />
         );
       })}
       {showControls ? (
@@ -117,7 +150,7 @@ function PaginationFrame({
           icon="ChevronRightSmallOutline"
           disabled={disableControls || isLastPage}
           onPress={onNext}
-          title="Next Page"
+          testID={testID ? `${testID}-next` : undefined}
         />
       ) : null}
     </XStack>

@@ -1,6 +1,10 @@
 export enum EErc20MethodSelectors {
   tokenTransfer = '0xa9059cbb',
   tokenApprove = '0x095ea7b3',
+  // OZ v2~v4 (removed in v5) and OZ v1 — different selectors must be
+  // preserved on re-encode; cannot be silently rewritten to approve().
+  increaseAllowance = '0x39509351',
+  increaseApproval = '0xd73dd623',
 }
 
 export enum EErc721MethodSelectors {
@@ -23,6 +27,8 @@ export enum EErc20TxDescriptionName {
   Transfer = 'transfer',
   TransferFrom = 'transferFrom',
   Approve = 'approve',
+  IncreaseAllowance = 'increaseAllowance',
+  IncreaseApproval = 'increaseApproval',
 }
 
 export enum EErc721TxDescriptionName {
@@ -42,6 +48,8 @@ const ERC20 = [
   'function transfer(address _to, uint256 _value) public returns (bool success)',
   'function transferFrom(address _from, address _to, uint256 _value) public returns (bool success)',
   'function approve(address _spender, uint256 _value) public returns (bool success)',
+  'function increaseAllowance(address _spender, uint256 _addedValue) public returns (bool success)',
+  'function increaseApproval(address _spender, uint256 _addedValue) public returns (bool success)',
   'function allowance(address _owner, address _spender) public view returns (uint256 remaining)',
   'event Transfer(address indexed _from, address indexed _to, uint256 _value)',
   'event Approval(address indexed _owner, address indexed _spender, uint256 _value)',
@@ -57,18 +65,20 @@ const ERC1155 = [
   'function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes data)',
 ];
 
-const BATCH_TRANSFER = [
-  'function disperseEther(address[] recipients, uint256[] values)',
-  'function disperseToken(address token, address[] recipients, uint256[] values)',
-  'function disperseTokenSimple(address token, address[] recipients, uint256[] values)',
-  'function disperseNFT(address recipient, address[] tokens, uint256[] tokenIds, uint256[] amounts)',
+const BULK_SEND = [
+  'function sendNative((address recipient, uint256 amount)[] transfers) payable',
+  'function sendNativeSameAmount(address[] recipients, uint256 amount) payable',
+  'function sendToken(address token, (address recipient, uint256 amount)[] transfers)',
+  'function sendTokenSameAmount(address token, address[] recipients, uint256 amount)',
+  'function sendTokenViaContract(address token, (address recipient, uint256 amount)[] transfers)',
+  'function sendTokenSameAmountViaContract(address token, address[] recipients, uint256 amount)',
 ];
 
 const ABI = {
   ERC20,
   ERC721,
   ERC1155,
-  BATCH_TRANSFER,
+  BULK_SEND,
 };
 
 export { ABI };

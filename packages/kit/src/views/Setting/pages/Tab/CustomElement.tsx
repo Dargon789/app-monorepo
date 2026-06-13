@@ -1,5 +1,13 @@
-import { Suspense, useCallback, useContext, useMemo } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
+import { CommonActions } from '@react-navigation/native';
 import { upperFirst } from 'lodash';
 import { useIntl } from 'react-intl';
 
@@ -11,7 +19,6 @@ import type {
   ISizableTextProps,
 } from '@onekeyhq/components';
 import {
-  ActionList,
   Badge,
   Dialog,
   ESwitchSize,
@@ -23,16 +30,19 @@ import {
   Tooltip,
   XStack,
   YStack,
+  rootNavigationRef,
   startViewTransition,
   useClipboard,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
-import { UniversalContainerWithSuspense } from '@onekeyhq/kit/src/components/BiologyAuthComponent/container/UniversalContainer';
-import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import {
   isShowAppUpdateUIWhenUpdating,
   useAppUpdateInfo,
-} from '@onekeyhq/kit/src/components/UpdateReminder/hooks';
+} from '@onekeyhq/kit/src/components/AppUpdate';
+import { UniversalContainerWithSuspense } from '@onekeyhq/kit/src/components/BiologyAuthComponent/container/UniversalContainer';
+import { useKeylessWallet } from '@onekeyhq/kit/src/components/KeylessWallet/useKeylessWallet';
+import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
+import PasswordUpdateContainer from '@onekeyhq/kit/src/components/Password/container/PasswordUpdateContainer';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { TabFreezeOnBlurContext } from '@onekeyhq/kit/src/provider/Container/TabFreezeOnBlurContainer';
 import {
@@ -43,7 +53,10 @@ import {
   useSettingsPersistAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { useDevSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms/devSettings';
-import { displayAppUpdateVersion } from '@onekeyhq/shared/src/appUpdate';
+import {
+  displayAppUpdateVersion,
+  encodeBundleVersionForDisplay,
+} from '@onekeyhq/shared/src/appUpdate';
 import {
   GITHUB_URL,
   ONEKEY_URL,
@@ -56,17 +69,21 @@ import {
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
+import { BundleUpdate } from '@onekeyhq/shared/src/modules3rdParty/auto-update';
 import type { IFuseResultMatch } from '@onekeyhq/shared/src/modules3rdParty/fuse';
 import { showIntercom } from '@onekeyhq/shared/src/modules3rdParty/intercom';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import type { IModalSettingParamList } from '@onekeyhq/shared/src/routes';
-import { EModalSettingRoutes } from '@onekeyhq/shared/src/routes';
+import { EModalSettingRoutes, ERootRoutes } from '@onekeyhq/shared/src/routes';
+import { EOnboardingV2OneKeyIDLoginMode } from '@onekeyhq/shared/src/routes/onboardingv2';
 import openUrlUtils, {
   openUrlExternal,
 } from '@onekeyhq/shared/src/utils/openUrlUtils';
 import { EHardwareTransportType } from '@onekeyhq/shared/types';
+import { EReasonForNeedPassword } from '@onekeyhq/shared/types/setting';
 
 import { useLanguageSelector, useResetApp } from '../../hooks';
+import { SettingTestIDs } from '../../testIDs';
 import { handleOpenDevMode } from '../../utils/devMode';
 import { useOptions } from '../AppAutoLock/useOptions';
 
@@ -79,6 +96,7 @@ export interface ICustomElementProps {
   titleProps?: ISizableTextProps;
   iconProps?: IIconProps;
   icon?: IKeyOfIcons;
+  testID?: string;
   onPress?: () => void;
 }
 
@@ -91,7 +109,13 @@ export function CurrencyListItem(props: ICustomElementProps) {
   const [settings] = useSettingsPersistAtom();
   const text = settings.currencyInfo?.id ?? '';
   return (
-    <TabSettingsListItem {...props} userSelect="none" drillIn onPress={onPress}>
+    <TabSettingsListItem
+      {...props}
+      userSelect="none"
+      drillIn
+      onPress={onPress}
+      testID={SettingTestIDs.currencyItem}
+    >
       <ListItem.Text
         primaryTextProps={props?.titleProps}
         primary={text.toUpperCase()}
@@ -105,6 +129,7 @@ export function LanguageListItem(props: ICustomElementProps) {
   const { options, value, onChange } = useLanguageSelector();
   return (
     <Select
+      testID="setting-language-list-item-select"
       offset={{ mainAxis: -4, crossAxis: -10 }}
       title={props?.title || ''}
       items={options}
@@ -114,7 +139,11 @@ export function LanguageListItem(props: ICustomElementProps) {
       floatingPanelProps={{ maxHeight: 280 }}
       sheetProps={{ snapPoints: [80], snapPointsMode: 'percent' }}
       renderTrigger={({ label }) => (
-        <TabSettingsListItem {...props} userSelect="none">
+        <TabSettingsListItem
+          {...props}
+          userSelect="none"
+          testID={SettingTestIDs.languageItem}
+        >
           <XStack alignItems="center">
             <ListItem.Text
               primaryTextProps={props?.titleProps}
@@ -168,6 +197,7 @@ export function ThemeListItem(props: ICustomElementProps) {
 
   return (
     <Select
+      testID="setting-on-change-select"
       offset={{ mainAxis: -4, crossAxis: -10 }}
       title={props?.title || ''}
       items={options}
@@ -175,7 +205,11 @@ export function ThemeListItem(props: ICustomElementProps) {
       onChange={onChange}
       placement="bottom-end"
       renderTrigger={({ label }) => (
-        <TabSettingsListItem {...props} userSelect="none">
+        <TabSettingsListItem
+          {...props}
+          userSelect="none"
+          testID={SettingTestIDs.themeItem}
+        >
           <XStack alignItems="center">
             <ListItem.Text
               primaryTextProps={props?.titleProps}
@@ -192,10 +226,31 @@ export function ThemeListItem(props: ICustomElementProps) {
 
 function SuspenseBiologyAuthListItem(props: ICustomElementProps) {
   const [{ isPasswordSet }] = usePasswordPersistAtom();
-  const [{ isSupport: biologyAuthIsSupport }] =
+  const [{ isSupport: biologyAuthIsSupport, authType, isEnable }] =
     usePasswordBiologyAuthInfoAtom();
   const [{ isSupport: webAuthIsSupport }] = usePasswordWebAuthInfoAtom();
-  return isPasswordSet && (biologyAuthIsSupport || webAuthIsSupport) ? (
+  const shouldRender =
+    isPasswordSet && (biologyAuthIsSupport || webAuthIsSupport);
+  // TODO(biologyAuth-debug): temporary log to diagnose biology auth visibility in Settings
+  useEffect(() => {
+    defaultLogger.setting.page.biologyAuthDebug('SuspenseBiologyAuthListItem', {
+      platform: platformEnv.symbol,
+      isPasswordSet,
+      biologyAuthIsSupport,
+      biologyAuthIsEnable: isEnable,
+      authType,
+      webAuthIsSupport,
+      shouldRender,
+    });
+  }, [
+    isPasswordSet,
+    biologyAuthIsSupport,
+    isEnable,
+    authType,
+    webAuthIsSupport,
+    shouldRender,
+  ]);
+  return shouldRender ? (
     <TabSettingsListItem {...props}>
       <UniversalContainerWithSuspense />
     </TabSettingsListItem>
@@ -231,57 +286,48 @@ export function ClearAppCacheListItem(props: ICustomElementProps) {
   return <TabSettingsListItem {...props} onPress={onPress} drillIn />;
 }
 
-export function CleanDataListItem(props: ICustomElementProps) {
+export function ClearPendingTransactionsListItem(props: ICustomElementProps) {
   const intl = useIntl();
+  const onPress = useCallback(() => {
+    Dialog.show({
+      title: intl.formatMessage({
+        id: ETranslations.settings_clear_pending_transactions,
+      }),
+      description: intl.formatMessage({
+        id: ETranslations.settings_clear_pending_transactions_desc,
+      }),
+      tone: 'destructive',
+      onConfirmText: intl.formatMessage({
+        id: ETranslations.global_clear,
+      }),
+      onConfirm: async () => {
+        await backgroundApiProxy.serviceSetting.clearPendingTransaction();
+        appEventBus.emit(
+          EAppEventBusNames.ClearLocalHistoryPendingTxs,
+          undefined,
+        );
+        Toast.success({
+          title: intl.formatMessage({
+            id: ETranslations.global_success,
+          }),
+        });
+      },
+    });
+  }, [intl]);
+  return <TabSettingsListItem {...props} onPress={onPress} drillIn />;
+}
+
+export function ResetAppListItem(props: ICustomElementProps) {
+  const { iconProps, titleProps, ...restProps } = props;
   const resetApp = useResetApp();
   return (
-    <ActionList
-      offset={{ mainAxis: -4, crossAxis: -10 }}
-      title={props?.title || ''}
-      renderTrigger={
-        <TabSettingsListItem {...props} testID="setting-clear-data">
-          <ListItem.DrillIn name="ChevronDownSmallOutline" />
-        </TabSettingsListItem>
-      }
-      items={[
-        {
-          label: intl.formatMessage({
-            id: ETranslations.settings_clear_pending_transactions,
-          }),
-          onPress: () => {
-            Dialog.show({
-              title: intl.formatMessage({
-                id: ETranslations.settings_clear_pending_transactions,
-              }),
-              description: intl.formatMessage({
-                id: ETranslations.settings_clear_pending_transactions_desc,
-              }),
-              tone: 'destructive',
-              onConfirmText: intl.formatMessage({
-                id: ETranslations.global_clear,
-              }),
-              onConfirm: async () => {
-                await backgroundApiProxy.serviceSetting.clearPendingTransaction();
-                appEventBus.emit(
-                  EAppEventBusNames.ClearLocalHistoryPendingTxs,
-                  undefined,
-                );
-                Toast.success({
-                  title: intl.formatMessage({
-                    id: ETranslations.global_success,
-                  }),
-                });
-              },
-            });
-          },
-        },
-        {
-          label: intl.formatMessage({ id: ETranslations.settings_reset_app }),
-          destructive: true,
-          onPress: resetApp,
-          testID: 'setting-erase-data',
-        },
-      ]}
+    <TabSettingsListItem
+      {...restProps}
+      iconProps={{ ...iconProps, color: '$iconCritical' }}
+      titleProps={{ ...titleProps, color: '$textCritical' }}
+      onPress={resetApp}
+      testID={SettingTestIDs.eraseDataButton}
+      drillIn
     />
   );
 }
@@ -357,6 +403,7 @@ export function HardwareTransportTypeListItem(props: ICustomElementProps) {
 
   return (
     <Select
+      testID="setting-new-transport-type-select"
       offset={{ mainAxis: -4, crossAxis: -10 }}
       title={props?.title || ''}
       items={transportOptions}
@@ -448,16 +495,55 @@ export function AutoLockListItem(props: ICustomElementProps) {
   ) : null;
 }
 
+export function ChangeOrSetPasswordListItem(props: ICustomElementProps) {
+  const intl = useIntl();
+  const [{ isPasswordSet }] = usePasswordPersistAtom();
+
+  useEffect(() => {
+    void backgroundApiProxy.servicePassword.checkPasswordSet();
+  }, []);
+
+  const onPress = useCallback(async () => {
+    if (isPasswordSet) {
+      const oldEncodedPassword =
+        await backgroundApiProxy.servicePassword.promptPasswordVerify({
+          reason: EReasonForNeedPassword.Security,
+        });
+      const dialog = Dialog.show({
+        title: intl.formatMessage({
+          id: ETranslations.global_change_passcode,
+        }),
+        renderContent: (
+          <PasswordUpdateContainer
+            oldEncodedPassword={oldEncodedPassword.password}
+            onUpdateRes={async (data) => {
+              if (data) {
+                await dialog.close();
+              }
+            }}
+          />
+        ),
+        showFooter: false,
+      });
+    } else {
+      void backgroundApiProxy.servicePassword.promptPasswordVerify();
+    }
+  }, [intl, isPasswordSet]);
+  return <TabSettingsListItem {...props} onPress={onPress} drillIn />;
+}
+
 function SocialButton({
   icon,
   url,
   text,
   openInApp = false,
+  testID,
 }: {
   icon: IKeyOfIcons;
   url: string;
   text: string;
   openInApp?: boolean;
+  testID?: string;
 }) {
   const isTabNavigator = useIsTabNavigator();
   const buttonSize = isTabNavigator ? undefined : '$14';
@@ -473,6 +559,7 @@ function SocialButton({
     <Tooltip
       renderTrigger={
         <IconButton
+          testID={testID}
           w={buttonSize}
           h={buttonSize}
           bg="$bgSubdued"
@@ -502,6 +589,7 @@ function SupportButton({ text }: { text: string }) {
     <Tooltip
       renderTrigger={
         <IconButton
+          testID={SettingTestIDs.socialSupportBtn}
           bg="$bgSubdued"
           w={buttonSize}
           h={buttonSize}
@@ -522,10 +610,35 @@ export function SocialButtonGroup() {
   const { copyText } = useClipboard();
   const [{ locale }] = useSettingsPersistAtom();
   const [appUpdateInfo] = useAppUpdatePersistAtom();
+  const [isSkipGpgVerificationAllowed, setIsSkipGpgVerificationAllowed] =
+    useState(false);
   const isTabNavigator = useIsTabNavigator();
-  const version = useMemo(() => {
-    return `${platformEnv.version ?? ''} ${platformEnv.buildNumber ?? ''}`;
+
+  useEffect(() => {
+    let isMounted = true;
+    void BundleUpdate.isSkipGpgVerificationAllowed()
+      .then((allowed) => {
+        if (isMounted) {
+          setIsSkipGpgVerificationAllowed(Boolean(allowed));
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsSkipGpgVerificationAllowed(false);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  const version = useMemo(() => {
+    let bundleSuffix = '';
+    if (isSkipGpgVerificationAllowed && platformEnv.bundleVersion) {
+      bundleSuffix = `(${encodeBundleVersionForDisplay(platformEnv.bundleVersion)})`;
+    }
+    return `${platformEnv.version ?? ''} ${platformEnv.buildNumber ?? ''}${bundleSuffix}`;
+  }, [isSkipGpgVerificationAllowed]);
   const versionString = intl.formatMessage(
     {
       id: ETranslations.settings_version_versionnum,
@@ -578,16 +691,19 @@ export function SocialButtonGroup() {
           text={intl.formatMessage({
             id: ETranslations.global_official_website,
           })}
+          testID={SettingTestIDs.socialOnekeyWebsiteBtn}
         />
         <SocialButton
           icon="Xbrand"
           url={twitterFollowUrl}
           text={intl.formatMessage({ id: ETranslations.global_x })}
+          testID={SettingTestIDs.socialXBtn}
         />
         <SocialButton
           icon="GithubBrand"
           url={GITHUB_URL}
           text={intl.formatMessage({ id: ETranslations.global_github })}
+          testID={SettingTestIDs.socialGithubBtn}
         />
         <SupportButton
           text={intl.formatMessage({
@@ -602,7 +718,7 @@ export function SocialButtonGroup() {
         ai={isTabNavigator ? 'flex-start' : 'center'}
         pt={platformEnv.isNativeIOSPad ? '$3' : undefined}
         userSelect="none"
-        testID="setting-version"
+        testID={SettingTestIDs.versionItem}
       >
         <SizableText
           color={textColor}
@@ -614,6 +730,16 @@ export function SocialButtonGroup() {
         >
           {upperFirst(versionString)}
         </SizableText>
+        {isSkipGpgVerificationAllowed ? (
+          <XStack mt="$2" gap="$2" ai="center">
+            <Badge badgeType="warning" badgeSize="lg">
+              TEST
+            </Badge>
+            <Badge badgeType="critical" badgeSize="lg">
+              SKIP GPG
+            </Badge>
+          </XStack>
+        ) : null}
         {!isTabNavigator && isUpToDate ? (
           <SizableText
             color="$textDisabled"
@@ -641,9 +767,35 @@ export function DesktopBluetoothListItem(props: ICustomElementProps) {
   return (
     <TabSettingsListItem {...props} userSelect="none">
       <Switch
+        testID="setting-toggle-bluetooth-switch"
         size={ESwitchSize.small}
         value={enableDesktopBluetooth}
         onChange={toggleBluetooth}
+      />
+    </TabSettingsListItem>
+  );
+}
+
+export function MenuBarTrayListItem(props: ICustomElementProps) {
+  const [{ enableMenuBarTray }] = useSettingsPersistAtom();
+  // Fall back to true so migrated users (persisted atom lacks this field)
+  // match the main-process default of tray-enabled.
+  const isEnabled = enableMenuBarTray ?? true;
+  const toggleMenuBarTray = useCallback(async (value: boolean) => {
+    startViewTransition(() => {
+      void backgroundApiProxy.serviceSetting.setEnableMenuBarTray(value);
+      if (platformEnv.isDesktopMac) {
+        globalThis.desktopApi?.toggleTray(value);
+      }
+    });
+  }, []);
+  return (
+    <TabSettingsListItem {...props} userSelect="none">
+      <Switch
+        testID={SettingTestIDs.tabMenuBarTraySwitch}
+        size={ESwitchSize.small}
+        value={isEnabled}
+        onChange={toggleMenuBarTray}
       />
     </TabSettingsListItem>
   );
@@ -662,11 +814,107 @@ export function BTCFreshAddressListItem(props: ICustomElementProps) {
   return (
     <TabSettingsListItem {...props} userSelect="none">
       <Switch
+        testID="setting-toggle-b-t-c-fresh-address-switch"
         alignSelf="flex-start"
         size={ESwitchSize.small}
         value={enableBTCFreshAddress}
         onChange={toggleBTCFreshAddress}
       />
     </TabSettingsListItem>
+  );
+}
+
+export function UseGasAccountByDefaultListItem(props: ICustomElementProps) {
+  const [{ useGasAccountByDefault }] = useSettingsPersistAtom();
+  const toggleUseGasAccountByDefault = useCallback(async (value: boolean) => {
+    startViewTransition(() => {
+      void backgroundApiProxy.serviceSetting.setUseGasAccountByDefault(value);
+    });
+  }, []);
+  return (
+    <TabSettingsListItem {...props} userSelect="none">
+      <Switch
+        testID={SettingTestIDs.tabUseGasAccountByDefaultSwitch}
+        alignSelf="flex-start"
+        size={ESwitchSize.small}
+        value={useGasAccountByDefault ?? true}
+        onChange={toggleUseGasAccountByDefault}
+      />
+    </TabSettingsListItem>
+  );
+}
+
+export function SplitViewListItem(props: ICustomElementProps) {
+  const [{ enableSplitView }] = useSettingsPersistAtom();
+  const checked = enableSplitView !== false;
+  const toggleSplitView = useCallback(
+    async (value: boolean) => {
+      if (value === checked) return;
+      await backgroundApiProxy.serviceSetting.setEnableSplitView(value);
+      // Layout swap requires a fresh app boot; small delay lets the Switch
+      // animate before the native restart kicks in.
+      setTimeout(() => {
+        void backgroundApiProxy.serviceApp.restartApp();
+      }, 200);
+    },
+    [checked],
+  );
+  return (
+    <TabSettingsListItem {...props} userSelect="none">
+      <Switch
+        testID={SettingTestIDs.tabSplitViewSwitch}
+        alignSelf="flex-start"
+        size={ESwitchSize.small}
+        value={checked}
+        onChange={toggleSplitView}
+      />
+    </TabSettingsListItem>
+  );
+}
+
+export function ResetPinListItem(props: ICustomElementProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  const { goToOneKeyIDLoginPageForKeylessWallet } = useKeylessWallet();
+
+  const onPress = useCallback(async () => {
+    try {
+      // Always verify password before proceeding to reset PIN (Security reason forces re-entry)
+      await backgroundApiProxy.servicePassword.promptPasswordVerify({
+        reason: EReasonForNeedPassword.Security,
+      });
+      // Show loading only after password verification succeeds
+      setIsLoading(true);
+      // Reset navigation state to remove modal without triggering tab state change
+      const state = rootNavigationRef.current?.getRootState();
+      if (state) {
+        const filteredRoutes = state.routes.filter(
+          (route) => route.name !== ERootRoutes.Modal,
+        );
+        rootNavigationRef.current?.dispatch(
+          CommonActions.reset({
+            ...state,
+            routes: filteredRoutes,
+            index: filteredRoutes.length - 1,
+          }),
+        );
+      }
+      await goToOneKeyIDLoginPageForKeylessWallet({
+        mode: EOnboardingV2OneKeyIDLoginMode.KeylessResetPin,
+      });
+    } catch {
+      // User cancelled password verification, do nothing
+    } finally {
+      setIsLoading(false);
+    }
+  }, [goToOneKeyIDLoginPageForKeylessWallet]);
+
+  return (
+    <TabSettingsListItem
+      {...props}
+      minHeight="$12"
+      onPress={onPress}
+      isLoading={isLoading}
+      drillIn
+    />
   );
 }

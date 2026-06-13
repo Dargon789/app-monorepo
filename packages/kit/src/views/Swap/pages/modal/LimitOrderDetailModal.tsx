@@ -104,7 +104,7 @@ const LimitOrderDetailModal = () => {
     const calculateLimitPrice = toAmountNum
       .div(fromAmountNum)
       .decimalPlaces(
-        orderItemState?.toTokenInfo.decimals ?? 0,
+        Number(orderItemState?.toTokenInfo.decimals ?? 0),
         BigNumber.ROUND_HALF_UP,
       )
       .toFixed();
@@ -273,6 +273,7 @@ const LimitOrderDetailModal = () => {
           </SizableText>
           {status === ESwapLimitOrderStatus.OPEN ? (
             <Button
+              testID="swap-btn"
               variant="primary"
               size="small"
               onPress={() => {
@@ -387,7 +388,7 @@ const LimitOrderDetailModal = () => {
     const calculateLimitPrice = toAmountNum
       .div(fromAmountNum)
       .decimalPlaces(
-        orderItemState?.toTokenInfo.decimals ?? 0,
+        Number(orderItemState?.toTokenInfo.decimals ?? 0),
         BigNumber.ROUND_HALF_UP,
       );
     if (kind === ESwapQuoteKind.SELL) {
@@ -397,7 +398,7 @@ const LimitOrderDetailModal = () => {
       estimationRunPrice = estimationToAmountBN
         .dividedBy(decimalsAmount.fromAmount)
         .decimalPlaces(
-          orderItemState?.toTokenInfo.decimals ?? 0,
+          Number(orderItemState?.toTokenInfo.decimals ?? 0),
           BigNumber.ROUND_HALF_UP,
         );
       const difValue = estimationRunPrice.minus(calculateLimitPrice);
@@ -414,7 +415,7 @@ const LimitOrderDetailModal = () => {
       estimationRunPrice = decimalsAmount.toAmount
         .dividedBy(estimationFromAmountBN)
         .decimalPlaces(
-          orderItemState?.toTokenInfo.decimals ?? 0,
+          Number(orderItemState?.toTokenInfo.decimals ?? 0),
           BigNumber.ROUND_HALF_UP,
         );
       const difValue = estimationRunPrice.minus(calculateLimitPrice);

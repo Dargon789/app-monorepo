@@ -1,40 +1,74 @@
 import type { ReactNode } from 'react';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { Divider } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
 import { useReviewControl } from '@onekeyhq/kit/src/components/ReviewControl';
 import { getRewardCenterConfig } from '@onekeyhq/kit/src/components/RewardCenter';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
-import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
-import { useDevSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  useAccountSelectorSceneInfo,
+  useActiveAccount,
+} from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import { shouldHideBotWalletExport } from '@onekeyhq/kit/src/utils/botWalletStatusUtils';
+import {
+  useDevSettingsPersistAtom,
+  useSettingsPersistAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { getNetworksSupportBulkRevokeApproval } from '@onekeyhq/shared/src/config/presetNetworks';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
+import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
+import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 
+import { HomeTestIDs } from '../../testIDs';
 import { HomeTokenListProviderMirrorWrapper } from '../HomeTokenListProvider';
 
 import { RawActions } from './RawActions';
 import { useWalletActionConfig } from './useWalletActionConfig';
+import { WalletActionAddressList } from './WalletActionAddressList';
+import { WalletActionApprovals } from './WalletActionApprovals';
+import { WalletActionBulkSend } from './WalletActionBulkSend';
 import { WalletActionBuy } from './WalletActionBuy';
+import { WalletActionCoins } from './WalletActionCoins';
 import { WalletActionCopy } from './WalletActionCopy';
 import { WalletActionExport } from './WalletActionExport';
 import { WalletActionPerp } from './WalletActionPerp';
 import { WalletActionRewardCenter } from './WalletActionRewardCenter';
-import { WalletActionSell } from './WalletActionSell';
 import { WalletActionSignAndVerify } from './WalletActionSignAndVerify';
 import { WalletActionSwap } from './WalletActionSwap';
 import { WalletActionViewInExplorer } from './WalletActionViewInExplorer';
 import { WalletActionVote } from './WalletActionVote';
 
-export function WalletActionMore() {
+export function WalletActionMore({ iconOnly }: { iconOnly?: boolean } = {}) {
   const [devSettings] = useDevSettingsPersistAtom();
   const { activeAccount } = useActiveAccount({ num: 0 });
+  const { sceneName, sceneUrl } = useAccountSelectorSceneInfo();
   const { account, network } = activeAccount;
 
   const show = useReviewControl();
   const { config, getMoreActionGroups, getActionCustomization } =
     useWalletActionConfig();
+
+  const [{ enableBTCFreshAddress }] = useSettingsPersistAtom();
+  const isAddressListEnabled = useMemo(
+    () =>
+      Boolean(account?.id) &&
+      Boolean(network?.id) &&
+      Boolean(activeAccount?.wallet?.id) &&
+      accountUtils.isEnabledBtcFreshAddress({
+        enableBTCFreshAddress,
+        networkId: network?.id,
+        walletId: activeAccount?.wallet?.id,
+      }),
+    [
+      account?.id,
+      network?.id,
+      activeAccount?.wallet?.id,
+      enableBTCFreshAddress,
+    ],
+  );
 
   const rewardCenterConfig = getRewardCenterConfig({
     accountId: account?.id ?? '',
@@ -48,9 +82,50 @@ export function WalletActionMore() {
     return settings;
   }, [network?.id]).result;
 
+  const isCoinsEnabled = useMemo(
+    () =>
+      Boolean(account?.id) &&
+      Boolean(network?.id) &&
+      Boolean(activeAccount?.wallet?.id) &&
+      Boolean(vaultSettings?.coinControlEnabled),
+    [
+      account?.id,
+      activeAccount?.wallet?.id,
+      network?.id,
+      vaultSettings?.coinControlEnabled,
+    ],
+  );
+
   const displaySignAndVerify = usePromiseResult(async () => {
     return vaultSettings?.enabledInternalSignAndVerify;
   }, [vaultSettings]);
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId: activeAccount?.wallet?.id,
+    },
+  );
+
+  const isApprovalEnabled = useMemo(() => {
+    const networksSupportApproval = getNetworksSupportBulkRevokeApproval();
+    if (network?.isAllNetworks) {
+      if (
+        accountUtils.isOthersAccount({
+          accountId: account?.id ?? '',
+        })
+      ) {
+        return networkUtils.isEvmNetwork({
+          networkId: account?.createAtNetwork ?? '',
+        });
+      }
+      return true;
+    }
+    return networksSupportApproval[network?.id ?? ''] ?? false;
+  }, [
+    network?.isAllNetworks,
+    network?.id,
+    account?.id,
+    account?.createAtNetwork,
+  ]);
 
   const renderItemsAsync = useCallback(
     async ({
@@ -66,7 +141,7 @@ export function WalletActionMore() {
         if (!tradingGroup) return null;
 
         const actions = tradingGroup.actions.filter((action) => {
-          if (action === 'buy' || action === 'sell') {
+          if (action === 'buy') {
             return show;
           }
           return config.moreActions.includes(action);
@@ -80,12 +155,9 @@ export function WalletActionMore() {
               return (
                 <WalletActionBuy key="buy" onClose={handleActionListClose} />
               );
-            case 'sell':
-              return (
-                <WalletActionSell key="sell" onClose={handleActionListClose} />
-              );
             case 'swap':
-              return platformEnv.isExtensionUiPopup ? (
+              return platformEnv.isExtensionUiPopup ||
+                platformEnv.isExtensionUiSidePanel ? (
                 <WalletActionPerp
                   key="perp"
                   inList
@@ -118,6 +190,12 @@ export function WalletActionMore() {
               return displaySignAndVerify.result;
             case 'reward':
               return !!rewardCenterConfig;
+            case 'approvals':
+              return isApprovalEnabled;
+            case 'addressList':
+              return isAddressListEnabled;
+            case 'coins':
+              return isCoinsEnabled;
             default:
               return config.moreActions.includes(action);
           }
@@ -138,6 +216,27 @@ export function WalletActionMore() {
               return (
                 <WalletActionCopy key="copy" onClose={handleActionListClose} />
               );
+            case 'addressList':
+              return (
+                <WalletActionAddressList
+                  key="addressList"
+                  onClose={handleActionListClose}
+                />
+              );
+            case 'coins':
+              return (
+                <WalletActionCoins
+                  key="coins"
+                  onClose={handleActionListClose}
+                />
+              );
+            case 'bulkSend':
+              return (
+                <WalletActionBulkSend
+                  key="bulkSend"
+                  onClose={handleActionListClose}
+                />
+              );
             case 'sign':
               return (
                 <WalletActionSignAndVerify
@@ -153,6 +252,13 @@ export function WalletActionMore() {
                   rewardCenterConfig={rewardCenterConfig}
                 />
               ) : null;
+            case 'approvals':
+              return (
+                <WalletActionApprovals
+                  key="approvals"
+                  onClose={handleActionListClose}
+                />
+              );
             case 'vote':
               return (
                 <WalletActionVote
@@ -176,7 +282,13 @@ export function WalletActionMore() {
         const actions = developerGroup.actions.filter((action) => {
           switch (action) {
             case 'export':
-              return devSettings?.settings?.showDevExportPrivateKey;
+              return (
+                devSettings?.settings?.showDevExportPrivateKey &&
+                !shouldHideBotWalletExport({
+                  isBotWallet,
+                  isBotWalletDeactivated,
+                })
+              );
             default:
               return config.moreActions.includes(action);
           }
@@ -223,7 +335,8 @@ export function WalletActionMore() {
       return (
         <AccountSelectorProviderMirror
           config={{
-            sceneName: EAccountSelectorSceneName.home,
+            sceneName,
+            sceneUrl,
           }}
           enabledNum={[0]}
         >
@@ -244,10 +357,23 @@ export function WalletActionMore() {
       vaultSettings?.copyAddressDisabled,
       displaySignAndVerify.result,
       rewardCenterConfig,
+      isApprovalEnabled,
+      isAddressListEnabled,
+      isCoinsEnabled,
       getActionCustomization,
       devSettings?.settings?.showDevExportPrivateKey,
+      isBotWallet,
+      isBotWalletDeactivated,
+      sceneName,
+      sceneUrl,
     ],
   );
 
-  return <RawActions.More renderItemsAsync={renderItemsAsync} />;
+  return (
+    <RawActions.More
+      renderItemsAsync={renderItemsAsync}
+      testID={HomeTestIDs.moreButton}
+      iconOnly={iconOnly}
+    />
+  );
 }

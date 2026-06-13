@@ -1,13 +1,6 @@
 import { useCallback } from 'react';
 
-import {
-  Icon,
-  Image,
-  SizableText,
-  Skeleton,
-  XStack,
-  YStack,
-} from '@onekeyhq/components';
+import { Icon, Image, SizableText, XStack, YStack } from '@onekeyhq/components';
 import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { IMPL_ALGO } from '@onekeyhq/shared/src/engine/engineConsts';
@@ -20,6 +13,7 @@ import {
   type IConnectionStorageType,
 } from '@onekeyhq/shared/types/dappConnection';
 
+import { DAppConnectionTestIDs } from '../../testIDs';
 import { DAppAccountListItem } from '../DAppAccountList';
 
 import type { IHandleAccountChangedParams } from '../../hooks/useHandleAccountChanged';
@@ -69,7 +63,7 @@ function ConnectionListItem({
     [settings.alignPrimaryAccountMode, item.storageType, item.connectionMap],
   );
   return (
-    <YStack gap="$5" p="$5">
+    <YStack gap="$5" p="$5" testID={DAppConnectionTestIDs.ConnectionListItem}>
       <XStack alignItems="center" justifyContent="space-between" gap="$3">
         <XStack flex={1} alignItems="center" gap="$3">
           <Image
@@ -109,6 +103,7 @@ function ConnectionListItem({
             outlineColor: '$focusRing',
             outlineStyle: 'solid',
           }}
+          testID={DAppConnectionTestIDs.ConnectionListDisconnectButton}
           onPress={() => {
             void handleDisconnect(item.origin, item.storageType);
           }}

@@ -2,9 +2,21 @@ export { usePerpsActivePositionAtom } from '../../../states/jotai/contexts/hyper
 export { usePerpsActiveOpenOrdersAtom } from '../../../states/jotai/contexts/hyperliquid/atoms';
 export { usePerpTokenSelector } from './usePerpTokenSelector';
 export { usePerpSession } from './usePerpSession';
+export { usePerpsFavorites, type IFavoriteItem } from './usePerpsFavorites';
 
+export { usePerpActiveTabValidation } from './usePerpActiveTabValidation';
 export { useFundingCountdown } from './useFundingCountdown';
-export { useOrderConfirm } from './useOrderConfirm';
+export { usePrewarmPerpsTokenSelectorImages } from './usePrewarmPerpsTokenSelectorImages';
+export { usePerpsActiveAssetCtxDisplay } from './usePerpsActiveAssetCtxDisplay';
+export {
+  usePopularTickers,
+  type IPopularTickerItem,
+} from './usePopularTickers';
+export {
+  useOrderConfirm,
+  useOrderConfirmWithMarketDataFreshness,
+} from './useOrderConfirm';
+export { usePerpsMarketDataFreshness } from './usePerpsMarketDataFreshness';
 export { useTradingPrice } from './useTradingPrice';
 export { useTradingCalculationsForSide } from './useTradingCalculationsForSide';
 

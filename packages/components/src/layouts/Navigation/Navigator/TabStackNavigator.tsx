@@ -4,9 +4,13 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useIntl } from 'react-intl';
 
 import { useMedia } from '@onekeyhq/components/src/hooks/useStyle';
+import {
+  EAppEventBusNames,
+  appEventBus,
+} from '@onekeyhq/shared/src/eventBus/appEventBus';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
-import { useThemeValue } from '../../../hooks';
+import { useTheme } from '../../../hooks';
 import { makeTabScreenOptions } from '../GlobalScreenOptions';
 import { createStackNavigator } from '../StackNavigator';
 import NavigationBar from '../Tab/TabBar';
@@ -18,31 +22,13 @@ const Stack = createStackNavigator();
 
 function BasicTabSubStackNavigator({
   config,
-  delay,
 }: {
   config: ITabSubNavigatorConfig<string, any>[] | null;
-  delay?: number;
 }) {
-  const delayNumber = useMemo(() => {
-    return platformEnv.isNative || platformEnv.isDesktop ? delay : 0;
-  }, [delay]);
-  const [bgColor, titleColor] = useThemeValue(['bgApp', 'text']);
+  const theme = useTheme();
   const intl = useIntl();
-  const [isMounted, setIsMounted] = useState(!(delayNumber && delayNumber > 0));
-  useEffect(() => {
-    if (!delayNumber) {
-      return;
-    }
-    const timer = setTimeout(() => {
-      setIsMounted(true);
-    }, delayNumber + 100);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [delayNumber]);
 
-  // Handle null config case - return null to avoid creating empty Stack.Navigator
-  if (!isMounted || !config || config.length === 0) {
+  if (!config || config.length === 0) {
     return null;
   }
 
@@ -50,23 +36,31 @@ function BasicTabSubStackNavigator({
     <Stack.Navigator>
       {config
         .filter(({ disable }) => !disable)
-        .map(({ name, component, translationId, headerShown = true }) => (
-          <Stack.Screen
-            key={name}
-            name={name}
-            component={component}
-            options={({ navigation }: { navigation: any }) => ({
-              freezeOnBlur: true,
-              title: translationId
-                ? intl.formatMessage({
-                    id: translationId,
-                  })
-                : '',
-              ...makeTabScreenOptions({ navigation, bgColor, titleColor }),
-              headerShown,
-            })}
-          />
-        ))}
+        .map(({ name, component, translationId, headerShown = true }) => {
+          // eslint-disable-next-line react-perf/jsx-no-new-function-as-prop
+          const screenOptions = ({ navigation }: { navigation: any }) => ({
+            freezeOnBlur: true,
+            title: translationId
+              ? intl.formatMessage({
+                  id: translationId,
+                })
+              : '',
+            ...makeTabScreenOptions({
+              navigation,
+              bgColor: theme.bgApp.val,
+              titleColor: theme.text.val,
+            }),
+            headerShown,
+          });
+          return (
+            <Stack.Screen
+              key={name}
+              name={name}
+              component={component}
+              options={screenOptions}
+            />
+          );
+        })}
     </Stack.Navigator>
   );
 }
@@ -77,6 +71,14 @@ export const TabSubStackNavigator = TabSubStackNavigatorMemo;
 
 const Tab = createBottomTabNavigator();
 
+const emptyTabBar = () => null;
+
+const tabScreenOptions = {
+  headerShown: false,
+  freezeOnBlur: true,
+  lazy: false,
+};
+
 const useTabBarPosition = platformEnv.isNative
   ? () => 'bottom' as const
   : () => {
@@ -84,30 +86,46 @@ const useTabBarPosition = platformEnv.isNative
       return media.md ? 'bottom' : 'left';
     };
 
-const GAP_TIME = 250;
 export function TabStackNavigator<RouteName extends string>({
   config,
   extraConfig,
   showTabBar = true,
+  bottomMenu,
+  webPageTabBar,
 }: ITabNavigatorProps<RouteName>) {
   const intl = useIntl();
+  const [tabBarHidden, setTabBarHidden] = useState(false);
+
+  useEffect(() => {
+    const handler = (hidden: boolean) => {
+      setTabBarHidden((prev) => (prev === hidden ? prev : hidden));
+    };
+    appEventBus.on(EAppEventBusNames.HideTabBar, handler);
+    return () => {
+      appEventBus.off(EAppEventBusNames.HideTabBar, handler);
+    };
+  }, []);
+
   const tabBarCallback = useCallback(
     (props: BottomTabBarProps) => (
-      <NavigationBar {...props} extraConfig={extraConfig} />
+      <NavigationBar
+        {...props}
+        extraConfig={extraConfig}
+        bottomMenu={bottomMenu}
+        webPageTabBar={webPageTabBar}
+      />
     ),
-    [extraConfig],
+    [webPageTabBar, bottomMenu, extraConfig],
   );
 
   const tabComponents = useMemo(
     () =>
       config
         .filter(({ disable }) => !disable)
-        .map(({ children, ...options }, index) => ({
+        .map(({ children, ...options }) => ({
           ...options,
           // eslint-disable-next-line react/no-unstable-nested-components
-          children: () => (
-            <TabSubStackNavigator config={children} delay={index * GAP_TIME} />
-          ),
+          children: () => <TabSubStackNavigator config={children} />,
         })),
     [config],
   );
@@ -115,38 +133,39 @@ export function TabStackNavigator<RouteName extends string>({
   const tabBarPosition = useTabBarPosition();
 
   const tabScreens = useMemo(() => {
-    const screens = tabComponents.map(({ name, children, ...options }) => (
-      <Tab.Screen
-        key={name}
-        name={name}
-        options={{
-          ...options,
-          tabBarLabel: intl.formatMessage({ id: options.translationId }),
-          tabBarPosition,
-          // @ts-expect-error Custom property for tab bar handling
-          collapseTabBarLabel: options.collapseSideBarTranslationId
-            ? intl.formatMessage({ id: options.collapseSideBarTranslationId })
-            : undefined,
-          hideOnTabBar: options.hideOnTabBar,
-          tabbarOnPress: options.tabbarOnPress,
-        }}
-      >
-        {children}
-      </Tab.Screen>
-    ));
+    const screens = tabComponents.map(({ name, children, ...options }) => {
+      // eslint-disable-next-line react-perf/jsx-no-new-object-as-prop
+      const screenOptions = {
+        ...options,
+        tabBarLabel: intl.formatMessage({ id: options.translationId }),
+        tabBarPosition,
+        collapseTabBarLabel: options.collapseSideBarTranslationId
+          ? intl.formatMessage({ id: options.collapseSideBarTranslationId })
+          : undefined,
+        hideOnTabBar: options.hideOnTabBar,
+        tabbarOnPress: options.tabbarOnPress,
+      } as any;
+      return (
+        <Tab.Screen key={name} name={name} options={screenOptions}>
+          {children}
+        </Tab.Screen>
+      );
+    });
 
     if (extraConfig) {
       const children = () => (
         <TabSubStackNavigator config={extraConfig.children} />
       );
+      // eslint-disable-next-line react-perf/jsx-no-new-object-as-prop
+      const extraScreenOptions = {
+        freezeOnBlur: true,
+        tabBarPosition,
+      } as any;
       screens.push(
         <Tab.Screen
           key={extraConfig.name}
           name={extraConfig.name}
-          options={{
-            freezeOnBlur: true,
-            tabBarPosition,
-          }}
+          options={extraScreenOptions}
         >
           {children}
         </Tab.Screen>,
@@ -157,12 +176,8 @@ export function TabStackNavigator<RouteName extends string>({
 
   return (
     <Tab.Navigator
-      tabBar={showTabBar ? tabBarCallback : () => null}
-      screenOptions={{
-        headerShown: false,
-        freezeOnBlur: true,
-        lazy: false,
-      }}
+      tabBar={showTabBar && !tabBarHidden ? tabBarCallback : emptyTabBar}
+      screenOptions={tabScreenOptions}
     >
       {tabScreens}
     </Tab.Navigator>

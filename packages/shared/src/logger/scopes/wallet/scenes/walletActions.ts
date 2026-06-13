@@ -15,6 +15,10 @@ export type IWalletActionBaseParams = {
     | 'earn'
     | 'swap'
     | 'accountSelector';
+  // Optional sub-UI marker within `source`. Currently used by home-page
+  // Receive to distinguish the collapsed Add-Money CTA from the full row,
+  // so analytics can compare conversion between the two variants.
+  variant?: 'home_add_money' | 'home_full_row';
   isSoftwareWalletOnlyUser: boolean;
 };
 
@@ -101,6 +105,13 @@ export class WalletActionsScene extends BaseScene {
   }
 
   @LogToServer()
+  public actionApprovals(
+    params: Omit<IWalletActionBaseParams, 'isSoftwareWalletOnlyUser'>,
+  ) {
+    return params;
+  }
+
+  @LogToServer()
   public actionStaking(params: IWalletActionBaseParams) {
     return params;
   }
@@ -136,6 +147,23 @@ export class WalletActionsScene extends BaseScene {
       networkName,
       details,
     };
+  }
+
+  @LogToServer()
+  public zeroNativeBalanceDialog({
+    action,
+    networkId,
+    tokenSymbol,
+    walletType,
+    sendFlowId,
+  }: {
+    action: 'shown' | 'receive' | 'buy' | 'continue';
+    networkId: string;
+    tokenSymbol: string;
+    walletType: string;
+    sendFlowId?: string;
+  }) {
+    return { action, networkId, tokenSymbol, walletType, sendFlowId };
   }
 
   @LogToServer()

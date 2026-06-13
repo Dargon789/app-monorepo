@@ -30,12 +30,11 @@ import { ListItem } from '../../../components/ListItem';
 import { Token } from '../../../components/Token';
 import useAppNavigation from '../../../hooks/useAppNavigation';
 import { useActiveAccount } from '../../../states/jotai/contexts/accountSelector';
-import {
-  useEarnActions,
-  useEarnAtom,
-} from '../../../states/jotai/contexts/earn';
+import { useEarnAtom } from '../../../states/jotai/contexts/earn';
 import { EarnActionIcon } from '../../Staking/components/ProtocolDetails/EarnActionIcon';
 import { EarnText } from '../../Staking/components/ProtocolDetails/EarnText';
+import { useEarnAccountKey } from '../hooks/useEarnAccountKey';
+import { EarnTestIDs } from '../testIDs';
 import { getNumberColor } from '../utils/getNumberColor';
 
 const Rebate = ({
@@ -104,7 +103,7 @@ const Rebate = ({
         renderTrigger={
           <XStack cursor="pointer" ai="center">
             <EarnText
-              size="$bodySmMedium"
+              size="$bodyMd"
               color="$textSubdued"
               text={rebateData?.title}
             />
@@ -134,11 +133,7 @@ const Rebate = ({
                 children: (
                   <>
                     <XStack ai="center" gap="$2.5">
-                      <Token
-                        size="sm"
-                        borderRadius="$2"
-                        tokenImageUri={item.token.logoURI}
-                      />
+                      <Token size="sm" tokenImageUri={item.token.logoURI} />
                       <EarnText
                         size="$bodyMdMedium"
                         color="$text"
@@ -166,11 +161,7 @@ const Rebate = ({
                 children: (
                   <XStack ai="center" jc="space-between" w="100%">
                     <XStack gap="$2.5" ai="center">
-                      <Token
-                        size="sm"
-                        borderRadius="$2"
-                        tokenImageUri={item.token.logoURI}
-                      />
+                      <Token size="sm" tokenImageUri={item.token.logoURI} />
                       <EarnText
                         size="$bodyMdMedium"
                         color="$text"
@@ -189,7 +180,7 @@ const Rebate = ({
             <Stack
               bg="$bgSubdued"
               mt="$2.5"
-              px="$5"
+              px="$pagePadding"
               py="$3.5"
               borderTopWidth={1}
               borderTopColor="$borderSubdued"
@@ -210,34 +201,30 @@ const Rebate = ({
 const OverviewComponent = ({
   isLoading,
   onRefresh,
+  displayTotalFiatValue,
+  displayEarnings24h,
 }: {
   isLoading: boolean;
   onRefresh: () => void;
+  displayTotalFiatValue?: string;
+  displayEarnings24h?: string;
 }) => {
   const {
     activeAccount: { account, indexedAccount },
   } = useActiveAccount({ num: 0 });
-  const actions = useEarnActions();
-  const allNetworkId = getNetworkIdsMap().onekeyall;
-  const totalFiatMapKey = useMemo(
-    () =>
-      actions.current.buildEarnAccountsKey({
-        accountId: account?.id,
-        indexAccountId: indexedAccount?.id,
-        networkId: allNetworkId,
-      }),
-    [account?.id, actions, allNetworkId, indexedAccount?.id],
-  );
+  const totalFiatMapKey = useEarnAccountKey();
   const [{ earnAccount }] = useEarnAtom();
   const [settings] = useSettingsPersistAtom();
-  const totalFiatValue = useMemo(
+  const rawTotalFiatValue = useMemo(
     () => earnAccount?.[totalFiatMapKey]?.totalFiatValue || '0',
     [earnAccount, totalFiatMapKey],
   );
-  const earnings24h = useMemo(
+  const totalFiatValue = displayTotalFiatValue ?? rawTotalFiatValue;
+  const rawEarnings24h = useMemo(
     () => earnAccount?.[totalFiatMapKey]?.earnings24h || '0',
     [earnAccount, totalFiatMapKey],
   );
+  const earnings24h = displayEarnings24h ?? rawEarnings24h;
   const evmNetworkId = useMemo(() => getNetworkIdsMap().eth, []);
   const evmAccount = useMemo(() => {
     return earnAccount?.[totalFiatMapKey]?.accounts?.find(
@@ -264,10 +251,10 @@ const OverviewComponent = ({
   );
 
   const handleHistoryPress = useCallback(async () => {
-    if (!evmAccount || !account?.id) return;
+    if (!evmAccount) return;
     const currentEarnAccount =
       await backgroundApiProxy.serviceStaking.getEarnAccount({
-        accountId: account.id,
+        accountId: account?.id || '',
         indexedAccountId: indexedAccount?.id || '',
         networkId: evmNetworkId,
         btcOnlyTaproot: true,
@@ -307,7 +294,8 @@ const OverviewComponent = ({
 
   return (
     <YStack
-      gap="$1"
+      testID={EarnTestIDs.portfolioOverview}
+      gap={8}
       px="$0"
       flex={1}
       $gtLg={{
@@ -331,7 +319,8 @@ const OverviewComponent = ({
         <XStack gap="$3" ai="center">
           <NumberSizeableText
             size="$heading5xl"
-            formatter="price"
+            fontWeight={400}
+            formatter="value"
             color={getNumberColor(totalFiatValue, '$text')}
             formatterOptions={{ currency: settings.currencyInfo.symbol }}
             numberOfLines={1}
@@ -340,6 +329,7 @@ const OverviewComponent = ({
             {totalFiatValue}
           </NumberSizeableText>
           <IconButton
+            testID="earn-icon-btn"
             icon="RefreshCcwOutline"
             variant="tertiary"
             loading={isLoading}
@@ -357,16 +347,17 @@ const OverviewComponent = ({
         }}
       >
         <NumberSizeableText
-          formatter="price"
+          formatter="value"
           formatterOptions={{
             currency: settings.currencyInfo.symbol,
             showPlusMinusSigns: Number(earnings24h) !== 0,
           }}
-          size="$bodyLgMedium"
+          size="$bodyMdMedium"
           color={getNumberColor(earnings24h)}
           numberOfLines={1}
           $gtLg={{
             size: '$heading5xl',
+            fontWeight: 400,
           }}
           pointerEvents="box-none"
         >
@@ -374,7 +365,7 @@ const OverviewComponent = ({
         </NumberSizeableText>
         <XStack gap="$1.5" alignItems="center">
           <SizableText
-            size="$bodyLg"
+            size="$bodyMdMedium"
             color="$textSubdued"
             $gtLg={{
               pl: '$0.5',
@@ -389,6 +380,7 @@ const OverviewComponent = ({
             placement="bottom-start"
             renderTrigger={
               <IconButton
+                testID="earn-icon-btn"
                 variant="tertiary"
                 size="small"
                 icon="InfoCircleOutline"
@@ -398,7 +390,7 @@ const OverviewComponent = ({
               id: ETranslations.earn_24h_earnings,
             })}
             renderContent={
-              <SizableText px="$5" py="$4">
+              <SizableText px="$pagePadding" py="$4">
                 {intl.formatMessage({
                   id: ETranslations.earn_24h_earnings_tooltip,
                 })}
@@ -408,9 +400,9 @@ const OverviewComponent = ({
         </XStack>
       </XStack>
 
-      {shouldShowReferralBonus ? (
+      {shouldShowReferralBonus && rebateData ? (
         <Rebate
-          rebateData={rebateData!}
+          rebateData={rebateData}
           handleHistoryPress={handleHistoryPress}
         />
       ) : null}

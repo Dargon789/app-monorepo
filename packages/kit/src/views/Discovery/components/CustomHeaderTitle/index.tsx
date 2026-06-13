@@ -8,6 +8,7 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { useUrlRiskConfig } from '../../hooks/useUrlRiskConfig';
 import { useActiveTabId, useWebTabDataById } from '../../hooks/useWebTabs';
 import { withBrowserProvider } from '../../pages/Browser/WithBrowserProvider';
+import { DiscoveryTestIDs } from '../../testIDs';
 import { formatHiddenHttpsUrl } from '../../utils/explorerUtils';
 import { DappInfoPopoverContent } from '../DappInfoPopoverContent';
 
@@ -83,12 +84,12 @@ function CustomHeaderTitle({ handleSearchBarPress }: ICustomHeaderTitleProps) {
         color="$textSubdued"
         flex={1}
         numberOfLines={1}
-        testID="explore-index-search"
+        testID={DiscoveryTestIDs.searchBar}
       >
         {displayUrl
           ? hiddenHttpsUrl
           : intl.formatMessage({
-              id: ETranslations.global_universal_search_placeholder,
+              id: ETranslations.browser_search_dapp_or_enter_url,
             })}
       </SizableText>
     </XStack>

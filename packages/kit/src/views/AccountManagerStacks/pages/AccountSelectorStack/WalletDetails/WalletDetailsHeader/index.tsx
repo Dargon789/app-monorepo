@@ -29,6 +29,8 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 
+import { AccountManagerTestIDs } from '../testIDs';
+
 import type { IWalletDetailsProps } from '..';
 
 type IWalletDetailsHeaderProps = {
@@ -52,15 +54,15 @@ export function WalletDetailsHeader({
   const actions = useAccountSelectorActions();
   const intl = useIntl();
 
-  const showAboutDevice =
+  const _showAboutDevice =
     accountUtils.isHwWallet({ walletId: wallet?.id }) &&
     !accountUtils.isHwHiddenWallet({ wallet });
-  const showRemoveButton = wallet?.id
+  const _showRemoveButton = wallet?.id
     ? !accountUtils.isOthersWallet({
         walletId: wallet?.id,
       })
     : false;
-  const isBackupRequired = useMemo(
+  const _isBackupRequired = useMemo(
     () => wallet?.type === WALLET_TYPE_HD && !wallet.backuped,
     [wallet],
   );
@@ -75,7 +77,7 @@ export function WalletDetailsHeader({
 
   return (
     <YStack
-      testID="account-selector-header"
+      testID={AccountManagerTestIDs.accountSelectorHeader}
       py="$1"
       {...(rest as IYStackProps)}
     >
@@ -126,7 +128,7 @@ export function WalletDetailsHeader({
             </SizableText>
           ) : null}
           {!platformEnv.isWebDappMode && wallet ? (
-            <WalletRenameButton wallet={wallet} editable={editable} />
+            <WalletRenameButton wallet={wallet} editable={editable} mr="$1.5" />
           ) : null}
         </XStack>
 
@@ -153,6 +155,7 @@ export function WalletDetailsHeader({
             }
             renderSelectorTrigger={
               <IconButton
+                testID="account-manager-icon-btn"
                 onPress={() => {}}
                 icon="BranchesOutline"
                 variant="tertiary"

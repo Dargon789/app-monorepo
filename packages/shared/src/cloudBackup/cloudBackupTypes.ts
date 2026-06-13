@@ -1,5 +1,3 @@
-import { ICloudKeyPackEncryptedData } from '../keylessWallet/keylessWalletTypes';
-
 import type {
   IPrimeTransferData,
   IPrimeTransferPublicData,
@@ -17,6 +15,12 @@ import type {
 export enum ECloudBackupProviderType {
   iCloud = 'iCloud',
   GoogleDrive = 'GoogleDrive',
+}
+
+export enum ERestoreResult {
+  SUCCESS = 'success',
+  WRONG_PASSWORD = 'wrong_password',
+  UNKNOWN_ERROR = 'unknown_error',
 }
 
 export type IBackupCloudServerData = {

@@ -1,30 +1,89 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
+import { useIntl } from 'react-intl';
+import { StyleSheet } from 'react-native';
 
 import {
   Badge,
   Dialog,
   Empty,
+  Icon,
   SizableText,
   Skeleton,
   XStack,
   YStack,
+  useMedia,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { Token } from '@onekeyhq/kit/src/components/Token';
+import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import earnUtils from '@onekeyhq/shared/src/utils/earnUtils';
+import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
+import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 import type { IEarnAvailableAsset } from '@onekeyhq/shared/types/earn';
 import { EStakeProtocolGroupEnum } from '@onekeyhq/shared/types/staking';
-import type { IStakeProtocolListItem } from '@onekeyhq/shared/types/staking';
+import type {
+  IEarnManagePageActionData,
+  IEarnManagePageResponse,
+  IStakeProtocolListItem,
+} from '@onekeyhq/shared/types/staking';
 
+import {
+  ProtocolImage,
+  formatTvl,
+} from '../../Staking/components/ProtocolDisplayShared';
 import { capitalizeString } from '../../Staking/utils/utils';
 
 import { AprText } from './AprText';
+import { shouldShowProtocolListBalances } from './showProtocolListDialog.utils';
+
+import type { IntlShape } from 'react-intl';
+
+type ISelectedProtocol = {
+  networkId: string;
+  provider: string;
+  vault?: string;
+};
+
+type IProtocolBalanceInfo = {
+  balanceParsed: string;
+};
+
+type IProtocolBalanceMap = Record<string, IProtocolBalanceInfo>;
+
+function getProtocolKey({ networkId, provider, vault }: ISelectedProtocol) {
+  return `${provider.toLowerCase()}-${networkId}-${vault ?? ''}`;
+}
+
+function getProtocolVault(item: IStakeProtocolListItem) {
+  return earnUtils.shouldSendEarnProtocolVault({
+    providerName: item.provider.name,
+  })
+    ? item.provider.vault
+    : undefined;
+}
+
+function getProtocolItemKey(item: IStakeProtocolListItem) {
+  return getProtocolKey({
+    networkId: item.network.networkId,
+    provider: item.provider.name,
+    vault: getProtocolVault(item),
+  });
+}
+
+function getManagePageDepositAction(
+  managePageData: IEarnManagePageResponse,
+): IEarnManagePageActionData | undefined {
+  const isSwapManagePage = !!(managePageData.buy || managePageData.sell);
+  if (isSwapManagePage) {
+    return managePageData.buy?.payButton ?? managePageData.deposit;
+  }
+  return managePageData.deposit ?? managePageData.buy?.payButton;
+}
 
 // Adapter function to convert IStakeProtocolListItem to IEarnAvailableAsset format
 const createAssetFromProtocol = (
@@ -48,21 +107,23 @@ interface IProtocolSection {
   group: EStakeProtocolGroupEnum;
 }
 
+type IProtocolListVariant = 'dialog' | 'switcher';
+
 // Get section title based on group
-const getSectionTitle = (group: string): string => {
+const getSectionTitle = (group: string, intl: IntlShape): string => {
   switch (group) {
     case EStakeProtocolGroupEnum.Available:
-      return appLocale.intl.formatMessage({
+      return intl.formatMessage({
         id: ETranslations.earn_available_to_deposit,
       });
     case EStakeProtocolGroupEnum.WithdrawOnly:
-      return appLocale.intl.formatMessage({
+      return intl.formatMessage({
         id: ETranslations.earn_withdrawal_only,
       });
     case EStakeProtocolGroupEnum.Deposited:
-      return appLocale.intl.formatMessage({ id: ETranslations.earn_deposited });
+      return intl.formatMessage({ id: ETranslations.earn_deposited });
     case EStakeProtocolGroupEnum.Unavailable:
-      return appLocale.intl.formatMessage({
+      return intl.formatMessage({
         id: ETranslations.provider_unavailable,
       });
     default:
@@ -73,15 +134,20 @@ const getSectionTitle = (group: string): string => {
 // Group protocols by their group field
 const groupProtocolsByGroup = (
   protocols: IStakeProtocolListItem[],
+  intl: IntlShape,
 ): IProtocolSection[] => {
-  const grouped = protocols.reduce((acc, protocol) => {
-    const group = protocol.provider.group || EStakeProtocolGroupEnum.Available;
-    if (!acc[group]) {
-      acc[group] = [];
-    }
-    acc[group].push(protocol);
-    return acc;
-  }, {} as Record<string, IStakeProtocolListItem[]>);
+  const grouped = protocols.reduce(
+    (acc, protocol) => {
+      const group =
+        protocol.provider.group || EStakeProtocolGroupEnum.Available;
+      if (!acc[group]) {
+        acc[group] = [];
+      }
+      acc[group].push(protocol);
+      return acc;
+    },
+    {} as Record<string, IStakeProtocolListItem[]>,
+  );
 
   // Convert to sections array and sort by group priority
   const groupOrder = [
@@ -95,7 +161,7 @@ const groupProtocolsByGroup = (
   groupOrder.forEach((group) => {
     if (grouped[group] && grouped[group].length > 0) {
       sections.push({
-        title: getSectionTitle(group),
+        title: getSectionTitle(group, intl),
         data: grouped[group],
         group,
       });
@@ -109,7 +175,7 @@ const groupProtocolsByGroup = (
       grouped[group].length > 0
     ) {
       sections.push({
-        title: getSectionTitle(group),
+        title: getSectionTitle(group, intl),
         data: grouped[group],
         group: group as EStakeProtocolGroupEnum,
       });
@@ -119,25 +185,65 @@ const groupProtocolsByGroup = (
   return sections;
 };
 
-function ProtocolListDialogContent({
+const getProtocolAprValue = (item: IStakeProtocolListItem) => {
+  const aprText =
+    item.aprInfo?.highlight?.text ||
+    item.aprInfo?.normal?.text ||
+    item.aprInfo?.deprecated?.text ||
+    `${BigNumber(item.provider.aprWithoutFee || 0).toFixed(2)} ${item.provider.rewardUnit || 'APR'}`;
+
+  return aprText.replace(/\s*(APR|APY)\s*$/iu, '').trim();
+};
+
+export function ProtocolListContent({
   symbol,
   accountId,
   indexedAccountId,
   filterNetworkId,
+  selectedProtocol,
   onProtocolSelect,
+  protocols,
+  isLoading: isLoadingProp,
+  isOpen = true,
+  variant = 'dialog',
 }: {
   symbol: string;
   accountId: string;
   indexedAccountId?: string;
   filterNetworkId?: string;
+  selectedProtocol?: ISelectedProtocol;
   onProtocolSelect: (protocol: IStakeProtocolListItem) => Promise<void>;
+  protocols?: IStakeProtocolListItem[];
+  isLoading?: boolean;
+  isOpen?: boolean;
+  variant?: IProtocolListVariant;
 }) {
-  const [protocolData, setProtocolData] = useState<IProtocolSection[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const intl = useIntl();
+  const [fetchedProtocols, setFetchedProtocols] = useState<
+    IStakeProtocolListItem[]
+  >([]);
+  const [isFetching, setIsFetching] = useState(protocols === undefined);
+  const media = useMedia();
+  const selectedProtocolKey = useMemo(
+    () => (selectedProtocol ? getProtocolKey(selectedProtocol) : undefined),
+    [selectedProtocol],
+  );
+  const shouldFetchProtocols = protocols === undefined;
+  const switcherContentContainerProps = useMemo(
+    () =>
+      media.gtMd
+        ? { p: '$1' as const, pb: '$2' as const }
+        : { px: '$3' as const, pb: '$8' as const },
+    [media.gtMd],
+  );
 
   const fetchProtocolData = useCallback(async () => {
+    if (!shouldFetchProtocols) {
+      return;
+    }
+
     try {
-      setIsLoading(true);
+      setIsFetching(true);
 
       const data = await backgroundApiProxy.serviceStaking.getProtocolList({
         symbol,
@@ -146,18 +252,122 @@ function ProtocolListDialogContent({
         filterNetworkId,
       });
 
-      const groupedData = groupProtocolsByGroup(data);
-      setProtocolData(groupedData);
-    } catch (error) {
-      setProtocolData([]);
+      setFetchedProtocols(data);
+    } catch (_error) {
+      setFetchedProtocols([]);
     } finally {
-      setIsLoading(false);
+      setIsFetching(false);
     }
-  }, [symbol, accountId, indexedAccountId, filterNetworkId]);
+  }, [
+    accountId,
+    filterNetworkId,
+    indexedAccountId,
+    shouldFetchProtocols,
+    symbol,
+  ]);
 
   useEffect(() => {
-    void fetchProtocolData();
-  }, [fetchProtocolData]);
+    if (shouldFetchProtocols) {
+      void fetchProtocolData();
+    }
+  }, [fetchProtocolData, shouldFetchProtocols]);
+
+  const resolvedProtocols = useMemo(
+    () => protocols ?? fetchedProtocols,
+    [fetchedProtocols, protocols],
+  );
+  const isLoading = shouldFetchProtocols ? isFetching : !!isLoadingProp;
+  const protocolData = useMemo(
+    () => groupProtocolsByGroup(resolvedProtocols, intl),
+    [resolvedProtocols, intl],
+  );
+  const flatProtocolData = useMemo(
+    () => protocolData.flatMap((section) => section.data),
+    [protocolData],
+  );
+  const shouldShowProtocolBalances = useMemo(
+    () => shouldShowProtocolListBalances(flatProtocolData),
+    [flatProtocolData],
+  );
+  const {
+    result: protocolBalanceMap = {},
+    isLoading: isProtocolBalanceLoading,
+  } = usePromiseResult(
+    async () => {
+      if (
+        variant !== 'switcher' ||
+        !isOpen ||
+        !shouldShowProtocolBalances ||
+        flatProtocolData.length === 0 ||
+        (!accountId && !indexedAccountId)
+      ) {
+        return {};
+      }
+
+      const results = await Promise.allSettled(
+        flatProtocolData.map(async (protocol) => {
+          const networkId = protocol.network.networkId;
+          const earnAccount =
+            await backgroundApiProxy.serviceStaking.getEarnAccount({
+              accountId,
+              indexedAccountId,
+              networkId,
+              btcOnlyTaproot: true,
+            });
+
+          if (!earnAccount?.accountAddress) {
+            return undefined;
+          }
+
+          const managePageData =
+            await backgroundApiProxy.serviceStaking.getManagePage({
+              accountId: earnAccount.accountId,
+              networkId,
+              symbol,
+              provider: protocol.provider.name,
+              vault: getProtocolVault(protocol),
+              accountAddress: earnAccount.accountAddress,
+              publicKey: networkUtils.isBTCNetwork(networkId)
+                ? earnAccount.account.pub
+                : undefined,
+            });
+          const actionData = getManagePageDepositAction(managePageData);
+          const balance = actionData?.data?.balance;
+          if (balance === undefined || balance === null || balance === '') {
+            return undefined;
+          }
+
+          const balanceBN = BigNumber(balance);
+          return {
+            key: getProtocolItemKey(protocol),
+            balanceParsed: balanceBN.isNaN() ? '0' : balanceBN.toFixed(),
+          };
+        }),
+      );
+
+      return results.reduce<IProtocolBalanceMap>((acc, result) => {
+        if (result.status === 'fulfilled' && result.value) {
+          acc[result.value.key] = {
+            balanceParsed: result.value.balanceParsed,
+          };
+        }
+        return acc;
+      }, {});
+    },
+    [
+      accountId,
+      flatProtocolData,
+      indexedAccountId,
+      isOpen,
+      shouldShowProtocolBalances,
+      symbol,
+      variant,
+    ],
+    {
+      initResult: {},
+      watchLoading: true,
+    },
+  );
 
   const handleProtocolPress = useCallback(
     async (protocol: IStakeProtocolListItem) => {
@@ -166,9 +376,9 @@ function ProtocolListDialogContent({
     [onProtocolSelect],
   );
 
-  const renderSectionHeader = useCallback(
+  const renderDialogSectionHeader = useCallback(
     ({ section }: { section: IProtocolSection }) => (
-      <YStack px="$5" pb="$2" h={28}>
+      <YStack px="$pagePadding" pb="$2" h={28}>
         <SizableText
           size="$bodyMdMedium"
           color={
@@ -184,62 +394,199 @@ function ProtocolListDialogContent({
     [],
   );
 
-  const renderItem = useCallback(
-    ({ item }: { item: IStakeProtocolListItem }) => (
-      <ListItem
-        userSelect="none"
-        onPress={() => handleProtocolPress(item)}
-        borderRadius="$2"
-        borderCurve="continuous"
-        pressStyle={{ backgroundColor: '$bgHover' }}
-        px="$2.5"
-        mx="$2.5"
-        h={62}
-      >
-        <Token
-          size="lg"
+  const renderDialogItem = useCallback(
+    ({ item }: { item: IStakeProtocolListItem }) => {
+      const isSelected =
+        selectedProtocolKey !== undefined &&
+        getProtocolItemKey(item) === selectedProtocolKey;
+
+      return (
+        <ListItem
+          userSelect="none"
+          onPress={() => handleProtocolPress(item)}
           borderRadius="$2"
-          tokenImageUri={item.provider.logoURI}
-          networkImageUri={item.network.logoURI}
-        />
-        <ListItem.Text
-          flex={1}
-          primary={
-            <XStack ai="center" gap="$1.5">
-              <SizableText>{capitalizeString(item.provider.name)}</SizableText>
-              {item.provider.badges?.map((badge) => (
-                <Badge
-                  key={badge.tag}
-                  badgeType={badge.badgeType}
-                  badgeSize="sm"
-                >
-                  <Badge.Text>{badge.tag}</Badge.Text>
-                </Badge>
-              ))}
-            </XStack>
-          }
-          secondary={item.provider.description || ''}
-        />
-        <ListItem.Text
-          alignSelf="flex-start"
-          primary={<AprText asset={createAssetFromProtocol(item)} />}
-        />
-      </ListItem>
-    ),
-    [handleProtocolPress],
+          borderCurve="continuous"
+          borderWidth={StyleSheet.hairlineWidth}
+          borderColor={isSelected ? '$borderActive' : '$transparent'}
+          bg={isSelected ? '$bgSubdued' : undefined}
+          hoverStyle={{
+            backgroundColor: isSelected ? '$bgSubdued' : '$bgHover',
+          }}
+          pressStyle={{
+            backgroundColor: isSelected ? '$bgSubdued' : '$bgHover',
+          }}
+          px="$2.5"
+          mx="$2.5"
+          h={62}
+        >
+          <Token
+            size="lg"
+            borderRadius="$2"
+            tokenImageUri={item.provider.logoURI}
+            networkImageUri={item.network.logoURI}
+          />
+          <ListItem.Text
+            flex={1}
+            primary={
+              <XStack ai="center" gap="$1.5">
+                <SizableText>
+                  {capitalizeString(item.provider.name)}
+                </SizableText>
+                {item.provider.badges?.map((badge) => (
+                  <Badge
+                    key={badge.tag}
+                    badgeType={badge.badgeType}
+                    badgeSize="sm"
+                  >
+                    <Badge.Text>{badge.tag}</Badge.Text>
+                  </Badge>
+                ))}
+              </XStack>
+            }
+            secondary={item.provider.description || ''}
+          />
+          <XStack alignItems="center" alignSelf="flex-start" gap="$2">
+            <ListItem.Text
+              alignSelf="flex-start"
+              primary={<AprText asset={createAssetFromProtocol(item)} />}
+            />
+            {isSelected ? (
+              <Icon
+                name="Checkmark1SmallSolid"
+                size="$4.5"
+                color="$iconSuccess"
+              />
+            ) : null}
+          </XStack>
+        </ListItem>
+      );
+    },
+    [handleProtocolPress, selectedProtocolKey],
+  );
+
+  const renderSwitcherItem = useCallback(
+    ({ item }: { item: IStakeProtocolListItem }) => {
+      const protocolKey = getProtocolItemKey(item);
+      const isSelected =
+        selectedProtocolKey !== undefined &&
+        protocolKey === selectedProtocolKey;
+      const tvlText = formatTvl(item.provider.tvl);
+      const secondaryText = [
+        item.provider.vaultName,
+        tvlText ? `TVL ${tvlText}` : undefined,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const balanceInfo = protocolBalanceMap[protocolKey];
+      const balanceText = balanceInfo
+        ? numberFormat(balanceInfo.balanceParsed, { formatter: 'balance' })
+        : undefined;
+
+      return (
+        <XStack
+          key={protocolKey}
+          role="button"
+          userSelect="none"
+          alignItems="center"
+          gap="$3"
+          px="$2"
+          py="$2"
+          mx="$1"
+          borderRadius="$2"
+          bg={isSelected ? '$bgActive' : '$transparent'}
+          hoverStyle={{
+            bg: isSelected ? '$bgActive' : '$bgHover',
+          }}
+          pressStyle={{
+            bg: isSelected ? '$bgActive' : '$bgHover',
+          }}
+          onPress={() => handleProtocolPress(item)}
+        >
+          <ProtocolImage
+            logoURI={item.provider.logoURI}
+            networkLogoURI={item.network.logoURI}
+          />
+          <YStack flex={1} minWidth={0} gap="$0.5">
+            <SizableText size="$bodyLgMedium" numberOfLines={1}>
+              {capitalizeString(item.provider.name)}
+            </SizableText>
+            {secondaryText ? (
+              <SizableText
+                size="$bodySm"
+                color="$textSubdued"
+                numberOfLines={1}
+              >
+                {secondaryText}
+              </SizableText>
+            ) : null}
+          </YStack>
+          <YStack alignItems="flex-end" gap="$0.5" flexShrink={0}>
+            <SizableText size="$bodyLgMedium">
+              {getProtocolAprValue(item)}
+            </SizableText>
+            {shouldShowProtocolBalances &&
+            (balanceText || isProtocolBalanceLoading) ? (
+              <XStack ai="center" gap="$1">
+                <Icon name="WalletOutline" size="$3.5" color="$iconSubdued" />
+                {balanceText ? (
+                  <SizableText
+                    size="$bodySm"
+                    color="$textSubdued"
+                    numberOfLines={1}
+                  >
+                    {balanceText}
+                  </SizableText>
+                ) : (
+                  <Skeleton h="$3" w={40} borderRadius="$2" />
+                )}
+              </XStack>
+            ) : null}
+          </YStack>
+        </XStack>
+      );
+    },
+    [
+      handleProtocolPress,
+      isProtocolBalanceLoading,
+      protocolBalanceMap,
+      selectedProtocolKey,
+      shouldShowProtocolBalances,
+    ],
   );
 
   if (isLoading) {
+    if (variant === 'switcher') {
+      return (
+        <YStack gap="$1" {...switcherContentContainerProps}>
+          <XStack px="$2" py="$1.5" alignItems="center">
+            <Skeleton h="$4" w={72} borderRadius="$2" />
+            <XStack flex={1} />
+            <Skeleton h="$4" w={64} borderRadius="$2" />
+          </XStack>
+          {Array.from({ length: 3 }).map((_, index) => (
+            <XStack key={index} alignItems="center" gap="$3" px="$2" py="$2">
+              <Skeleton w="$10" h="$10" borderRadius="$2" />
+              <YStack flex={1} gap="$1">
+                <Skeleton h="$4" w={96} borderRadius="$2" />
+                <Skeleton h="$3" w={132} borderRadius="$2" />
+              </YStack>
+              <Skeleton h="$4" w={52} borderRadius="$2" />
+            </XStack>
+          ))}
+        </YStack>
+      );
+    }
+
     return (
       <YStack gap="$2">
         {/* Section Header Skeleton */}
-        <YStack px="$5" pb="$2">
+        <YStack px="$pagePadding" pb="$2">
           <Skeleton h="$5" w={120} borderRadius="$2" />
         </YStack>
 
         {/* ListItem Skeletons */}
         {Array.from({ length: 2 }).map((_, index) => (
-          <ListItem key={index} mx="$0" px="$5">
+          <ListItem key={index} mx="$0" px="$pagePadding">
             <Skeleton w="$10" h="$10" borderRadius="$2" />
             <YStack flex={1} gap="$2">
               <Skeleton h="$4" w={120} borderRadius="$2" />
@@ -258,17 +605,17 @@ function ProtocolListDialogContent({
     return (
       <YStack alignItems="center" flex={1}>
         <Empty
-          px="$5"
+          px="$pagePadding"
           py="$0"
           width="100%"
           icon="ErrorOutline"
-          title={appLocale.intl.formatMessage({
+          title={intl.formatMessage({
             id: ETranslations.earn_no_protocols_available,
           })}
           buttonProps={{
             flex: 1,
             width: '100%',
-            children: appLocale.intl.formatMessage({
+            children: intl.formatMessage({
               id: ETranslations.global_refresh,
             }),
             onPress: () => {
@@ -280,12 +627,34 @@ function ProtocolListDialogContent({
     );
   }
 
+  if (variant === 'switcher') {
+    return (
+      <YStack gap="$1" minHeight={90} {...switcherContentContainerProps}>
+        <XStack px="$2" py="$1.5" alignItems="center">
+          <SizableText size="$bodySmMedium" color="$textSubdued" flex={1}>
+            {intl.formatMessage({
+              id: ETranslations.global_protocol,
+            })}
+          </SizableText>
+          <SizableText size="$bodySmMedium" color="$textSubdued">
+            {intl.formatMessage({
+              id: ETranslations.defi_apr_apy,
+            })}
+          </SizableText>
+        </XStack>
+        <YStack gap="$0.5">
+          {flatProtocolData.map((item) => renderSwitcherItem({ item }))}
+        </YStack>
+      </YStack>
+    );
+  }
+
   return (
     <YStack gap="$4" minHeight={90} p="$0" m="$0">
       {protocolData.map((section) => (
         <YStack key={section.group}>
-          {renderSectionHeader({ section })}
-          {section.data.map((item) => renderItem({ item }))}
+          {renderDialogSectionHeader({ section })}
+          {section.data.map((item) => renderDialogItem({ item }))}
         </YStack>
       ))}
     </YStack>
@@ -297,12 +666,15 @@ export function showProtocolListDialog({
   accountId,
   indexedAccountId,
   filterNetworkId,
+  selectedProtocol,
   onProtocolSelect,
+  intl,
 }: {
   symbol: string;
   accountId: string;
   indexedAccountId?: string;
   filterNetworkId?: string;
+  selectedProtocol?: ISelectedProtocol;
   onProtocolSelect: (params: {
     networkId: string;
     accountId: string;
@@ -311,9 +683,10 @@ export function showProtocolListDialog({
     provider: string;
     vault?: string;
   }) => Promise<void>;
+  intl: IntlShape;
 }) {
   const dialog = Dialog.show({
-    title: appLocale.intl.formatMessage(
+    title: intl.formatMessage(
       {
         id: ETranslations.earn_symbol_staking_provider,
       },
@@ -325,11 +698,12 @@ export function showProtocolListDialog({
       pb: '$5',
     },
     renderContent: (
-      <ProtocolListDialogContent
+      <ProtocolListContent
         symbol={symbol}
         accountId={accountId}
         indexedAccountId={indexedAccountId}
         filterNetworkId={filterNetworkId}
+        selectedProtocol={selectedProtocol}
         onProtocolSelect={async (protocol: IStakeProtocolListItem) => {
           try {
             defaultLogger.staking.page.selectProvider({
@@ -342,6 +716,7 @@ export function showProtocolListDialog({
                 accountId,
                 indexedAccountId,
                 networkId: protocol.network.networkId,
+                btcOnlyTaproot: true,
               });
 
             await onProtocolSelect({
@@ -351,13 +726,13 @@ export function showProtocolListDialog({
                 earnAccount?.account.indexedAccountId || indexedAccountId,
               symbol,
               provider: protocol.provider.name,
-              vault: earnUtils.isVaultBasedProvider({
+              vault: earnUtils.shouldSendEarnProtocolVault({
                 providerName: protocol.provider.name,
               })
                 ? protocol.provider.vault
                 : undefined,
             });
-          } catch (error) {
+          } catch (_error) {
             // Handle error silently
           } finally {
             void dialog.close();

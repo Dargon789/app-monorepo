@@ -12,14 +12,18 @@ import useDappApproveAction from '@onekeyhq/kit/src/hooks/useDappApproveAction';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import {
   useDecodedTxsInitAtom,
+  useEffectiveFeePayerAtom,
   useSignatureConfirmActions,
+  useTxFeeInfoInitAtom,
   useUnsignedTxsAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/signatureConfirm';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { POLLING_INTERVAL_FOR_NATIVE_TOKEN_INFO } from '@onekeyhq/shared/src/consts/walletConsts';
 import {
   EAppEventBusNames,
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
+import { dismissKeyboard } from '@onekeyhq/shared/src/keyboard';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type {
   EModalSignatureConfirmRoutes,
@@ -30,7 +34,9 @@ import { calculateTxExtraFee } from '@onekeyhq/shared/src/utils/feeUtils';
 import { EDAppModalPageStatus } from '@onekeyhq/shared/types/dappConnection';
 import { ESendFeeStatus } from '@onekeyhq/shared/types/fee';
 import { ESendPreCheckTimingEnum } from '@onekeyhq/shared/types/send';
+import { EEarnLabels } from '@onekeyhq/shared/types/staking';
 
+import { getBorrowTxTitle } from '../../../Borrow/borrowUtils';
 import { DAppSiteMark } from '../../../DAppConnection/components/DAppRequestLayout';
 import { useRiskDetection } from '../../../DAppConnection/hooks/useRiskDetection';
 import { TxConfirmActions } from '../../components/SignatureConfirmActions';
@@ -45,6 +51,7 @@ import StakingInfo from '../../components/StakingInfo';
 import SwapInfo from '../../components/SwapInfo';
 import TaskQueueController from '../../components/TaskQueueController/TaskQueueController';
 import { usePreCheckTokenBalance } from '../../hooks/usePreCheckTokenBalance';
+import { SignatureConfirmTestIDs } from '../../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -82,7 +89,10 @@ function TxConfirm() {
   const [settings] = useSettingsPersistAtom();
   const [reactiveUnsignedTxs] = useUnsignedTxsAtom();
   const [decodedTxsInit] = useDecodedTxsInitAtom();
+  const [effectiveFeePayer] = useEffectiveFeePayerAtom();
+  const [txFeeInfoInit] = useTxFeeInfoInitAtom();
   const txConfirmParamsInit = useRef(false);
+  const visitReceiveSelectorRef = useRef<boolean>(false);
 
   const accountId =
     reactiveUnsignedTxs?.[0]?.accountId ?? route.params.accountId;
@@ -94,8 +104,9 @@ function TxConfirm() {
     closeWindowAfterResolved: true,
   });
 
-  const { urlSecurityInfo } = useRiskDetection({
+  const { urlSecurityInfo, showContinueOperate } = useRiskDetection({
     origin: sourceInfo?.origin ?? '',
+    walletConnectVerifyContext: sourceInfo?.walletConnectVerifyContext,
   });
 
   const { result: decodedTxs, isLoading: isBuildingDecodedTxs } =
@@ -151,6 +162,11 @@ function TxConfirm() {
 
   useEffect(() => {
     if (accountId && networkId && reactiveUnsignedTxs?.[0]?.uuid) {
+      updateDecodedTxs({
+        decodedTxs: [],
+        isBuildingDecodedTxs: false,
+      });
+      updateDecodedTxsInit(false);
       updateSendTxStatus({
         isInsufficientNativeBalance: false,
         isInsufficientTokenBalance: false,
@@ -161,12 +177,14 @@ function TxConfirm() {
       updateSendFeeStatus({
         status: ESendFeeStatus.Idle,
         errMessage: '',
+        discountPercent: 0,
       });
       txConfirmParamsInit.current = false;
     }
   }, [
     txConfirmParamsInit,
     reactiveUnsignedTxs,
+    updateDecodedTxs,
     updateDecodedTxsInit,
     accountId,
     networkId,
@@ -174,29 +192,12 @@ function TxConfirm() {
     updateSendTxStatus,
   ]);
 
-  usePromiseResult(async () => {
-    if (txConfirmParamsInit.current) return;
-    updateNativeTokenInfo({
-      isLoading: true,
-      balance: '0',
-      logoURI: '',
-      info: undefined,
-    });
+  const fetchNativeTokenInfo = useCallback(async () => {
     const nativeTokenAddress =
       await backgroundApiProxy.serviceToken.getNativeTokenAddress({
         networkId,
       });
 
-    try {
-      await backgroundApiProxy.serviceSend.precheckUnsignedTxs({
-        networkId,
-        accountId,
-        unsignedTxs,
-        precheckTiming: ESendPreCheckTimingEnum.BeforeTransaction,
-      });
-    } catch (e: any) {
-      updatePreCheckTxStatus((e as Error).message);
-    }
     const checkInscriptionProtectionEnabled =
       await backgroundApiProxy.serviceSetting.checkInscriptionProtectionEnabled(
         {
@@ -220,13 +221,54 @@ function TxConfirm() {
       logoURI: tokenResp?.[0]?.info.logoURI ?? '',
       info: tokenResp?.[0]?.info,
     });
-    txConfirmParamsInit.current = true;
   }, [
+    updateNativeTokenInfo,
     accountId,
     networkId,
     settings.inscriptionProtection,
-    unsignedTxs,
+  ]);
+
+  usePromiseResult(
+    async () => {
+      if (!visitReceiveSelectorRef.current) return;
+      await fetchNativeTokenInfo();
+    },
+    [fetchNativeTokenInfo],
+    {
+      pollingInterval: POLLING_INTERVAL_FOR_NATIVE_TOKEN_INFO,
+    },
+  );
+
+  useEffect(() => {
+    const initTxConfirmParams = async () => {
+      if (txConfirmParamsInit.current) return;
+      updateNativeTokenInfo({
+        isLoading: true,
+        balance: '0',
+        logoURI: '',
+        info: undefined,
+      });
+
+      try {
+        await backgroundApiProxy.serviceSend.precheckUnsignedTxs({
+          networkId,
+          accountId,
+          unsignedTxs,
+          precheckTiming: ESendPreCheckTimingEnum.BeforeTransaction,
+        });
+      } catch (e: any) {
+        updatePreCheckTxStatus((e as Error).message);
+      }
+      await fetchNativeTokenInfo();
+      txConfirmParamsInit.current = true;
+    };
+    void initTxConfirmParams();
+  }, [
     updateNativeTokenInfo,
+    fetchNativeTokenInfo,
+    networkId,
+    accountId,
+    unsignedTxs,
     updatePreCheckTxStatus,
   ]);
 
@@ -253,9 +295,18 @@ function TxConfirm() {
     updateCustomRpcStatus,
   ]);
 
+  const stakingInfo = useMemo(() => {
+    const stakingTx = find(unsignedTxs, 'stakingInfo');
+    return stakingTx?.stakingInfo;
+  }, [unsignedTxs]);
+
   const txConfirmTitle = useMemo(() => {
     if ((!decodedTxs || decodedTxs.length === 0) && !decodedTxsInit) {
       return '';
+    }
+
+    if (stakingInfo?.tags?.includes(EEarnLabels.Borrow)) {
+      return getBorrowTxTitle({ intl, stakingInfo });
     }
 
     if (
@@ -270,16 +321,11 @@ function TxConfirm() {
     return intl.formatMessage({
       id: ETranslations.transaction__transaction_confirm,
     });
-  }, [decodedTxs, intl, decodedTxsInit]);
+  }, [decodedTxs, intl, decodedTxsInit, stakingInfo]);
 
   const swapInfo = useMemo(() => {
     const swapTx = find(unsignedTxs, 'swapInfo');
     return swapTx?.swapInfo;
-  }, [unsignedTxs]);
-
-  const stakingInfo = useMemo(() => {
-    const stakingTx = find(unsignedTxs, 'stakingInfo');
-    return stakingTx?.stakingInfo;
   }, [unsignedTxs]);
 
   const handleOnClose = (extra?: { flag?: string }) => {
@@ -294,21 +340,36 @@ function TxConfirm() {
   });
 
   useEffect(() => {
-    updateUnsignedTxs(unsignedTxs);
+    const refreshNativeTokenInfo = () => {
+      visitReceiveSelectorRef.current = true;
+      void fetchNativeTokenInfo();
+    };
+
     appEventBus.emit(
       EAppEventBusNames.SignatureConfirmContainerMounted,
       undefined,
     );
+    appEventBus.on(
+      EAppEventBusNames.RefreshNativeTokenInfo,
+      refreshNativeTokenInfo,
+    );
     return () => {
-      updateSendFeeStatus({ status: ESendFeeStatus.Idle, errMessage: '' });
+      updateSendFeeStatus({
+        status: ESendFeeStatus.Idle,
+        errMessage: '',
+        discountPercent: 0,
+      });
+      appEventBus.off(
+        EAppEventBusNames.RefreshNativeTokenInfo,
+        refreshNativeTokenInfo,
+      );
     };
-  }, [
-    isQueueMode,
-    unsignedTxQueue,
-    unsignedTxs,
-    updateSendFeeStatus,
-    updateUnsignedTxs,
-  ]);
+  }, [fetchNativeTokenInfo, updateSendFeeStatus]);
+
+  useEffect(() => {
+    dismissKeyboard();
+    updateUnsignedTxs(unsignedTxs);
+  }, [unsignedTxs, updateUnsignedTxs]);
 
   useEffect(() => {
     if (sourceInfo) {
@@ -321,8 +382,23 @@ function TxConfirm() {
     }
   }, [sourceInfo, accountId]);
 
+  // Pre-warm the device while the user reviews, so Sign can skip Initialize.
+  // Fire-and-forget; the service no-ops for non-hardware wallets.
+  useEffect(() => {
+    if (!accountId) {
+      return;
+    }
+    const walletId = accountUtils.getWalletIdFromAccountId({ accountId });
+    void backgroundApiProxy.serviceHardware.preInitializeDeviceForSign({
+      walletId,
+    });
+  }, [accountId]);
+
   const renderTxConfirmContent = useCallback(() => {
-    if ((isBuildingDecodedTxs || !decodedTxs) && !decodedTxsInit) {
+    if (
+      (isBuildingDecodedTxs || !decodedTxs || decodedTxs.length === 0) &&
+      !decodedTxsInit
+    ) {
       return <SignatureConfirmLoading />;
     }
 
@@ -373,15 +449,25 @@ function TxConfirm() {
 
   const renderHeaderRight = useCallback(
     () => (
-      <TxConfirmHeaderRight decodedTxs={decodedTxs} unsignedTxs={unsignedTxs} />
+      <TxConfirmHeaderRight
+        decodedTxs={decodedTxs}
+        unsignedTxs={unsignedTxs}
+        effectiveFeePayer={effectiveFeePayer}
+        txFeeInfoInit={txFeeInfoInit}
+      />
     ),
-    [decodedTxs, unsignedTxs],
+    [decodedTxs, unsignedTxs, effectiveFeePayer, txFeeInfoInit],
   );
 
   return (
-    <Page scrollEnabled onClose={handleOnClose} safeAreaEnabled>
+    <Page
+      scrollEnabled
+      onClose={handleOnClose}
+      safeAreaEnabled
+      testID={SignatureConfirmTestIDs.TxConfirmPage}
+    >
       <Page.Header title={txConfirmTitle} headerRight={renderHeaderRight} />
-      <Page.Body testID="tx-confirmation-body" px="$5">
+      <Page.Body testID={SignatureConfirmTestIDs.TxConfirmBody} px="$5">
         {renderTxQueueController()}
         {renderTxConfirmContent()}
       </Page.Body>
@@ -389,6 +475,7 @@ function TxConfirm() {
         {...route.params}
         accountId={accountId}
         networkId={networkId}
+        forceTakeRiskAlert={showContinueOperate}
       />
     </Page>
   );

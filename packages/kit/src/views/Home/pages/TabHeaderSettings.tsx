@@ -18,19 +18,10 @@ import {
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import { EModalRoutes } from '@onekeyhq/shared/src/routes';
-import { EModalApprovalManagementRoutes } from '@onekeyhq/shared/src/routes/approvalManagement';
 
 import { ListItem } from '../../../components/ListItem';
-import useAppNavigation from '../../../hooks/useAppNavigation';
 import { useManageToken } from '../../../hooks/useManageToken';
 import { useActiveAccount } from '../../../states/jotai/contexts/accountSelector';
-import {
-  useApprovalListAtom,
-  useContractMapAtom,
-  useTokenMapAtom,
-} from '../../../states/jotai/contexts/approvalList';
-import { HomeApprovalListProviderMirror } from '../components/HomeApprovalListProvider/HomeApprovalListProviderMirror';
 
 function TokenListSettings() {
   const intl = useIntl();
@@ -60,6 +51,7 @@ function TokenListSettings() {
 
   return manageTokenEnabled ? (
     <IconButton
+      testID="home-media-icon-btn"
       title={intl.formatMessage({
         id: ETranslations.manage_token_title,
       })}
@@ -71,8 +63,9 @@ function TokenListSettings() {
 }
 const filterScamHistorySupportedNetworks =
   getNetworksSupportFilterScamHistory();
-const filterScamHistorySupportedNetworkIds =
-  filterScamHistorySupportedNetworks.map((n) => n.id);
+const filterScamHistorySupportedNetworkIds = new Set(
+  filterScamHistorySupportedNetworks.map((n) => n.id),
+);
 
 function TxHistorySettings() {
   const intl = useIntl();
@@ -107,7 +100,7 @@ function TxHistorySettings() {
   const filterScamHistorySupported = useMemo(
     () =>
       network?.isAllNetworks ||
-      filterScamHistorySupportedNetworkIds.includes(network?.id ?? ''),
+      filterScamHistorySupportedNetworkIds.has(network?.id ?? ''),
     [network],
   );
 
@@ -117,6 +110,7 @@ function TxHistorySettings() {
         title={intl.formatMessage({ id: ETranslations.global_filter })}
         renderTrigger={
           <IconButton
+            testID="home-filter-scam-history-supported-icon-btn"
             title={intl.formatMessage({
               id: ETranslations.global_filter,
             })}
@@ -146,6 +140,7 @@ function TxHistorySettings() {
               }
             >
               <Switch
+                testID="home-switch"
                 isUncontrolled
                 disabled={!filterScamHistorySupported}
                 size={ESwitchSize.small}
@@ -166,6 +161,7 @@ function TxHistorySettings() {
               })}
             >
               <Switch
+                testID="home-switch"
                 isUncontrolled
                 size={ESwitchSize.small}
                 onChange={handleFilterLowValueHistoryOnChange}
@@ -176,52 +172,6 @@ function TxHistorySettings() {
         }
       />
     </Stack>
-  );
-}
-
-function ApprovalSettings() {
-  const navigation = useAppNavigation();
-  const {
-    activeAccount: { wallet, account, network, indexedAccount },
-  } = useActiveAccount({ num: 0 });
-  const [{ approvals }] = useApprovalListAtom();
-  const [{ tokenMap }] = useTokenMapAtom();
-  const [{ contractMap }] = useContractMapAtom();
-  const handleOnOpenApprovalList = useCallback(() => {
-    navigation.pushModal(EModalRoutes.ApprovalManagementModal, {
-      screen: EModalApprovalManagementRoutes.ApprovalList,
-      params: {
-        walletId: wallet?.id ?? '',
-        accountId: account?.id ?? '',
-        networkId: network?.id ?? '',
-        indexedAccountId: indexedAccount?.id,
-        isBulkRevokeMode: true,
-        approvals,
-        tokenMap,
-        contractMap,
-      },
-    });
-  }, [
-    navigation,
-    wallet?.id,
-    account?.id,
-    network?.id,
-    indexedAccount?.id,
-    approvals,
-    tokenMap,
-    contractMap,
-  ]);
-
-  const intl = useIntl();
-  return (
-    <IconButton
-      title={intl.formatMessage({
-        id: ETranslations.wallet_approval_manage_title,
-      })}
-      variant="tertiary"
-      icon="SliderHorOutline"
-      onPress={handleOnOpenApprovalList}
-    />
   );
 }
 
@@ -237,35 +187,22 @@ function BasicTabHeaderSettings({ focusedTab }: { focusedTab: string }) {
   const portfolioName = useMemo(
     () =>
       intl.formatMessage({
-        id: ETranslations.global_portfolio,
+        id: ETranslations.dexmarket_spot,
       }),
     [intl],
   );
 
-  const approvalName = useMemo(
-    () =>
-      intl.formatMessage({
-        id: ETranslations.global_approval,
-      }),
-    [intl],
-  );
   const content = useMemo(() => {
     switch (focusedTab) {
       case portfolioName:
         return <TokenListSettings />;
       case historyName:
         return <TxHistorySettings />;
-      case approvalName:
-        return (
-          <HomeApprovalListProviderMirror>
-            <ApprovalSettings />
-          </HomeApprovalListProviderMirror>
-        );
       default:
         return null;
     }
-  }, [approvalName, portfolioName, focusedTab, historyName]);
-  return <XStack pr="$5">{content}</XStack>;
+  }, [portfolioName, focusedTab, historyName]);
+  return <XStack pr="$pagePadding">{content}</XStack>;
 }
 
 export const TabHeaderSettings = memo(BasicTabHeaderSettings);

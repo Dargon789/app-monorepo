@@ -39,7 +39,11 @@ function ContractAddressView(props: IProps) {
 
   return (
     <XStack alignItems="center" gap="$1">
-      <SizableText size="$bodyMdMedium" {...addressStyleProps}>
+      <SizableText
+        size="$bodyMdMedium"
+        fontFamily="$monoMedium"
+        {...addressStyleProps}
+      >
         {showShortAddress
           ? accountUtils.shortenAddress({
               address,
@@ -50,6 +54,7 @@ function ContractAddressView(props: IProps) {
       </SizableText>
       {showCopy ? (
         <IconButton
+          testID="approval-list-view-intl-icon-btn"
           title={intl.formatMessage({ id: ETranslations.global_copy })}
           variant="tertiary"
           icon="Copy3Outline"
@@ -62,6 +67,7 @@ function ContractAddressView(props: IProps) {
       ) : null}
       {showExternalLink ? (
         <IconButton
+          testID="approval-list-view-icon-btn"
           title={intl.formatMessage({
             id: ETranslations.global_view_in_blockchain_explorer,
           })}

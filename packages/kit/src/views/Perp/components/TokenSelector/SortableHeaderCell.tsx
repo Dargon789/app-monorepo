@@ -2,6 +2,7 @@ import { memo, useCallback } from 'react';
 
 import { Icon, SizableText, XStack } from '@onekeyhq/components';
 import { usePerpTokenSelectorConfigPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type {
   IPerpTokenSelectorConfig,
   IPerpTokenSortField,
@@ -17,6 +18,7 @@ interface ISortableHeaderCellProps {
   label: string;
   width?: number;
   flex?: number;
+  minWidth?: number;
 }
 
 function BaseSortableHeaderCell({
@@ -24,11 +26,36 @@ function BaseSortableHeaderCell({
   label,
   width,
   flex,
+  minWidth,
 }: ISortableHeaderCellProps) {
   const [selectorConfig, setSelectorConfig] =
     usePerpTokenSelectorConfigPersistAtom();
 
   const handlePress = useCallback(() => {
+    const previousField = selectorConfig?.field ?? '';
+    const previousDirection = selectorConfig?.direction ?? '';
+    const activeTab =
+      selectorConfig?.activeTab ?? DEFAULT_PERP_TOKEN_ACTIVE_TAB;
+    let nextField = field;
+    let nextDirection = DEFAULT_PERP_TOKEN_SORT_DIRECTION;
+
+    if (selectorConfig?.field === field) {
+      if (selectorConfig.direction === 'asc') {
+        nextField = DEFAULT_PERP_TOKEN_SORT_FIELD;
+        nextDirection = DEFAULT_PERP_TOKEN_SORT_DIRECTION;
+      } else {
+        nextDirection = 'asc';
+      }
+    }
+
+    defaultLogger.perp.tokenSelector.perpTokenSelectorSortClick({
+      activeTab,
+      field: nextField,
+      direction: nextDirection,
+      previousField,
+      previousDirection,
+    });
+
     setSelectorConfig((prev: IPerpTokenSelectorConfig | null) => {
       if (prev?.field === field) {
         // Same field: toggle direction, or reset to default sort if already ascending
@@ -55,7 +82,7 @@ function BaseSortableHeaderCell({
         activeTab: prev?.activeTab ?? DEFAULT_PERP_TOKEN_ACTIVE_TAB,
       };
     });
-  }, [field, setSelectorConfig]);
+  }, [field, selectorConfig, setSelectorConfig]);
 
   const isActive = selectorConfig?.field === field;
   let iconName: string;
@@ -72,12 +99,14 @@ function BaseSortableHeaderCell({
       group="card"
       width={width}
       flex={flex}
-      cursor="pointer"
+      flexBasis={typeof flex === 'number' ? 0 : undefined}
+      minWidth={minWidth}
       onPress={handlePress}
       hoverStyle={{ opacity: 0.7 }}
       userSelect="none"
       alignItems="center"
       gap="$0.5"
+      cursor="default"
     >
       <SizableText
         size="$bodySm"

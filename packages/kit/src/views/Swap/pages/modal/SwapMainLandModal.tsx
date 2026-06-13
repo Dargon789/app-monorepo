@@ -30,8 +30,10 @@ const SwapMainLandModalPage = () => {
     importNetworkId,
     importToToken,
     swapTabSwitchType,
+    fromAmount,
     importDeriveType,
     swapSource,
+    marketPresetToken,
   } = route.params ?? {};
   const { activeAccount } = useActiveAccount({
     num: 0,
@@ -76,6 +78,9 @@ const SwapMainLandModalPage = () => {
           importNetworkId,
           importToToken,
           swapTabSwitchType,
+          fromAmount,
+          marketPresetToken,
+          swapSource,
         }}
       />
     </Page>

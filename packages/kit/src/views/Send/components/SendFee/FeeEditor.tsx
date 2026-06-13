@@ -46,6 +46,8 @@ import type {
 } from '@onekeyhq/shared/types/fee';
 import { EFeeType } from '@onekeyhq/shared/types/fee';
 
+import { SendTestIDs } from '../../testIDs';
+
 type IFeeInfoItem = {
   label: string;
   nativeValue?: string;
@@ -80,7 +82,7 @@ type IProps = {
 };
 
 const DEFAULT_GAS_LIMIT_MIN = 21_000;
-const DEFAULT_GAS_LIMIT_MAX = 15_000_000;
+// const DEFAULT_GAS_LIMIT_MAX = 15_000_000;
 const DEFAULT_FEER_ATE_MIN = 0;
 const DEFAULT_FEE_RATE_MAX = 1_000_000; // shared cross multi-networks
 
@@ -200,7 +202,7 @@ function FeeEditor(props: IProps) {
   const { feeSymbol, feeDecimals, nativeSymbol, nativeTokenPrice } =
     customFee?.common ?? {};
 
-  const [vaultSettings, network] =
+  const [vaultSettings] =
     usePromiseResult(
       () =>
         Promise.all([
@@ -231,7 +233,7 @@ function FeeEditor(props: IProps) {
       ).toFixed(),
       maxBaseFee: originalMaxBaseFee.isGreaterThan(0)
         ? originalMaxBaseFee.toFixed()
-        : customFee?.gasEIP1559?.baseFeePerGas ?? '0',
+        : (customFee?.gasEIP1559?.baseFeePerGas ?? '0'),
       // fee utxo
       feeRate: new BigNumber(customFee?.feeUTXO?.feeRate ?? '0').toFixed(),
       // fee sol
@@ -381,11 +383,11 @@ function FeeEditor(props: IProps) {
     const gasLimit = new BigNumber(
       feeInfo.gasEIP1559?.gasLimit ?? feeInfo.gas?.gasLimit ?? '0',
     );
-    const gasLimitForDisplay = new BigNumber(
-      feeInfo.gasEIP1559?.gasLimitForDisplay ??
-        feeInfo.gas?.gasLimitForDisplay ??
-        '0',
-    );
+    // const gasLimitForDisplay = new BigNumber(
+    //   feeInfo.gasEIP1559?.gasLimitForDisplay ??
+    //     feeInfo.gas?.gasLimitForDisplay ??
+    //     '0',
+    // );
 
     return {
       gasLimit: gasLimit.toFixed(),
@@ -794,18 +796,18 @@ function FeeEditor(props: IProps) {
     if (replaceTxMode) return null;
     if (!vaultSettings?.editFeeEnabled) return null;
 
-    let feeTitle = '';
+    // let feeTitle = '';
 
-    if (customFee?.feeUTXO) {
-      feeTitle = `${intl.formatMessage({
-        id: ETranslations.fee_fee_rate,
-      })} (sat/vB)`;
-    } else {
-      feeTitle = intl.formatMessage(
-        { id: ETranslations.content__gas_price },
-        { 'network': feeSymbol },
-      );
-    }
+    // if (customFee?.feeUTXO) {
+    //   feeTitle = `${intl.formatMessage({
+    //     id: ETranslations.fee_fee_rate,
+    //   })} (sat/vB)`;
+    // } else {
+    //   feeTitle = intl.formatMessage(
+    //     { id: ETranslations.content__gas_price },
+    //     { 'network': feeSymbol },
+    //   );
+    // }
 
     return (
       <>
@@ -824,32 +826,15 @@ function FeeEditor(props: IProps) {
             ...item,
             label: (
               <YStack>
-                {/* <SizableText size="$bodyMdMedium" textAlign="center">
-                  {item.icon}
-                </SizableText> */}
                 <SizableText
                   color={
-                    currentFeeIndex === index
-                      ? '$textInteractive'
-                      : '$textSubdued'
+                    currentFeeIndex === index ? '$textInverse' : '$textSubdued'
                   }
                   size="$bodyMdMedium"
                   textAlign="center"
                 >
                   {item.label}
                 </SizableText>
-                {/* <NumberSizeableText
-                  color={currentFeeIndex === index ? '$text' : '$textSubdued'}
-                  size="$bodySm"
-                  textAlign="center"
-                  formatter="value"
-                >
-                  {item.type === EFeeType.Custom
-                    ? intl.formatMessage({ id: ETranslations.content__custom })
-                    : getFeePriceNumber({
-                        feeInfo: item.feeInfo,
-                      })}
-                </NumberSizeableText> */}
               </YStack>
             ),
           }))}
@@ -858,14 +843,12 @@ function FeeEditor(props: IProps) {
     );
   }, [
     currentFeeIndex,
-    customFee?.feeUTXO,
     feeSelectorItems,
-    feeSymbol,
-    intl,
     replaceTxMode,
     vaultSettings?.editFeeEnabled,
   ]);
 
+  type IWatchAllFieldsKeys = keyof typeof watchAllFields;
   const handleFormValueOnChange = useCallback(
     ({
       name,
@@ -876,7 +859,7 @@ function FeeEditor(props: IProps) {
       value: string | undefined;
       intRequired?: boolean;
     }) => {
-      const filedName = name as keyof typeof watchAllFields;
+      const filedName = name as IWatchAllFieldsKeys;
       const valueBN = new BigNumber(value ?? 0);
       if (valueBN.isNaN()) {
         const formattedValue = parseFloat(value ?? '');
@@ -946,6 +929,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID="send-render-fee-editor-form-input"
                 flex={1}
                 addOns={[
                   {
@@ -985,6 +969,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeDotExtraTipInput}
                 flex={1}
                 addOns={[
                   {
@@ -1027,6 +1012,7 @@ function FeeEditor(props: IProps) {
                 }}
               >
                 <Input
+                  testID={SendTestIDs.feeMaxBaseFeeInput}
                   flex={1}
                   addOns={[
                     {
@@ -1044,9 +1030,9 @@ function FeeEditor(props: IProps) {
 
             <YStack>
               <Form.Field
-                label={`${intl.formatMessage({
+                label={intl.formatMessage({
                   id: ETranslations.form__priority_fee,
-                })}`}
+                })}
                 name="priorityFee"
                 description={
                   replaceTxMode ? null : recommendPriorityFee.description
@@ -1063,6 +1049,7 @@ function FeeEditor(props: IProps) {
                 }}
               >
                 <Input
+                  testID={SendTestIDs.feePriorityFeeInput}
                   flex={1}
                   addOns={[
                     {
@@ -1096,6 +1083,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeGasLimitInput}
                 flex={1}
                 addOns={[
                   {
@@ -1138,7 +1126,7 @@ function FeeEditor(props: IProps) {
                   }),
               }}
             >
-              <Input flex={1} />
+              <Input flex={1} testID={SendTestIDs.feeGasSuiPriceInput} />
             </Form.Field>
             <Form.Field
               label={intl.formatMessage({
@@ -1157,6 +1145,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeGasSuiBudgetInput}
                 flex={1}
                 addOns={[
                   {
@@ -1202,7 +1191,7 @@ function FeeEditor(props: IProps) {
                   }),
               }}
             >
-              <Input flex={1} />
+              <Input flex={1} testID={SendTestIDs.feeGasPriceInput} />
             </Form.Field>
             <Form.Field
               label={intl.formatMessage({
@@ -1222,6 +1211,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeGasLimitInput}
                 flex={1}
                 addOns={[
                   {
@@ -1256,6 +1246,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeRateUtxoInput}
                 addOns={[
                   {
                     label: 'sat/vB',
@@ -1289,6 +1280,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeComputeUnitPriceInput}
                 flex={1}
                 addOns={[
                   {
@@ -1323,6 +1315,7 @@ function FeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SendTestIDs.feeRateCkbInput}
                 flex={1}
                 addOns={[
                   {
@@ -1829,6 +1822,7 @@ function FeeEditor(props: IProps) {
         {isMultiTxs ? null : renderFeeOverview()}
         {vaultSettings?.editFeeEnabled ? (
           <Button
+            testID="send-callback-btn"
             mt="$4"
             disabled={isSaveFeeDisabled}
             variant="primary"

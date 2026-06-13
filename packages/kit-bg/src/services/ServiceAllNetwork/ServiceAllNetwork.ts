@@ -2,11 +2,16 @@ import {
   backgroundClass,
   backgroundMethod,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import { getNetworkIdsMap } from '@onekeyhq/shared/src/config/networkIds';
 import {
   IMPL_ALLNETWORKS,
   IMPL_EVM,
 } from '@onekeyhq/shared/src/engine/engineConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+import {
+  EAppEventBusNames,
+  appEventBus,
+} from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import perfUtils, {
@@ -58,16 +63,127 @@ export type IAllNetworkAccountsParams = {
   excludeTestNetwork?: boolean;
   indexedAccountId?: string;
   excludeIncompatibleWithWalletAccounts?: boolean;
+  skipCache?: boolean;
 };
 export type IAllNetworkAccountsParamsForApi = {
   networkId: string;
   accountAddress: string;
   xpub?: string;
 };
+// Short-lived in-flight + result cache for getAllNetworkAccounts. CDP
+// profiles showed 3-4 callers (Earn portfolio, DeFi block, Token list,
+// Universal Search) firing this method redundantly within a single
+// tab-switch window, accumulating ~700ms of DB / network-derive-type
+// work. A 5s TTL collapses all of them onto a single backend trip
+// without holding stale data long enough to mask real account changes.
+const GET_ALL_NETWORK_ACCOUNTS_CACHE_TTL_MS = 5000;
+const GET_ALL_NETWORK_ACCOUNTS_CACHE_MAX_ENTRIES = 50;
+type IGetAllNetworkAccountsCacheEntry = {
+  createdAt: number;
+  promise: Promise<IAllNetworkAccountsInfoResult>;
+};
+
 @backgroundClass()
 class ServiceAllNetwork extends ServiceBase {
   constructor({ backgroundApi }: { backgroundApi: any }) {
     super({ backgroundApi });
+
+    const invalidate = () => this.clearGetAllNetworkAccountsCache();
+    appEventBus.on(EAppEventBusNames.AccountUpdate, invalidate);
+    appEventBus.on(EAppEventBusNames.AccountRemove, invalidate);
+    appEventBus.on(EAppEventBusNames.AddDBAccountsToWallet, invalidate);
+    appEventBus.on(EAppEventBusNames.RenameDBAccounts, invalidate);
+    appEventBus.on(EAppEventBusNames.WalletRemove, invalidate);
+    appEventBus.on(EAppEventBusNames.WalletUpdate, invalidate);
+    appEventBus.on(EAppEventBusNames.WalletClear, invalidate);
+  }
+
+  private _getAllNetworkAccountsCache = new Map<
+    string,
+    IGetAllNetworkAccountsCacheEntry
+  >();
+
+  private _buildGetAllNetworkAccountsCacheKey(
+    params: IAllNetworkAccountsParams,
+  ): string {
+    // Include every field the function branches on so two callers with
+    // different intents (e.g. NFT-only vs unrestricted) don't share a
+    // result.
+    return [
+      params.accountId ?? '',
+      params.networkId ?? '',
+      params.indexedAccountId ?? '',
+      params.deriveType ?? '',
+      params.nftEnabledOnly ? 1 : 0,
+      params.DeFiEnabledOnly ? 1 : 0,
+      params.includingNonExistingAccount ? 1 : 0,
+      params.includingNotEqualGlobalDeriveTypeAccount ? 1 : 0,
+      params.includingDeriveTypeMismatchInDefaultVisibleNetworks === false
+        ? 0
+        : 1,
+      params.fetchAllNetworkAccounts ? 1 : 0,
+      params.networksEnabledOnly ? 1 : 0,
+      params.excludeTestNetwork === false ? 0 : 1,
+      params.excludeIncompatibleWithWalletAccounts ? 1 : 0,
+    ].join('::');
+  }
+
+  private _sweepGetAllNetworkAccountsCache(now: number) {
+    for (const [key, entry] of Array.from(
+      this._getAllNetworkAccountsCache.entries(),
+    )) {
+      if (now - entry.createdAt >= GET_ALL_NETWORK_ACCOUNTS_CACHE_TTL_MS) {
+        this._getAllNetworkAccountsCache.delete(key);
+      }
+    }
+    while (
+      this._getAllNetworkAccountsCache.size >
+      GET_ALL_NETWORK_ACCOUNTS_CACHE_MAX_ENTRIES
+    ) {
+      const oldestKey = this._getAllNetworkAccountsCache.keys().next().value;
+      if (!oldestKey) break;
+      this._getAllNetworkAccountsCache.delete(oldestKey);
+    }
+  }
+
+  private isValidIndexedAccountId(indexedAccountId: string | undefined) {
+    if (!indexedAccountId) {
+      return false;
+    }
+    const { walletId, index } = accountUtils.parseIndexedAccountId({
+      indexedAccountId,
+    });
+    return Boolean(walletId) && Number.isFinite(index);
+  }
+
+  private getIndexedAccountIdForAllNetwork({
+    accountId,
+    indexedAccountId,
+    isAllNetwork,
+  }: {
+    accountId: string;
+    indexedAccountId: string | undefined;
+    isAllNetwork: boolean;
+  }) {
+    if (
+      !isAllNetwork ||
+      accountUtils.isOthersAccount({ accountId }) ||
+      this.isValidIndexedAccountId(indexedAccountId)
+    ) {
+      return indexedAccountId;
+    }
+
+    if (this.isValidIndexedAccountId(accountId)) {
+      return accountId;
+    }
+
+    const resolvedIndexedAccountId =
+      accountUtils.buildAllNetworkIndexedAccountIdFromAccountId({
+        accountId,
+      });
+    return this.isValidIndexedAccountId(resolvedIndexedAccountId)
+      ? resolvedIndexedAccountId
+      : indexedAccountId;
   }
 
   private async forEachWithConcurrency<T>(
@@ -92,6 +208,31 @@ class ServiceAllNetwork extends ServiceBase {
     await Promise.all(workers);
   }
 
+  // Per-deriveInfoMap cache for the entries() array + an LRU-ish lookup by
+  // (accountId, template). getAllNetworkAccounts runs this once per network
+  // per account (50+ times on a normal wallet), so the Object.entries() call
+  // and the for-loop scan dominate CPU on cold-cache runs.
+  // - WeakMap keyed by deriveInfoMap reference auto-evicts when the map is
+  //   GC'd, so we don't grow unbounded across reloads.
+  // - The inner Map's keys (accountId + template) are bounded by the
+  //   number of (account, template) pairs a wallet actually has — a few
+  //   dozen at most, well under any LRU threshold.
+  private _deriveInfoMapEntriesCache = new WeakMap<
+    Record<string, IAccountDeriveInfo>,
+    [string, IAccountDeriveInfo][]
+  >();
+
+  private _deriveTypeLookupCache = new WeakMap<
+    Record<string, IAccountDeriveInfo>,
+    Map<
+      string,
+      {
+        deriveType: IAccountDeriveTypes;
+        deriveInfo: IAccountDeriveInfo | undefined;
+      }
+    >
+  >();
+
   private getDeriveTypeByTemplateFromDeriveInfoMap({
     accountId,
     template,
@@ -108,9 +249,29 @@ class ServiceAllNetwork extends ServiceBase {
       return { deriveType: 'default', deriveInfo: undefined };
     }
 
-    const entries = Object.entries(deriveInfoMap);
+    let lookupCache = this._deriveTypeLookupCache.get(deriveInfoMap);
+    if (!lookupCache) {
+      lookupCache = new Map();
+      this._deriveTypeLookupCache.set(deriveInfoMap, lookupCache);
+    }
+    const cacheKey = `${accountId}::${template}`;
+    const cached = lookupCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    let entries = this._deriveInfoMapEntriesCache.get(deriveInfoMap);
+    if (!entries) {
+      entries = Object.entries(deriveInfoMap);
+      this._deriveInfoMapEntriesCache.set(deriveInfoMap, entries);
+    }
     if (!entries.length) {
-      return { deriveType: 'default', deriveInfo: undefined };
+      const result = {
+        deriveType: 'default' as IAccountDeriveTypes,
+        deriveInfo: undefined,
+      };
+      lookupCache.set(cacheKey, result);
+      return result;
     }
 
     const useAddressEncodingDerive = Boolean(
@@ -126,24 +287,33 @@ class ServiceAllNetwork extends ServiceBase {
           info.addressEncoding &&
           accountId.endsWith(info.addressEncoding)
         ) {
-          return {
+          const result = {
             deriveType: deriveType as IAccountDeriveTypes,
             deriveInfo: info,
           };
+          lookupCache.set(cacheKey, result);
+          return result;
         }
       }
     }
 
     for (const [deriveType, info] of entries) {
       if (info.template === template) {
-        return {
+        const result = {
           deriveType: deriveType as IAccountDeriveTypes,
           deriveInfo: info,
         };
+        lookupCache.set(cacheKey, result);
+        return result;
       }
     }
 
-    return { deriveType: 'default', deriveInfo: undefined };
+    const fallback = {
+      deriveType: 'default' as IAccountDeriveTypes,
+      deriveInfo: undefined,
+    };
+    lookupCache.set(cacheKey, fallback);
+    return fallback;
   }
 
   @backgroundMethod()
@@ -243,6 +413,44 @@ class ServiceAllNetwork extends ServiceBase {
   async getAllNetworkAccounts(
     params: IAllNetworkAccountsParams,
   ): Promise<IAllNetworkAccountsInfoResult> {
+    if (params.skipCache) {
+      return this._getAllNetworkAccountsUncached(params);
+    }
+    const now = Date.now();
+    this._sweepGetAllNetworkAccountsCache(now);
+    const cacheKey = this._buildGetAllNetworkAccountsCacheKey(params);
+    const cached = this._getAllNetworkAccountsCache.get(cacheKey);
+    if (
+      cached &&
+      now - cached.createdAt < GET_ALL_NETWORK_ACCOUNTS_CACHE_TTL_MS
+    ) {
+      return cached.promise;
+    }
+    const promise = this._getAllNetworkAccountsUncached(params).catch(
+      (error) => {
+        // Don't keep a rejected promise in the cache; the next caller
+        // should retry.
+        const current = this._getAllNetworkAccountsCache.get(cacheKey);
+        if (current?.promise === promise) {
+          this._getAllNetworkAccountsCache.delete(cacheKey);
+        }
+        throw error;
+      },
+    );
+    this._getAllNetworkAccountsCache.set(cacheKey, {
+      createdAt: now,
+      promise,
+    });
+    return promise;
+  }
+
+  public clearGetAllNetworkAccountsCache(): void {
+    this._getAllNetworkAccountsCache.clear();
+  }
+
+  private async _getAllNetworkAccountsUncached(
+    params: IAllNetworkAccountsParams,
+  ): Promise<IAllNetworkAccountsInfoResult> {
     defaultLogger.account.allNetworkAccountPerf.getAllNetworkAccountsStart();
 
     const {
@@ -260,18 +468,31 @@ class ServiceAllNetwork extends ServiceBase {
 
     const isAllNetwork =
       fetchAllNetworkAccounts || networkUtils.isAllNetwork({ networkId });
+    const resolvedIndexedAccountId = this.getIndexedAccountIdForAllNetwork({
+      accountId,
+      indexedAccountId,
+      isAllNetwork,
+    });
 
     defaultLogger.account.allNetworkAccountPerf.consoleLog('getAccount');
     let networkAccount: INetworkAccount | undefined;
-    try {
-      // single network account or all network mocked account
-      networkAccount = await this.backgroundApi.serviceAccount.getAccount({
-        accountId,
-        networkId,
-        indexedAccountId,
-      });
-    } catch (error) {
-      console.log('getAccount error', error);
+    if (
+      !(
+        isAllNetwork &&
+        resolvedIndexedAccountId &&
+        !accountUtils.isOthersAccount({ accountId })
+      )
+    ) {
+      try {
+        // single network account or all network mocked account
+        networkAccount = await this.backgroundApi.serviceAccount.getAccount({
+          accountId,
+          networkId,
+          indexedAccountId: resolvedIndexedAccountId ?? indexedAccountId,
+        });
+      } catch (error) {
+        console.log('getAccount error', error);
+      }
     }
 
     defaultLogger.account.allNetworkAccountPerf.consoleLog('getAccount done');
@@ -282,7 +503,10 @@ class ServiceAllNetwork extends ServiceBase {
     const dbAccounts = await this.getAllNetworkDbAccounts({
       networkId,
       singleNetworkDeriveType,
-      indexedAccountId: indexedAccountId ?? networkAccount?.indexedAccountId,
+      indexedAccountId:
+        resolvedIndexedAccountId ??
+        indexedAccountId ??
+        networkAccount?.indexedAccountId,
       othersWalletAccountId: accountId,
       fetchAllNetworkAccounts,
     });
@@ -320,6 +544,11 @@ class ServiceAllNetwork extends ServiceBase {
       string,
       Promise<Record<string, IAccountDeriveInfo>>
     >();
+    // Reuse EVM account address info across EVM networks (same address format).
+    const evmAccountAddressInfoCache = new Map<
+      string,
+      Promise<{ address: string; account: INetworkAccount }>
+    >();
 
     let enabledNetworks: Record<string, boolean> = {};
     let disabledNetworks: Record<string, boolean> = {};
@@ -338,6 +567,21 @@ class ServiceAllNetwork extends ServiceBase {
       const impl = networkUtils.getNetworkImpl({ networkId: realNetworkId });
       const isNftEnabled = enableNFTNetworkIds.includes(realNetworkId);
       const isDeFiEnabled = enableDeFiNetworkIdsMap[realNetworkId];
+      const shouldProcessByNetworkEnabled =
+        !networksEnabledOnly ||
+        isEnabledNetworksInAllNetworks({
+          networkId: realNetworkId,
+          isTestnet: n.isTestnet,
+          disabledNetworks,
+          enabledNetworks,
+        });
+      const shouldProcessByCategory =
+        (!params.nftEnabledOnly || isNftEnabled) &&
+        (!params.DeFiEnabledOnly || isDeFiEnabled);
+
+      if (!shouldProcessByNetworkEnabled || !shouldProcessByCategory) {
+        return;
+      }
 
       const appendAccountInfo = (accountInfo: IAllNetworkAccountInfo) => {
         if (
@@ -382,6 +626,7 @@ class ServiceAllNetwork extends ServiceBase {
       const shouldFilterNotEqualGlobalDeriveTypeAccount =
         !includingNotEqualGlobalDeriveTypeAccount &&
         isAllNetwork &&
+        !accountUtils.isOthersAccount({ accountId }) &&
         !(
           networkUtils
             .getDefaultDeriveTypeVisibleNetworks()
@@ -438,14 +683,35 @@ class ServiceAllNetwork extends ServiceBase {
           if (isMatched) {
             perf.markStart('getAccountAddressForApi');
             let theMatchedNetworkAccount: INetworkAccount | undefined;
-            ({ address: apiAddress, account: theMatchedNetworkAccount } =
-              await this.backgroundApi.serviceAccount.getAccountAddressInfoForApi(
-                {
+            let accountAddressInfoPromise: Promise<{
+              address: string;
+              account: INetworkAccount;
+            }>;
+            if (impl === IMPL_EVM) {
+              const cachedPromise = evmAccountAddressInfoCache.get(a.id);
+              if (cachedPromise) {
+                accountAddressInfoPromise = cachedPromise;
+              } else {
+                accountAddressInfoPromise =
+                  this.backgroundApi.serviceAccount.getAccountAddressInfoForApi(
+                    {
+                      dbAccount: a,
+                      accountId: a.id,
+                      networkId: getNetworkIdsMap().eth,
+                    },
+                  );
+                evmAccountAddressInfoCache.set(a.id, accountAddressInfoPromise);
+              }
+            } else {
+              accountAddressInfoPromise =
+                this.backgroundApi.serviceAccount.getAccountAddressInfoForApi({
                   dbAccount: a,
                   accountId: a.id,
                   networkId: realNetworkId,
-                },
-              ));
+                });
+            }
+            ({ address: apiAddress, account: theMatchedNetworkAccount } =
+              await accountAddressInfoPromise);
             perf.markEnd('getAccountAddressForApi');
 
             // TODO pass dbAccount for better performance
@@ -530,10 +796,29 @@ class ServiceAllNetwork extends ServiceBase {
   async updateAllNetworksState(params: {
     disabledNetworks?: Record<string, boolean>;
     enabledNetworks?: Record<string, boolean>;
+    // Optional context so bg can prime the UnifiedNetworkSelector's SWR
+    // cache (swrKeys.unifiedNetworkSelectorMeta) for this account — the
+    // next modal open then reflects the new enabled/disabled state from
+    // frame 0 instead of flashing the pre-update snapshot. The context
+    // is additive: callers that don't supply it retain the old behavior.
+    cacheContext?: {
+      walletId?: string;
+      accountId?: string;
+    };
   }) {
     await this.backgroundApi.simpleDb.allNetworks.updateAllNetworksState(
       params,
     );
+    this.clearGetAllNetworkAccountsCache();
+    const { cacheContext } = params;
+    if (cacheContext?.walletId) {
+      void this.backgroundApi.serviceNetwork.primeUnifiedNetworkSelectorMetaCache(
+        {
+          walletId: cacheContext.walletId,
+          accountId: cacheContext.accountId,
+        },
+      );
+    }
   }
 
   @backgroundMethod()

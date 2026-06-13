@@ -32,6 +32,7 @@ import type {
 import { isHardwareInterruptErrorByCode } from '@onekeyhq/shared/src/errors/utils/deviceErrorUtils';
 import errorUtils from '@onekeyhq/shared/src/errors/utils/errorUtils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type {
   EModalApprovalManagementRoutes,
   IModalApprovalManagementParamList,
@@ -53,6 +54,7 @@ import backgroundApiProxy from '../../../background/instance/backgroundApiProxy'
 import useAppNavigation from '../../../hooks/useAppNavigation';
 import { usePromiseResult } from '../../../hooks/usePromiseResult';
 import BulkRevokeItem from '../components/BulkRevokeItem';
+import { ApprovalManagementTestIDs } from '../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -516,6 +518,7 @@ function BulkRevoke() {
             };
           }
 
+          // oxlint-disable-next-line no-loop-func
           setRevokeTxsStatusMap((prev) => ({
             ...prev,
             [uuid]: {
@@ -600,6 +603,9 @@ function BulkRevoke() {
 
   const handleOnConfirm = useCallback(() => {
     if (progressState === ERevokeProgressState.Finished) {
+      defaultLogger.prime.usage.bulkRevokeSuccess({
+        revokeCount: succeededTxCount,
+      });
       navigation.popStack();
       return;
     }
@@ -621,7 +627,13 @@ function BulkRevoke() {
         },
       }));
     }
-  }, [progressState, navigation, currentProcessIndex, unsignedTxs]);
+  }, [
+    progressState,
+    navigation,
+    currentProcessIndex,
+    unsignedTxs,
+    succeededTxCount,
+  ]);
 
   const handleOnCancel = useCallback(() => {
     if (skippedTxCount === 0 && failedTxCount === 0) {
@@ -673,6 +685,7 @@ function BulkRevoke() {
             skippedTxCount === 0 &&
             failedTxCount === 0 ? undefined : (
               <Button
+                testID={ApprovalManagementTestIDs.bulkRevokeCancelRetryBtn}
                 $md={
                   {
                     flexGrow: 1,

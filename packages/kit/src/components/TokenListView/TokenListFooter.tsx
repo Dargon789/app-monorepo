@@ -8,7 +8,6 @@ import {
   Button,
   Icon,
   IconButton,
-  NumberSizeableText,
   Popover,
   SizableText,
   Stack,
@@ -16,10 +15,7 @@ import {
   YStack,
 } from '@onekeyhq/components';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
-import {
-  useSettingsPersistAtom,
-  useSettingsValuePersistAtom,
-} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { useSettingsValuePersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { SEARCH_KEY_MIN_LENGTH } from '@onekeyhq/shared/src/consts/walletConsts';
 import {
   EAppEventBusNames,
@@ -30,6 +26,7 @@ import {
   EModalAssetListRoutes,
   EModalRoutes,
 } from '@onekeyhq/shared/src/routes';
+import { isTokenSelectorDappToken } from '@onekeyhq/shared/src/utils/tokenSelectorFilterUtils';
 
 import backgroundApiProxy from '../../background/instance/backgroundApiProxy';
 import useAppNavigation from '../../hooks/useAppNavigation';
@@ -38,6 +35,7 @@ import { useActiveAccount } from '../../states/jotai/contexts/accountSelector';
 import {
   useAggregateTokensListMapAtom,
   useAggregateTokensMapAtom,
+  useFlattenAggregateTokensMapAtom,
   useRiskyTokenListAtom,
   useRiskyTokenListMapAtom,
   useSearchKeyAtom,
@@ -45,12 +43,14 @@ import {
   useSmallBalanceTokenListMapAtom,
   useSmallBalanceTokensFiatValueAtom,
 } from '../../states/jotai/contexts/tokenList';
+import { Currency } from '../Currency';
 
 import { useTokenListViewContext } from './TokenListViewContext';
 
 type IProps = {
   tableLayout?: boolean;
   hideZeroBalanceTokens?: boolean;
+  hideDeFiMarkedTokens?: boolean;
   hasTokens?: boolean;
   manageTokenEnabled?: boolean;
   plainMode?: boolean;
@@ -61,6 +61,7 @@ function TokenListFooter(props: IProps) {
   const {
     tableLayout,
     hideZeroBalanceTokens,
+    hideDeFiMarkedTokens,
     hasTokens,
     manageTokenEnabled,
     plainMode,
@@ -76,8 +77,6 @@ function TokenListFooter(props: IProps) {
       indexedAccount,
     },
   } = useActiveAccount({ num: 0 });
-
-  const [settings] = useSettingsPersistAtom();
 
   const [{ hideValue }] = useSettingsValuePersistAtom();
 
@@ -97,7 +96,8 @@ function TokenListFooter(props: IProps) {
 
   const [aggregateTokensListMap] = useAggregateTokensListMapAtom();
 
-  const [aggregateTokensMap] = useAggregateTokensMapAtom();
+  const [aggregateTokensMap] = useFlattenAggregateTokensMapAtom();
+  const [nestedAggregateTokensMap] = useAggregateTokensMapAtom();
 
   const { smallBalanceTokens, keys: smallBalanceTokenKeys } =
     smallBalanceTokenList;
@@ -118,8 +118,10 @@ function TokenListFooter(props: IProps) {
   );
 
   const filteredSmallBalanceTokens = useMemo(() => {
+    let resultTokens = smallBalanceTokens;
+
     if (hideZeroBalanceTokens) {
-      return smallBalanceTokens.filter((token) => {
+      resultTokens = resultTokens.filter((token) => {
         const tokenBalance = new BigNumber(
           smallBalanceTokenListMap[token.$key]?.balance ??
             aggregateTokensMap[token.$key]?.balance ??
@@ -133,10 +135,18 @@ function TokenListFooter(props: IProps) {
         return false;
       });
     }
-    return smallBalanceTokens;
+
+    if (hideDeFiMarkedTokens) {
+      resultTokens = resultTokens.filter(
+        (token) => !isTokenSelectorDappToken(token),
+      );
+    }
+
+    return resultTokens;
   }, [
     smallBalanceTokens,
     hideZeroBalanceTokens,
+    hideDeFiMarkedTokens,
     smallBalanceTokenListMap,
     aggregateTokensMap,
   ]);
@@ -186,7 +196,7 @@ function TokenListFooter(props: IProps) {
         hideValue,
         isAllNetworks: network.isAllNetworks,
         aggregateTokensListMap,
-        aggregateTokensMap,
+        aggregateTokensMap: nestedAggregateTokensMap,
         accountAddress: account.address,
         allAggregateTokenMap,
         searchKeyLengthThreshold: 1,
@@ -207,7 +217,7 @@ function TokenListFooter(props: IProps) {
     deriveInfo,
     hideValue,
     aggregateTokensListMap,
-    aggregateTokensMap,
+    nestedAggregateTokensMap,
     allAggregateTokenMap,
   ]);
 
@@ -318,7 +328,7 @@ function TokenListFooter(props: IProps) {
   }, [run]);
 
   return (
-    <Stack>
+    <Stack mx={tableLayout ? undefined : '$2'}>
       {!isSearchMode && filteredSmallBalanceTokens.length > 0 ? (
         <ListItem
           onPress={handleOnPressLowValueTokens}
@@ -326,8 +336,8 @@ function TokenListFooter(props: IProps) {
           {...(tableLayout && plainMode
             ? undefined
             : {
-                px: '$0',
-                mx: '$0',
+                px: '$3',
+                mx: 0,
               })}
         >
           <XStack flexGrow={1} flexBasis={0} alignItems="center" gap="$3">
@@ -356,6 +366,7 @@ function TokenListFooter(props: IProps) {
                 })}
                 renderTrigger={
                   <IconButton
+                    testID="token-list-footer-help-btn"
                     size="small"
                     variant="tertiary"
                     icon="QuestionmarkOutline"
@@ -380,16 +391,20 @@ function TokenListFooter(props: IProps) {
               />
             ) : null}
           </XStack>
-          <Stack flexGrow={1} flexBasis={0} justifyContent="flex-end">
-            <NumberSizeableText
+          <Stack
+            flexGrow={1}
+            flexBasis={0}
+            justifyContent="center"
+            alignItems="flex-end"
+          >
+            <Currency
               size={tableLayout ? '$bodyMdMedium' : '$bodyLgMedium'}
               formatter="value"
-              formatterOptions={{ currency: settings.currencyInfo.symbol }}
-              flex={1}
+              sourceCurrency="usd"
               textAlign="right"
             >
               {smallBalanceTokensFiatValue}
-            </NumberSizeableText>
+            </Currency>
           </Stack>
         </ListItem>
       ) : null}
@@ -400,8 +415,8 @@ function TokenListFooter(props: IProps) {
           {...(tableLayout && plainMode
             ? undefined
             : {
-                px: '$0',
-                mx: '$0',
+                px: '$3',
+                mx: 0,
               })}
         >
           <XStack alignItems="center" gap="$3" flex={1}>
@@ -423,11 +438,19 @@ function TokenListFooter(props: IProps) {
         </ListItem>
       ) : null}
       {hasTokens && manageTokenEnabled ? (
-        <XStack py="$4" justifyContent="center" gap="$2.5">
-          <SizableText size="$bodyMd" color="$textDisabled">
+        <XStack
+          py="$4"
+          px="$4"
+          justifyContent="center"
+          alignItems="center"
+          gap="$2.5"
+          flexWrap="wrap"
+        >
+          <SizableText size="$bodyMd" color="$textDisabled" textAlign="center">
             {intl.formatMessage({ id: ETranslations.add_token_instruction })}
           </SizableText>
           <Button
+            testID="token-list-footer-add-token-btn"
             size="small"
             variant="tertiary"
             onPress={handleOnPressManageTokens}

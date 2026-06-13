@@ -13,11 +13,15 @@ import {
   Alert,
   Dialog,
   Icon,
-  Markdown,
   SizableText,
   Stack,
   XStack,
 } from '@onekeyhq/components';
+import { Markdown } from '@onekeyhq/components/src/content/Markdown';
+import {
+  ANIMATE_ONLY_OPACITY,
+  ANIMATE_ONLY_TRANSFORM,
+} from '@onekeyhq/components/src/utils/animationConstants';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import {
   EFirmwareUpdateSteps,
@@ -25,6 +29,7 @@ import {
   useSettingsPersistAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type {
   IBleFirmwareUpdateInfo,
   IBootloaderUpdateInfo,
@@ -34,6 +39,7 @@ import type {
 } from '@onekeyhq/shared/types/device';
 
 import { useFirmwareUpdateActions } from '../hooks/useFirmwareUpdateActions';
+import { FirmwareUpdateTestIDs } from '../testIDs';
 
 import { FirmwareUpdateIntroduction } from './FirmwareUpdateIntroduction';
 import { FirmwareUpdatePageFooter } from './FirmwareUpdatePageLayout';
@@ -104,10 +110,18 @@ function ChangeLogSection({
       >
         {({ open }: { open: boolean }) => (
           <>
-            <XStack ai="center" gap="$1.5" flex={1}>
+            <XStack
+              ai="center"
+              gap="$1.5"
+              flex={1}
+              minWidth={0}
+              flexShrink={1}
+              flexWrap="wrap"
+            >
               <SizableText
                 size="$bodyLgMedium"
                 color={open ? '$text' : '$textSubdued'}
+                flexShrink={0}
               >
                 {title}
               </SizableText>
@@ -120,7 +134,12 @@ function ChangeLogSection({
                 active={open}
               />
             </XStack>
-            <Stack animation="quick" rotate={open ? '-180deg' : '0deg'}>
+            <Stack
+              animation="quick"
+              animateOnly={ANIMATE_ONLY_TRANSFORM}
+              rotate={open ? '-180deg' : '0deg'}
+              flexShrink={0}
+            >
               <Icon
                 name="ChevronDownSmallOutline"
                 size="$6"
@@ -133,6 +152,7 @@ function ChangeLogSection({
       <Accordion.HeightAnimator animation="quick">
         <Accordion.Content
           animation="quick"
+          animateOnly={ANIMATE_ONLY_OPACITY}
           exitStyle={{ opacity: 0 }}
           px="$5"
           pb="$5"
@@ -253,6 +273,7 @@ export function FirmwareChangeFirmwareWarn({
 
   tips.push({
     content: intl.formatMessage({
+      // oxlint-disable-next-line @cspell/spellchecker
       id: ETranslations.device_wipe_data_bannner,
     }),
     type: 'danger',
@@ -311,6 +332,18 @@ export function FirmwareChangeLogView({
       step: EFirmwareUpdateSteps.showCheckList,
       payload: undefined,
     });
+    const updateFirmwareInfo = result?.updateInfos?.firmware;
+    if (
+      updateFirmwareInfo?.fromFirmwareType !== undefined &&
+      updateFirmwareInfo?.toFirmwareType !== undefined &&
+      updateFirmwareInfo.fromFirmwareType !== updateFirmwareInfo.toFirmwareType
+    ) {
+      defaultLogger.update.firmware.firmwareSwitchStart({
+        deviceType: result?.deviceType,
+        fromFirmwareType: updateFirmwareInfo.fromFirmwareType,
+        toFirmwareType: updateFirmwareInfo.toFirmwareType,
+      });
+    }
     showCheckList({ result });
     onConfirmClick?.();
   }, [result, showCheckList, onConfirmClick, setStepInfo, intl]);
@@ -329,6 +362,9 @@ export function FirmwareChangeLogView({
           id: ETranslations.update_update_now,
         })}
         onConfirm={handleConfirmClick}
+        confirmButtonProps={{
+          testID: FirmwareUpdateTestIDs.updateNowBtn,
+        }}
       />
       {showUpdateIntroduction ? <FirmwareUpdateIntroduction /> : null}
       <FirmwareChangeFirmwareWarn result={result} />

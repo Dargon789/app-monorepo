@@ -23,6 +23,8 @@ import {
   EMessageTypesSolana,
 } from '@onekeyhq/shared/types/message';
 
+import { DAppConnectionTestIDs } from '../../testIDs';
+
 type ITypedDataV1 = {
   type: string;
   name: string;
@@ -78,10 +80,13 @@ function DAppSignMessageContent({
         messageObject = messageObject.message ?? messageObject;
         if (Array.isArray(messageObject)) {
           const v1Message: ITypedDataV1[] = messageObject;
-          messageObject = v1Message.reduce((acc, cur) => {
-            acc[cur.name] = cur.value;
-            return acc;
-          }, {} as Record<string, string>);
+          messageObject = v1Message.reduce(
+            (acc, cur) => {
+              acc[cur.name] = cur.value;
+              return acc;
+            },
+            {} as Record<string, string>,
+          );
         }
         return JSON.stringify(messageObject, null, 2);
       }
@@ -94,7 +99,7 @@ function DAppSignMessageContent({
           messageObject = messageObject?.message ?? messageObject;
           return JSON.stringify(
             typeof messageObject === 'string'
-              ? JSON.parse(messageObject) ?? {}
+              ? (JSON.parse(messageObject) ?? {})
               : messageObject,
             null,
             2,
@@ -138,6 +143,7 @@ function DAppSignMessageContent({
       <YStack gap="$2">
         <Button
           variant="secondary"
+          testID={DAppConnectionTestIDs.SignMessageToggleRaw}
           onPress={() => setShowRawMessage(!showRawMessage)}
         >
           {showRawMessage
@@ -161,7 +167,10 @@ function DAppSignMessageContent({
   );
 
   return (
-    <YStack justifyContent="center">
+    <YStack
+      justifyContent="center"
+      testID={DAppConnectionTestIDs.SignMessageContent}
+    >
       <XStack alignItems="center" justifyContent="space-between">
         <SizableText color="$text" size="$headingMd" mb="$2">
           {intl.formatMessage({ id: ETranslations.dapp_connect_message })}

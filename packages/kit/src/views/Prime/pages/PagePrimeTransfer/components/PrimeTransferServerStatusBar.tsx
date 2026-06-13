@@ -23,13 +23,20 @@ export function PrimeTransferServerStatusBar() {
   const intl = useIntl();
   const { copyText } = useClipboard();
 
-  const { websocketConnected, websocketError } = primeTransferAtom;
+  const { websocketConnected, websocketError, websocketReconnecting } =
+    primeTransferAtom;
 
   const getConnectionState = () => {
     if (websocketConnected) {
       return 'connected';
     }
-    if (!websocketConnected && !websocketError) {
+    // While socket.io is mid-retry (initial-connect grace period or explicit
+    // reconnect_attempt), surface as "connecting" — not "failed" — so users
+    // don't see a flash of red error during normal recovery.
+    if (websocketReconnecting) {
+      return 'connecting';
+    }
+    if (!websocketError) {
       return 'connecting';
     }
     return 'failed';
@@ -114,8 +121,12 @@ export function PrimeTransferServerStatusBar() {
   }, [connectionState, intl]);
 
   const handleManagePress = () => {
-    showPrimeTransferServerConfigDialog();
+    showPrimeTransferServerConfigDialog({ intl });
   };
+
+  const handleRetryPress = useCallback(() => {
+    void backgroundApiProxy.servicePrimeTransfer.retryWebSocket();
+  }, []);
 
   const { result: statusInfo } = usePromiseResult(
     () => getStatusInfo(),
@@ -148,6 +159,7 @@ export function PrimeTransferServerStatusBar() {
           size="$bodyMd"
           color="$text"
           numberOfLines={3}
+          flexShrink={1}
           {...(statusInfo?.isCustomServer && {
             onPress: handleTextPress,
             hoverStyle: { opacity: 0.8, cursor: 'pointer' },
@@ -158,6 +170,7 @@ export function PrimeTransferServerStatusBar() {
 
         {statusInfo?.isCustomServer ? (
           <IconButton
+            testID="prime-icon-btn"
             variant="tertiary"
             icon="Copy3Outline"
             size="small"
@@ -169,7 +182,24 @@ export function PrimeTransferServerStatusBar() {
       </XStack>
 
       <XStack gap="$4">
-        <Button size="small" variant="tertiary" onPress={handleManagePress}>
+        {connectionState === 'failed' ? (
+          <Button
+            size="small"
+            variant="tertiary"
+            onPress={handleRetryPress}
+            testID="prime-retry-btn"
+          >
+            {intl.formatMessage({
+              id: ETranslations.global_retry,
+            })}
+          </Button>
+        ) : null}
+        <Button
+          size="small"
+          variant="tertiary"
+          onPress={handleManagePress}
+          testID="prime-btn"
+        >
           {intl.formatMessage({
             id: ETranslations.global_manage,
           })}

@@ -15,6 +15,7 @@ import {
   EthereumUSDe,
   EthereumWBTC,
   EthereumWETH,
+  PlasmaNetworkId,
 } from '@onekeyhq/shared/src/consts/addresses';
 import {
   COINTYPE_ETH,
@@ -22,6 +23,7 @@ import {
   INDEX_PLACEHOLDER,
 } from '@onekeyhq/shared/src/engine/engineConsts';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { EHardwareVendor } from '@onekeyhq/shared/types/device';
 import type {
   IStakingConfig,
   IStakingFlowConfig,
@@ -40,6 +42,7 @@ export type IAccountDeriveInfoMapEvm = IAccountDeriveInfoMapBase & {
   default: IAccountDeriveInfo;
   // etcNative: IAccountDeriveInfo;
   ledgerLive: IAccountDeriveInfo;
+  ledgerLegacy: IAccountDeriveInfo;
 };
 export type IAccountDeriveTypesEvm = keyof IAccountDeriveInfoMapEvm;
 
@@ -67,6 +70,15 @@ const lidoConfig: { ETH: IStakingFlowConfig } = {
     unstakeWithSignMessage: true,
     claimWithAmount: true,
   },
+};
+
+export const pendleFlowConfig: IStakingFlowConfig = {
+  enabled: true,
+  tokenAddress: '',
+  displayProfit: true,
+  stakingWithApprove: true,
+  withdrawWithTx: true,
+  claimWithTx: true,
 };
 
 const stakingConfig: IStakingConfig = {
@@ -144,6 +156,31 @@ const stakingConfig: IStakingConfig = {
           },
         },
       },
+      [EEarnProviderEnum.Pendle]: {
+        supportedSymbols: [],
+        configs: {},
+      },
+      [EEarnProviderEnum.Native]: {
+        supportedSymbols: ['WETH', 'USDT'],
+        configs: {
+          WETH: {
+            enabled: true,
+            tokenAddress: EthereumWETH,
+            displayProfit: true,
+            stakingWithApprove: true,
+            withdrawWithTx: true,
+            claimWithTx: true,
+          },
+          USDT: {
+            enabled: true,
+            tokenAddress: EthereumUSDT,
+            displayProfit: true,
+            stakingWithApprove: true,
+            withdrawWithTx: true,
+            claimWithTx: true,
+          },
+        },
+      },
       [EEarnProviderEnum.Falcon]: {
         supportedSymbols: ['USDf'],
         configs: {
@@ -187,6 +224,14 @@ const stakingConfig: IStakingConfig = {
       },
     },
   },
+  [getNetworkIdsMap().arbitrum]: {
+    providers: {
+      [EEarnProviderEnum.Pendle]: {
+        supportedSymbols: [],
+        configs: {},
+      },
+    },
+  },
   [getNetworkIdsMap().base]: {
     providers: {
       [EEarnProviderEnum.Morpho]: {
@@ -200,6 +245,10 @@ const stakingConfig: IStakingConfig = {
           },
         },
       },
+      [EEarnProviderEnum.Pendle]: {
+        supportedSymbols: [],
+        configs: {},
+      },
     },
   },
   [getNetworkIdsMap().sepolia]: {
@@ -208,23 +257,6 @@ const stakingConfig: IStakingConfig = {
         supportedSymbols: ['ETH'],
         configs: {
           ...lidoConfig,
-        },
-      },
-    },
-  },
-  [getNetworkIdsMap().holesky]: {
-    providers: {
-      [EEarnProviderEnum.Everstake]: {
-        supportedSymbols: ['ETH', 'POL'],
-        configs: {
-          ETH: commonStakeConfigs.ETH,
-          POL: commonStakeConfigs.POL,
-        },
-      },
-      [EEarnProviderEnum.Lido]: {
-        supportedSymbols: ['ETH'],
-        configs: {
-          ETH: lidoConfig.ETH,
         },
       },
     },
@@ -247,6 +279,26 @@ const stakingConfig: IStakingConfig = {
             stakingWithApprove: true,
           },
         },
+      },
+      [EEarnProviderEnum.Pendle]: {
+        supportedSymbols: [],
+        configs: {},
+      },
+    },
+  },
+  [getNetworkIdsMap().hyperevm]: {
+    providers: {
+      [EEarnProviderEnum.Pendle]: {
+        supportedSymbols: [],
+        configs: {},
+      },
+    },
+  },
+  [PlasmaNetworkId]: {
+    providers: {
+      [EEarnProviderEnum.Pendle]: {
+        supportedSymbols: [],
+        configs: {},
       },
     },
   },
@@ -302,6 +354,14 @@ const accountDeriveInfo: IAccountDeriveInfoMapEvm = {
     coinType: COINTYPE_ETH,
     desc: `m/44'/60'/*'/0/0`,
   },
+  ledgerLegacy: {
+    namePrefix: 'EVM Ledger Legacy',
+    label: 'Ledger Legacy',
+    idSuffix: 'LedgerLegacy', // hd-1--m/44'/60'/0'/0--LedgerLegacy
+    template: `m/44'/${COINTYPE_ETH}'/0'/${INDEX_PLACEHOLDER}`,
+    coinType: COINTYPE_ETH,
+    desc: `m/44'/60'/0'/*`,
+  },
 };
 
 const settings: IVaultSettings = {
@@ -314,6 +374,8 @@ const settings: IVaultSettings = {
   externalAccountEnabled: true,
   watchingAccountEnabled: true,
   qrAccountEnabled: true,
+
+  supportedThirdPartyVendors: [EHardwareVendor.ledger],
 
   supportExportedSecretKeys: [
     ECoreApiExportedSecretKeyType.privateKey,
@@ -378,8 +440,6 @@ const settings: IVaultSettings = {
     [networkIdMap.polygon]: true,
     [networkIdMap.blast]: true,
     [networkIdMap.bob]: true,
-    [networkIdMap.metis]: true,
-    [networkIdMap.mode]: true,
     [networkIdMap.taiko]: true,
     [networkIdMap.mantle]: true,
   },

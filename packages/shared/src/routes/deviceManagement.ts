@@ -1,7 +1,7 @@
 import type { IHwQrWalletWithDevice } from '../../types/account';
+import type { EHardwareVendor } from '../../types/device';
 
 export enum EModalDeviceManagementRoutes {
-  GuideModal = 'GuideModal',
   DeviceListModal = 'DeviceListModal',
   DeviceDetailModal = 'DeviceDetailModal',
   BuyOneKeyHardwareWallet = 'BuyOneKeyHardwareWallet',
@@ -9,10 +9,10 @@ export enum EModalDeviceManagementRoutes {
 }
 
 export type IModalDeviceManagementParamList = {
-  [EModalDeviceManagementRoutes.GuideModal]: undefined;
   [EModalDeviceManagementRoutes.DeviceListModal]: undefined;
   [EModalDeviceManagementRoutes.DeviceDetailModal]: {
     walletId: string;
+    initialDeviceVendor?: EHardwareVendor;
   };
   [EModalDeviceManagementRoutes.BuyOneKeyHardwareWallet]: undefined;
   [EModalDeviceManagementRoutes.HardwareTroubleshootingModal]: {

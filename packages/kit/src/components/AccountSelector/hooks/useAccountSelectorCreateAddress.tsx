@@ -13,6 +13,7 @@ import {
 } from '@onekeyhq/components';
 import type {
   IDBAccount,
+  IDBDevice,
   IDBWalletId,
 } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import type { IWithHardwareProcessingControlParams } from '@onekeyhq/kit-bg/src/services/ServiceHardwareUI/ServiceHardwareUI';
@@ -21,13 +22,17 @@ import { FIRMWARE_UPDATE_WEB_TOOLS_URL } from '@onekeyhq/shared/src/config/appCo
 import { OneKeyErrorAirGapAccountNotFound } from '@onekeyhq/shared/src/errors/errors/appErrors';
 import type { IOneKeyError } from '@onekeyhq/shared/src/errors/types/errorTypes';
 import { EOneKeyErrorClassNames } from '@onekeyhq/shared/src/errors/types/errorTypes';
+import {
+  classifyThirdPartyHwCreateFailures,
+  filterThirdPartyHwCreateFailureToasts,
+} from '@onekeyhq/shared/src/errors/utils/thirdPartyDeviceErrorUtils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { showIntercom } from '@onekeyhq/shared/src/modules3rdParty/intercom';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { EReasonForNeedPassword } from '@onekeyhq/shared/types/setting';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
-import { useHelpLink } from '../../../hooks/useHelpLink';
 import { useAccountSelectorActions } from '../../../states/jotai/contexts/accountSelector';
 import { TutorialsList } from '../../TutorialsList';
 
@@ -39,7 +44,6 @@ export function useAccountSelectorCreateAddress() {
   const intl = useIntl();
   const actions = useAccountSelectorActions();
   const { createQrWalletAccount } = useCreateQrWallet();
-  const requestsUrl = useHelpLink({ path: 'requests/new' });
 
   const createAddress = useCallback(
     async ({
@@ -67,16 +71,20 @@ export function useAccountSelectorCreateAddress() {
         !account ||
         !account.walletId ||
         !account.networkId ||
-        !account.indexedAccountId ||
         !account.deriveType
       ) {
         Toast.error({
-          title: 'Create address failed',
-          message: 'Please select a valid account',
+          title: intl.formatMessage({
+            id: ETranslations.toast_create_address_failed_title,
+          }),
+          message: intl.formatMessage({
+            id: ETranslations.toast_create_address_failed_message,
+          }),
         });
         return;
       }
 
+      let walletDevice: IDBDevice | undefined;
       let connectId: string | undefined;
       if (
         account.walletId &&
@@ -84,10 +92,13 @@ export function useAccountSelectorCreateAddress() {
           walletId: account.walletId,
         })
       ) {
-        const device = await serviceAccount.getWalletDevice({
+        walletDevice = await serviceAccount.getWalletDevice({
           walletId: account.walletId,
         });
-        connectId = device?.connectId;
+        connectId =
+          walletDevice?.connectId ||
+          walletDevice?.usbConnectId ||
+          walletDevice?.bleConnectId;
       }
 
       const handleAddAccounts = async (
@@ -130,10 +141,13 @@ export function useAccountSelectorCreateAddress() {
         }
 
         // TODO: cancel creating workflow by close checking device UI dialog
+        // If indexedAccountId is empty, create the first account (index 0) for all networks
+        const indexes = account?.indexedAccountId ? undefined : [0];
         const result =
           await serviceBatchCreateAccount.addDefaultNetworkAccounts({
             walletId: account?.walletId,
             indexedAccountId: account?.indexedAccountId,
+            indexes,
             customNetworks,
             ...hwUiControlParams,
           });
@@ -144,9 +158,58 @@ export function useAccountSelectorCreateAddress() {
         ) {
           throw new OneKeyErrorAirGapAccountNotFound();
         }
+
+        if (
+          result?.failedAccounts?.length &&
+          !accountUtils.isQrWallet({ walletId: account.walletId })
+        ) {
+          let failedList = result.failedAccounts;
+          // 3rd-party HW: only report missing-app when zero chains succeeded;
+          // otherwise drop AppNotInstalled and surface only genuine errors.
+          const walletId = account.walletId;
+          const isThirdPartyHw = walletId
+            ? await serviceAccount.isThirdPartyHwByWalletId({ walletId })
+            : false;
+          if (isThirdPartyHw) {
+            const { allAppNotInstalled, genuineFailures } =
+              classifyThirdPartyHwCreateFailures({
+                addedCount: result.addedAccounts.length,
+                failedAccounts: failedList,
+              });
+            if (allAppNotInstalled) {
+              Toast.error({
+                title: intl.formatMessage({
+                  id: ETranslations.hardware_third_party_no_app_installed_on_device,
+                }),
+              });
+            }
+            failedList = genuineFailures;
+          }
+          const failedListForToast = isThirdPartyHw
+            ? filterThirdPartyHwCreateFailureToasts(failedList)
+            : failedList;
+          for (const failedAccount of failedListForToast) {
+            Toast.error({
+              title: failedAccount.error.message || 'Unknown error',
+            });
+          }
+        }
+
+        // If indexedAccountId was empty, get the first indexed account from wallet
+        let resultIndexedAccountId = account?.indexedAccountId;
+        if (!resultIndexedAccountId && account?.walletId) {
+          const { accounts: indexedAccounts } =
+            await serviceAccount.getIndexedAccountsOfWallet({
+              walletId: account.walletId,
+            });
+          if (indexedAccounts.length > 0) {
+            resultIndexedAccountId = indexedAccounts[0].id;
+          }
+        }
+
         return handleAddAccounts({
           walletId: account?.walletId,
-          indexedAccountId: account?.indexedAccountId,
+          indexedAccountId: resultIndexedAccountId,
           accounts: [],
         });
       };
@@ -157,11 +220,14 @@ export function useAccountSelectorCreateAddress() {
             await addAccountsForAllNetwork();
             return;
           }
+          // If indexedAccountId is empty, create the first account (index 0)
+          const indexes = account?.indexedAccountId ? undefined : [0];
           const result = await serviceAccount.addHDOrHWAccounts({
             walletId: account?.walletId,
             indexedAccountId: account?.indexedAccountId,
             networkId: account?.networkId,
             deriveType: account?.deriveType,
+            indexes,
             createAllDeriveTypes,
             ...hwUiControlParams,
           });
@@ -185,10 +251,22 @@ export function useAccountSelectorCreateAddress() {
         return await addAccounts();
       } catch (error1) {
         if (isAirGapAccountNotFound(error1)) {
+          let indexedAccountId = account.indexedAccountId;
+          if (!indexedAccountId) {
+            await serviceAccount.addIndexedAccount({
+              walletId: account.walletId,
+              indexes: [0],
+              skipIfExists: true,
+            });
+            indexedAccountId = accountUtils.buildIndexedAccountId({
+              walletId: account.walletId,
+              index: 0,
+            });
+          }
           await createQrWalletAccount({
             walletId: account.walletId,
             networkId: account.networkId,
-            indexedAccountId: account.indexedAccountId,
+            indexedAccountId,
           });
 
           try {
@@ -225,6 +303,7 @@ export function useAccountSelectorCreateAddress() {
                           children: (
                             <Stack>
                               <Button
+                                testID="account-selector-is-btc-only-wallet-btn"
                                 size="small"
                                 mt="$2"
                                 iconAfter="OpenOutline"
@@ -251,7 +330,8 @@ export function useAccountSelectorCreateAddress() {
                       </SizableText>
                       <Button
                         variant="tertiary"
-                        onPress={() => Linking.openURL(requestsUrl)}
+                        onPress={() => showIntercom()}
+                        testID="account-selector-btn"
                       >
                         {intl.formatMessage({
                           id: ETranslations.global_contact_us,
@@ -274,7 +354,6 @@ export function useAccountSelectorCreateAddress() {
       actions,
       createQrWalletAccount,
       intl,
-      requestsUrl,
       serviceAccount,
       serviceBatchCreateAccount,
       serviceHardwareUI,

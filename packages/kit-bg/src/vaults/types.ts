@@ -15,16 +15,21 @@ import type {
 } from '@onekeyhq/core/src/types';
 import type { ICoinSelectAlgorithm } from '@onekeyhq/core/src/utils/coinSelectUtils';
 import type { IAirGapAccount } from '@onekeyhq/qr-wallet-sdk';
+import type { IPbkdf2KdfParams } from '@onekeyhq/shared/src/appCrypto/modules/pbkdf2';
 import type {
   ETranslations,
   ETranslationsMock,
 } from '@onekeyhq/shared/src/locale';
 import type { IDappSourceInfo } from '@onekeyhq/shared/types';
 import type { IDBCustomRpc } from '@onekeyhq/shared/types/customRpc';
-import type { IDeviceSharedCallParams } from '@onekeyhq/shared/types/device';
+import type {
+  EHardwareVendor,
+  IDeviceSharedCallParams,
+} from '@onekeyhq/shared/types/device';
 import type { IStakingConfig } from '@onekeyhq/shared/types/earn';
 import type {
   IFeeInfoUnit,
+  IGasAccountUiState,
   ISendSelectedFeeInfo,
   ITronResourceRentalInfo,
 } from '@onekeyhq/shared/types/fee';
@@ -43,12 +48,13 @@ import type {
   ESwapTabSwitchType,
   EWrappedType,
   IFetchBuildTxResult,
+  ILMTronObject,
   IOKXTransactionObject,
   ISwapTokenBase,
   ISwapTxInfo,
 } from '@onekeyhq/shared/types/swap/types';
 import type { IToken } from '@onekeyhq/shared/types/token';
-import type { IReplaceTxInfo } from '@onekeyhq/shared/types/tx';
+import type { EApproveType, IReplaceTxInfo } from '@onekeyhq/shared/types/tx';
 
 import type {
   IAccountDeriveInfoMapBtc,
@@ -69,6 +75,7 @@ import type { IDBAccount, IDBWalletId } from '../dbs/local/types';
 import type { HardwareAllNetworkGetAddressResponse } from '../services/ServiceHardware/HardwareAllNetworkGetAddressResponse';
 import type { AllNetworkAddressParams, IDeviceType } from '@onekeyfe/hd-core';
 import type { HDNodeType } from '@onekeyfe/hd-transport';
+import type { ChainForFingerprint } from '@onekeyfe/hwk-adapter-core';
 import type { SignClientTypes } from '@walletconnect/types';
 import type { MessageDescriptor } from 'react-intl';
 
@@ -139,6 +146,12 @@ export type IAccountDeriveTypes =
   | IAccountDeriveTypesBtc
   | IAccountDeriveTypesKaspa;
 
+export type INetworkDeriveInfo = {
+  deriveType: IAccountDeriveTypes;
+  mergeDeriveAssetsEnabled: boolean;
+  suffixToDeriveType?: Record<string, string>;
+};
+
 export type IVaultSettingsNetworkInfo = {
   addressPrefix: string;
   curve: ICurveName;
@@ -163,6 +176,17 @@ export type IVaultSettings = {
   softwareAccountDisabled?: boolean;
 
   supportedDeviceTypes?: IDeviceType[];
+
+  /**
+   * Third-party hardware vendors (e.g. Ledger) this network supports.
+   * Consumed by `ServiceNetwork.getNetworkIdsCompatibleWithWalletId` to
+   * hide networks from the chain selector when the current hw wallet
+   * is a third-party vendor whose SDK doesn't sign this chain.
+   *
+   * Omit / leave undefined to mean "no third-party vendor supports this
+   * network" — OneKey's own hardware wallets ignore this field.
+   */
+  supportedThirdPartyVendors?: EHardwareVendor[];
 
   addressBookDisabled?: boolean;
   copyAddressDisabled?: boolean;
@@ -211,8 +235,13 @@ export type IVaultSettings = {
    * https://support.ledger.com/hc/en-us/articles/4409603715217-What-is-a-Memo-Tag-?support=true
    */
   withMemo?: boolean;
-  memoMaxLength?: number;
+  memoMaxLength?: number; // Fallback: character-based limit (legacy)
   numericOnlyMemo?: boolean;
+  /**
+   * If true, Vault has implemented validateMemo() for precise validation
+   * Form validation will call vault.validateMemo() instead of using memoMaxLength
+   */
+  supportMemoValidation?: boolean;
 
   // dnx
   withPaymentId?: boolean;
@@ -288,6 +317,8 @@ export type IVaultSettings = {
   minRetryBroadcastTxInterval?: number;
 
   enabledInternalSignAndVerify?: boolean;
+
+  nativeBatchTransferEnabled?: boolean;
 };
 
 export type IVaultFactoryOptions = {
@@ -296,6 +327,7 @@ export type IVaultFactoryOptions = {
   walletId?: IDBWalletId;
   isChainOnly?: boolean;
   isWalletOnly?: boolean;
+  hardwareVendor?: EHardwareVendor;
 };
 export type IVaultOptions = IVaultFactoryOptions & {
   backgroundApi: IBackgroundApi;
@@ -338,7 +370,8 @@ export type IPrepareImportedAccountsParams = {
   name: string;
   template?: string; // TODO use deriveInfo
   deriveInfo?: IAccountDeriveInfo;
-};
+  debugCryptoProbeId?: string;
+} & IPbkdf2KdfParams;
 export type IPrepareHDOrHWAccountChainExtraParams = {
   receiveAddressPath?: string;
 };
@@ -351,6 +384,7 @@ export type IPrepareHdAccountsParamsBase = {
 };
 export type IPrepareHdAccountsParams = IPrepareHdAccountsParamsBase & {
   password: string;
+  hdCredentialCacheScopeId?: string;
 };
 export type IPrepareQrAccountsParams = IPrepareHdAccountsParamsBase & {
   // isVerifyAddress?: boolean;
@@ -369,6 +403,8 @@ export type IPrepareHardwareAccountsParams = IPrepareHdAccountsParamsBase & {
   deviceParams: IDeviceSharedCallParams;
   hwAllNetworkPrepareAccountsResponse?: IHwAllNetworkPrepareAccountsResponse;
   chainExtraParams?: IPrepareHDOrHWAccountChainExtraParams;
+  // Auto multi-network fill scene flag; HW auto-install is derived from it.
+  isAutoCreateMultiNetwork?: boolean;
 };
 export type IPrepareAccountsParams =
   | IPrepareWatchingAccountsParams
@@ -433,6 +469,8 @@ export type IHwAllNetworkPrepareAccountsItem =
       address?: string;
       path?: string;
       rootFingerprint?: number;
+      chainFingerprint?: string;
+      chainFingerprintChain?: ChainForFingerprint;
 
       pub?: string;
       publicKey?: string; // cosmos, sui, aptos 缺
@@ -516,6 +554,9 @@ export type ITransferInfo = {
   // BTC Coin Control
   selectedUtxoKeys?: string[]; // Format: "txid:vout" for manually selected UTXOs
   utxoSelectionStrategy?: EUtxoSelectionStrategy; // Strategy for UTXO selection
+
+  // Bulk send: fee-on-transfer tokens require direct transferFrom per recipient
+  isFeeOnTransferToken?: boolean;
 };
 
 export type IApproveInfo = {
@@ -531,6 +572,16 @@ export type ITransferPayload = {
   amountToSend: string;
   isMaxSend: boolean;
   isNFT: boolean;
+  isPrivateSend?: boolean;
+  privateSend?: {
+    orderId?: string;
+    rocketXOrderId?: string;
+    payinAddress?: string;
+    provider?: string;
+    providerName?: string;
+    providerLogo?: string;
+    supportUrl?: string;
+  };
   originalRecipient: string;
   isToContract?: boolean;
   memo?: string;
@@ -615,7 +666,13 @@ export interface IBuildUnsignedTxParams {
   withUuid?: boolean;
 }
 
-export type ITokenApproveInfo = { allowance: string; isUnlimited: boolean };
+export type ITokenApproveInfo = {
+  allowance: string;
+  isUnlimited: boolean;
+  // Preserved across re-encode so increaseAllowance/increaseApproval are not
+  // silently rewritten as approve(); undefined defaults to absolute approve.
+  approveType?: EApproveType;
+};
 export interface IUpdateUnsignedTxParams {
   unsignedTx: IUnsignedTxPro;
   feeInfo?: IFeeInfoUnit;
@@ -634,11 +691,12 @@ export interface IBroadcastTransactionParams {
   signature?: string;
   rawTxType?: 'json' | 'hex';
   tronResourceRentalInfo?: ITronResourceRentalInfo;
+  gasAccountUiState?: IGasAccountUiState;
+  isPrivateSend?: boolean;
   useDefaultRpc?: boolean;
 }
 
-export interface IBroadcastTransactionByCustomRpcParams
-  extends IBroadcastTransactionParams {
+export interface IBroadcastTransactionByCustomRpcParams extends IBroadcastTransactionParams {
   customRpcInfo: IDBCustomRpc;
 }
 
@@ -676,6 +734,11 @@ export interface IBatchSignTransactionParamsBase {
   transferPayload: ITransferPayload | undefined;
   successfullySentTxs?: string[];
   tronResourceRentalInfo?: ITronResourceRentalInfo;
+  gasAccountUiState?: IGasAccountUiState;
+  // UI-generated token that identifies a single submit attempt. The background
+  // retry loop registers an AbortController against this id so the UI can
+  // cancel an in-flight 90212 retry via ServiceSend.abortGasAccountSubmit.
+  gasAccountSubmitId?: string;
   useDefaultRpc?: boolean;
 }
 
@@ -741,4 +804,8 @@ export type IBuildOkxSwapEncodedTxParams = {
   okxTx: IOKXTransactionObject;
   fromTokenInfo: ISwapTokenBase;
   type: ESwapTabSwitchType;
+};
+
+export type IBuildLMSwapEncodedTxParams = {
+  lmTx: ILMTronObject;
 };

@@ -1,22 +1,32 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { useIntl } from 'react-intl';
 
-import { Markdown, Page, ScrollView } from '@onekeyhq/components';
-import { useAppUpdatePersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { Page, ScrollView } from '@onekeyhq/components';
+import { Markdown } from '@onekeyhq/components/src/content/Markdown';
 import { displayWhatsNewVersion } from '@onekeyhq/shared/src/appUpdate';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
-import { useAppChangeLog } from '../../../components/UpdateReminder/hooks';
+import { useAppChangeLog } from '../../../components/AppUpdate';
 import useAppNavigation from '../../../hooks/useAppNavigation';
 import { ViewUpdateHistory } from '../components/ViewUpdateHistory';
 
 function WhatsNew() {
   const intl = useIntl();
-  const [appUpdateInfo] = useAppUpdatePersistAtom();
   const changeLog = useAppChangeLog();
   const navigation = useAppNavigation();
+  const mountTimeRef = useRef(Date.now());
+
+  useEffect(() => {
+    const mountTime = mountTimeRef.current;
+    return () => {
+      defaultLogger.app.appUpdate.whatsNewClosed({
+        durationMs: Date.now() - mountTime,
+      });
+    };
+  }, []);
   const handleClose = useCallback(() => {
     setTimeout(() => {
       void backgroundApiProxy.serviceAppUpdate.fetchAppUpdateInfo(true);
@@ -28,7 +38,7 @@ function WhatsNew() {
         title={intl.formatMessage(
           { id: ETranslations.update_changelog_updated_title },
           {
-            ver: displayWhatsNewVersion(appUpdateInfo),
+            ver: displayWhatsNewVersion(),
           },
         )}
       />

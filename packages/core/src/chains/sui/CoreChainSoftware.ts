@@ -56,7 +56,12 @@ export default class CoreChainSoftware extends CoreChainApiBase {
     }
     if (keyType === ECoreApiExportedSecretKeyType.privateKey) {
       return `0x${(
-        await decryptAsync({ password, data: privateKeyRaw })
+        await decryptAsync({
+          password,
+          data: privateKeyRaw,
+          kdfBackend: query.kdfBackend,
+          enablePbkdf2Cache: query.enablePbkdf2Cache,
+        })
       ).toString('hex')}`;
     }
     throw new OneKeyLocalError(`SecretKey type not support: ${keyType}`);
@@ -125,7 +130,7 @@ export default class CoreChainSoftware extends CoreChainApiBase {
     if (hexUtils.isHexString(privateKeyRaw)) {
       privateKey = bufferUtils.toBuffer(privateKeyRaw, 'hex');
     } else {
-      // eslint-disable-next-line spellcheck/spell-checker
+      // oxlint-disable-next-line @cspell/spellchecker
       // suiprivkey1qq*****
       // privateKey = bufferUtils.toBuffer(privateKeyRaw, 'utf-8'); // not correct buffer convert for sui
     }

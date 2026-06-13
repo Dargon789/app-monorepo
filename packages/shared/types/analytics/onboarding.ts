@@ -1,4 +1,5 @@
 import type { IBaseEventPayload } from './base';
+import type { EHardwareVendor } from '../device';
 import type { IDeviceType } from '@onekeyfe/hd-core';
 
 // Specific parameter details for each add method
@@ -29,6 +30,7 @@ interface IConnectHardwareWalletPayload {
     bootloaderVersion?: string;
   };
   hardwareWalletType: 'Hidden' | 'Standard';
+  vendor?: EHardwareVendor;
 }
 
 export interface IConnectExternalWalletPayload {
@@ -37,12 +39,17 @@ export interface IConnectExternalWalletPayload {
   walletName?: string;
 }
 
+export interface ICreateKeylessWalletPayload {
+  provider: 'google' | 'apple';
+}
+
 // Discriminated union type for the wallet events
 export type IWalletAddMethod =
   | 'CreateWallet'
   | 'ImportWallet'
   | 'ConnectHWWallet'
-  | 'Connect3rdPartyWallet';
+  | 'Connect3rdPartyWallet'
+  | 'CreateKeylessWallet';
 
 export type IWalletStartedParams =
   | {
@@ -60,12 +67,18 @@ export type IWalletStartedParams =
       details: {
         communication?: IHardwareTransportType;
         hardwareWalletType: 'Hidden' | 'Standard';
+        vendor?: EHardwareVendor;
       };
       isSoftwareWalletOnlyUser: boolean;
     }
   | {
       addMethod: Extract<IWalletAddMethod, 'Connect3rdPartyWallet'>;
       details: IConnectExternalWalletPayload;
+      isSoftwareWalletOnlyUser: boolean;
+    }
+  | {
+      addMethod: Extract<IWalletAddMethod, 'CreateKeylessWallet'>;
+      details: ICreateKeylessWalletPayload;
       isSoftwareWalletOnlyUser: boolean;
     };
 
@@ -89,6 +102,11 @@ export type IWalletAddedEventParams = IBaseEventPayload &
     | {
         addMethod: Extract<IWalletAddMethod, 'Connect3rdPartyWallet'>;
         details: IConnectExternalWalletPayload;
+        isSoftwareWalletOnlyUser: boolean;
+      }
+    | {
+        addMethod: Extract<IWalletAddMethod, 'CreateKeylessWallet'>;
+        details: ICreateKeylessWalletPayload;
         isSoftwareWalletOnlyUser: boolean;
       }
   );

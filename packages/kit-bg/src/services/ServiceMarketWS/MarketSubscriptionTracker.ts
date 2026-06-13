@@ -15,7 +15,7 @@ export type ISubscription = {
 export class MarketSubscriptionTracker {
   private subscriptions: ISubscription[] = [];
 
-  private static readonly DATA_COUNT_THRESHOLD = 10;
+  private static readonly DATA_COUNT_THRESHOLD = 100;
 
   addSubscription({
     address,
@@ -100,6 +100,29 @@ export class MarketSubscriptionTracker {
   }): boolean {
     return this.subscriptions.some(
       (sub) => sub.address === address && sub.type === type,
+    );
+  }
+
+  hasExactSubscription({
+    address,
+    type,
+    networkId,
+    chartType,
+    currency,
+  }: {
+    address: string;
+    type: ISubscriptionType;
+    networkId: string;
+    chartType?: string;
+    currency?: string;
+  }): boolean {
+    return this.subscriptions.some(
+      (sub) =>
+        sub.address === address &&
+        sub.type === type &&
+        sub.networkId === networkId &&
+        sub.chartType === chartType &&
+        sub.currency === currency,
     );
   }
 

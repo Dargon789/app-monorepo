@@ -27,7 +27,9 @@ import {
   YStack,
   useForm,
   useMedia,
+  useTheme,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_OPACITY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
@@ -50,6 +52,9 @@ function MacBluetoothIllustrationViews({
 }) {
   const themeVariant = useThemeVariant();
 
+  const theme = useTheme();
+  const info8Color = theme.info8.val;
+  const info10Color = theme.info10.val;
   const paringView = useMemo(() => {
     return (
       <YStack
@@ -67,6 +72,7 @@ function MacBluetoothIllustrationViews({
             },
           },
         ]}
+        animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
         enterStyle={{
           opacity: 0,
           scale: 0.9,
@@ -91,7 +97,7 @@ function MacBluetoothIllustrationViews({
       >
         <XStack gap="$3" alignSelf="stretch" alignItems="center">
           <LinearGradient
-            colors={['$info8', '$info10']}
+            colors={[info8Color, info10Color]}
             p="$1"
             borderWidth={1}
             borderColor="$info7"
@@ -142,7 +148,7 @@ function MacBluetoothIllustrationViews({
             }}
           />
           <LinearGradient
-            colors={['$info8', '$info10']}
+            colors={[info8Color, info10Color]}
             borderRadius="$1"
             w="$12"
             h={15}
@@ -156,7 +162,7 @@ function MacBluetoothIllustrationViews({
         </XStack>
       </YStack>
     );
-  }, [themeVariant]);
+  }, [info10Color, info8Color, themeVariant]);
 
   const systemAuthorizedView = useMemo(() => {
     return (
@@ -175,6 +181,7 @@ function MacBluetoothIllustrationViews({
             },
           },
         ]}
+        animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
         enterStyle={{
           opacity: 0,
           scale: 0.9,
@@ -198,7 +205,7 @@ function MacBluetoothIllustrationViews({
         })}
       >
         <LinearGradient
-          colors={['$info8', '$info10']}
+          colors={[info8Color, info10Color]}
           p="$1"
           borderWidth={1}
           borderColor="$info7"
@@ -233,7 +240,7 @@ function MacBluetoothIllustrationViews({
             }}
           />
           <LinearGradient
-            colors={['$info8', '$info10']}
+            colors={[info8Color, info10Color]}
             borderRadius="$1"
             w="$12"
             h={15}
@@ -247,7 +254,7 @@ function MacBluetoothIllustrationViews({
         </XStack>
       </YStack>
     );
-  }, [themeVariant]);
+  }, [info10Color, info8Color, themeVariant]);
 
   const userAuthorizedView = useMemo(() => {
     return <SizableText>user-authorized</SizableText>;
@@ -443,17 +450,13 @@ export function ConfirmOnDeviceToastContent({
       case EDeviceType.Classic:
       case EDeviceType.Classic1s:
       case EDeviceType.ClassicPure:
-        return import(
-          '@onekeyhq/kit/assets/animations/confirm-on-classic.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/confirm-on-classic.json');
       case EDeviceType.Mini:
         return import('@onekeyhq/kit/assets/animations/confirm-on-mini.json');
       case EDeviceType.Touch:
         return import('@onekeyhq/kit/assets/animations/confirm-on-touch.json');
       case EDeviceType.Pro:
-        return import(
-          '@onekeyhq/kit/assets/animations/confirm-on-pro-dark.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/confirm-on-pro-dark.json');
       default:
         // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-case-declarations
         const checkType = deviceType;
@@ -492,7 +495,11 @@ export function ConfirmOnDeviceToastContent({
         <Stack minWidth="$8">
           {showErrorButton ? (
             <Toast.Close>
-              <IconButton size="small" icon="CrossedSmallOutline" />
+              <IconButton
+                size="small"
+                icon="CrossedSmallOutline"
+                testID="hardware-timeout-icon-btn"
+              />
             </Toast.Close>
           ) : null}
         </Stack>
@@ -501,7 +508,17 @@ export function ConfirmOnDeviceToastContent({
   );
 }
 
-export function CommonDeviceLoading({ children }: { children?: any }) {
+export function CommonDeviceLoading({
+  children,
+  deviceType,
+  walletName,
+  bleName,
+}: {
+  children?: any;
+  deviceType?: IDeviceType;
+  walletName?: string;
+  bleName?: string;
+}) {
   const [{ hardwareTransportType }] = useSettingsPersistAtom();
   const { result: communicationMethod } = usePromiseResult<'bluetooth' | 'usb'>(
     async () => {
@@ -523,7 +540,12 @@ export function CommonDeviceLoading({ children }: { children?: any }) {
   );
   return (
     <>
-      <CommunicatingLottieView method={communicationMethod} />
+      <CommunicatingLottieView
+        method={communicationMethod}
+        deviceType={deviceType}
+        walletName={walletName}
+        bleName={bleName}
+      />
       {children}
     </>
   );
@@ -546,19 +568,13 @@ export function EnterPinOnDevice({
       case EDeviceType.Classic:
       case EDeviceType.Classic1s:
       case EDeviceType.ClassicPure:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-pin-on-classic.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-pin-on-classic.json');
       case EDeviceType.Mini:
         return import('@onekeyhq/kit/assets/animations/enter-pin-on-mini.json');
       case EDeviceType.Touch:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-pin-on-touch.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-pin-on-touch.json');
       case EDeviceType.Pro:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-pin-on-pro-dark.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-pin-on-pro-dark.json');
       default:
         // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-case-declarations
         const checkType = deviceType;
@@ -740,6 +756,7 @@ export function EnterPin({
             return (
               <Stack
                 key={index}
+                testID={`hardware-ui-pin-key-${num}`}
                 flexBasis="33.3333%"
                 h="$14"
                 borderRightWidth={isLastColumn ? 0 : StyleSheet.hairlineWidth}
@@ -771,6 +788,7 @@ export function EnterPin({
       </Stack>
       {/* TODO: add loading state while waiting for result */}
       <Button
+        testID="hardware-ui-pin-switch-on-device-btn"
         m="$0"
         mt="$2.5"
         $md={
@@ -892,6 +910,7 @@ export function EnterPhase({
                 })}
                 renderTrigger={
                   <IconButton
+                    testID="hardware-ui-passphrase-info-btn"
                     variant="tertiary"
                     size="small"
                     icon="InfoCircleOutline"
@@ -920,6 +939,7 @@ export function EnterPhase({
           }
           labelAddon={
             <Button
+              testID="hardware-ui-passphrase-switch-on-device-btn"
               variant="tertiary"
               size="small"
               icon="OnekeyDeviceCustom"
@@ -957,6 +977,7 @@ export function EnterPhase({
           }}
         >
           <Input
+            testID="hardware-ui-passphrase-input"
             secureTextEntry={secureEntry1}
             placeholder={intl.formatMessage({
               id: ETranslations.global_enter_passphrase,
@@ -964,6 +985,7 @@ export function EnterPhase({
             addOns={[
               {
                 iconName: secureEntry1 ? 'EyeOutline' : 'EyeOffOutline',
+                testID: 'hardware-ui-passphrase-eye-btn',
                 onPress: () => {
                   setSecureEntry1(!secureEntry1);
                 },
@@ -985,6 +1007,7 @@ export function EnterPhase({
                     id: ETranslations.hidden_wallet_accessibility_title,
                   },
                   {
+                    // eslint-disable-next-line react/no-unstable-nested-components
                     strong: (chunks: ReactNode[]) => (
                       <SizableText size="$bodyMdMedium" color="$text">
                         {chunks}
@@ -995,12 +1018,16 @@ export function EnterPhase({
               </SizableText>
             }
           >
-            <Switch size={ESwitchSize.small} />
+            <Switch
+              testID="hardware-ui-passphrase-hide-immediately-switch"
+              size={ESwitchSize.small}
+            />
           </Form.Field>
         ) : null}
       </Form>
       {/* TODO: add loading state while waiting for result */}
       <Button
+        testID="hardware-ui-passphrase-confirm-btn"
         mt="$5"
         $md={
           {
@@ -1015,6 +1042,7 @@ export function EnterPhase({
       </Button>
       {allowUseAttachPin ? (
         <Button
+          testID="hardware-ui-passphrase-attach-pin-btn"
           m="$0"
           mt="$2.5"
           $md={
@@ -1051,21 +1079,13 @@ export function EnterPassphraseOnDevice({
       case EDeviceType.Classic:
       case EDeviceType.Classic1s:
       case EDeviceType.ClassicPure:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-passphrase-on-classic.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-passphrase-on-classic.json');
       case EDeviceType.Mini:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-passphrase-on-mini.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-passphrase-on-mini.json');
       case EDeviceType.Touch:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-passphrase-on-touch.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-passphrase-on-touch.json');
       case EDeviceType.Pro:
-        return import(
-          '@onekeyhq/kit/assets/animations/enter-passphrase-on-pro-dark.json'
-        );
+        return import('@onekeyhq/kit/assets/animations/enter-passphrase-on-pro-dark.json');
       default:
         // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-case-declarations
         const checkType = deviceType;
@@ -1103,6 +1123,7 @@ export function ConfirmPassphrase({
   return (
     <Stack>
       <Input
+        testID="hardware-ui-confirm-passphrase-input"
         size="large"
         $gtMd={{
           size: 'medium',
@@ -1113,6 +1134,7 @@ export function ConfirmPassphrase({
       />
       {/* TODO: add loading state while waiting for result */}
       <Button
+        testID="hardware-ui-confirm-passphrase-confirm-btn"
         mt="$5"
         $md={
           {
@@ -1125,6 +1147,7 @@ export function ConfirmPassphrase({
         {intl.formatMessage({ id: ETranslations.global_confirm })}
       </Button>
       <Button
+        testID="hardware-ui-confirm-passphrase-switch-on-device-btn"
         m="$0"
         mt="$2"
         $md={
@@ -1344,6 +1367,7 @@ export function BluetoothPermissionUnauthorizedContent() {
           })}
         </SizableText>
         <Button
+          testID="hardware-ui-bluetooth-go-to-settings-btn"
           size="small"
           variant="secondary"
           alignSelf="stretch"

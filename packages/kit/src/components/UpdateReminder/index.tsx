@@ -14,17 +14,25 @@ import {
   SizableText,
   XStack,
   usePopoverContext,
+  useTooltipContext,
 } from '@onekeyhq/components';
 import {
   EAppUpdateStatus,
   displayAppUpdateVersion,
+  getUpdateFileType,
 } from '@onekeyhq/shared/src/appUpdate';
 import type { IAppUpdateInfo } from '@onekeyhq/shared/src/appUpdate';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
+import {
+  getUpdateReminderActionLabelId,
+  isShowAppUpdateUIWhenUpdating,
+  isToolboxUpdateIndicatorRedundant,
+  useAppUpdateInfo,
+} from '../AppUpdate';
+
 import { DownloadProgress } from './DownloadProgress';
-import { isShowAppUpdateUIWhenUpdating, useAppUpdateInfo } from './hooks';
 
 function UpdateStatusText({ updateInfo }: { updateInfo: IAppUpdateInfo }) {
   const intl = useIntl();
@@ -179,7 +187,7 @@ function UpdateStatusText({ updateInfo }: { updateInfo: IAppUpdateInfo }) {
           },
         },
         [EAppUpdateStatus.done]: undefined,
-      } as Record<
+      }) as Record<
         EAppUpdateStatus,
         | {
             iconName: IIconProps['name'];
@@ -191,7 +199,7 @@ function UpdateStatusText({ updateInfo }: { updateInfo: IAppUpdateInfo }) {
             }) => string;
           }
         | undefined
-      >),
+      >,
     [intl],
   );
   const styles = buildStyles();
@@ -214,16 +222,23 @@ function UpdateStatusText({ updateInfo }: { updateInfo: IAppUpdateInfo }) {
   ) : null;
 }
 
-function UpdateAction({ onUpdateAction }: { onUpdateAction: () => void }) {
+function UpdateAction({
+  onUpdateAction,
+  labelId,
+}: {
+  onUpdateAction: () => void;
+  labelId: ETranslations;
+}) {
   const intl = useIntl();
   return (
     <Button
+      testID="update-reminder-intl-btn"
       size="small"
       variant="secondary"
       onPress={onUpdateAction}
       borderRadius="$1"
     >
-      {intl.formatMessage({ id: ETranslations.global_view })}
+      {intl.formatMessage({ id: labelId })}
     </Button>
   );
 }
@@ -289,12 +304,14 @@ const UPDATE_REMINDER_BAR_STYLE: Record<
 
 function BasicUpdateReminder() {
   const appUpdateInfo = useAppUpdateInfo(true);
-  const { data, onUpdateAction } = appUpdateInfo;
+  const { data, onUpdateActionDirect } = appUpdateInfo;
   const { closePopover } = usePopoverContext();
+  const { closeTooltip } = useTooltipContext();
   const handlePress = useCallback(async () => {
     await closePopover?.();
-    onUpdateAction?.();
-  }, [closePopover, onUpdateAction]);
+    await closeTooltip?.();
+    onUpdateActionDirect?.();
+  }, [closePopover, closeTooltip, onUpdateActionDirect]);
 
   const showUpdateUI = useMemo(() => {
     return isShowAppUpdateUIWhenUpdating({
@@ -302,6 +319,23 @@ function BasicUpdateReminder() {
       updateStatus: data.status,
     });
   }, [appUpdateInfo.data.updateStrategy, data.status]);
+
+  const fileType = useMemo(
+    () =>
+      getUpdateFileType({
+        latestVersion: data.latestVersion,
+        jsBundleVersion: data.jsBundleVersion,
+      }),
+    [data.latestVersion, data.jsBundleVersion],
+  );
+
+  // A downloaded hot update (jsBundle at `ready`) applies on click by
+  // restarting, so the CTA reads "Update now" rather than the generic "View".
+  const actionLabelId = useMemo(
+    () =>
+      getUpdateReminderActionLabelId({ fileType, updateStatus: data.status }),
+    [fileType, data.status],
+  );
   const style = UPDATE_REMINDER_BAR_STYLE[data.status];
   if (!appUpdateInfo.isNeedUpdate || !style) {
     return null;
@@ -311,21 +345,32 @@ function BasicUpdateReminder() {
     return null;
   }
 
+  // Desktop already shows a dedicated Update button in the header for hot
+  // updates; avoid a duplicate indicator inside the Action Center.
+  if (
+    isToolboxUpdateIndicatorRedundant({
+      isDesktop: !!platformEnv.isDesktop,
+      fileType,
+    })
+  ) {
+    return null;
+  }
+
   return (
     <XStack
-      pl="$3"
-      pr="$2"
+      px="$5"
       py="$1.5"
       gap="$3"
       justifyContent="space-between"
       alignItems="center"
-      borderRadius="$2"
       borderWidth={StyleSheet.hairlineWidth}
+      borderLeftWidth={0}
+      borderRightWidth={0}
       borderCurve="continuous"
       {...(style as IXStackProps)}
     >
       <UpdateStatusText updateInfo={data} />
-      <UpdateAction onUpdateAction={handlePress} />
+      <UpdateAction onUpdateAction={handlePress} labelId={actionLabelId} />
     </XStack>
   );
 }

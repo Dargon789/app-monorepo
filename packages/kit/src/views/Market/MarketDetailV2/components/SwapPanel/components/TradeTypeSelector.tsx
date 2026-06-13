@@ -45,6 +45,7 @@ export function TradeTypeSelector({
       value: ESwapDirection.BUY,
       label: (
         <Button
+          testID="market-options-btn"
           onPress={() => {
             console.log('onPress');
             onChange(ESwapDirection.BUY);
@@ -62,6 +63,7 @@ export function TradeTypeSelector({
       value: ESwapDirection.SELL,
       label: (
         <Button
+          testID="market-options-btn"
           onPress={() => {
             console.log('onPress');
             onChange(ESwapDirection.SELL);
@@ -81,8 +83,6 @@ export function TradeTypeSelector({
     <SegmentControl
       value={value as string}
       onChange={(newValue) => {
-        console.log('newValue', newValue);
-
         if (newValue === 'buy' || newValue === 'sell') {
           onChange(newValue as ITradeType);
         }
@@ -90,6 +90,7 @@ export function TradeTypeSelector({
       options={options}
       backgroundColor="$neutral5"
       borderRadius="$2.5"
+      h="auto"
       p="$0.5"
       fullWidth
       segmentControlItemStyleProps={{

@@ -1,6 +1,14 @@
 import type {
+  EAvailableAssetsTypeEnum,
+  IEarnAvailableAsset,
+} from '../../types/earn';
+import type {
+  EManagePositionType,
+  IBorrowAsset,
   IEarnAlert,
   IEarnTokenInfo,
+  IEarnTokenItem,
+  IEarnWithdrawType,
   IProtocolInfo,
   IStakeProtocolDetails,
 } from '../../types/staking';
@@ -10,6 +18,9 @@ export enum EModalStakingRoutes {
   Stake = 'Stake',
   Withdraw = 'Withdraw',
   ManagePosition = 'ManagePosition',
+  BorrowManagePosition = 'BorrowManagePosition',
+  BorrowTokenSelect = 'BorrowTokenSelect',
+  BorrowReserveDetails = 'BorrowReserveDetails',
   Claim = 'Claim',
   ProtocolDetails = 'ProtocolDetails',
   ProtocolDetailsV2 = 'ProtocolDetailsV2',
@@ -19,6 +30,9 @@ export enum EModalStakingRoutes {
   WithdrawOptions = 'WithdrawOptions',
   PortfolioDetails = 'PortfolioDetails',
   HistoryList = 'HistoryList',
+  BorrowHistoryList = 'BorrowHistoryList',
+  EarnTokenSelect = 'EarnTokenSelect',
+  EarnAssetSearch = 'EarnAssetSearch',
 }
 
 type IBaseRouteParams = {
@@ -63,6 +77,33 @@ export type IModalStakingParamList = {
     vault?: string;
     tab?: 'deposit' | 'withdraw';
     tokenImageUri?: string;
+    enableProtocolSwitch?: boolean;
+  };
+  [EModalStakingRoutes.BorrowManagePosition]: IBaseRouteParams & {
+    provider: string;
+    marketAddress: string;
+    reserveAddress: string;
+    symbol: string;
+    logoURI?: string;
+    providerLogoURI?: string;
+    type?: EManagePositionType;
+  };
+  [EModalStakingRoutes.BorrowTokenSelect]: IBaseRouteParams & {
+    provider: string;
+    marketAddress: string;
+    action: 'supply' | 'borrow';
+    currentReserveAddress?: string;
+    onSelect?: (asset: IBorrowAsset) => void;
+  };
+  [EModalStakingRoutes.BorrowReserveDetails]: {
+    networkId: string;
+    provider: string;
+    marketAddress: string;
+    reserveAddress: string;
+    symbol: string;
+    logoURI?: string;
+    accountId?: string;
+    indexedAccountId?: string;
   };
   [EModalStakingRoutes.Stake]: IDetailPageInfoParams & {
     currentAllowance: string;
@@ -75,19 +116,20 @@ export type IModalStakingParamList = {
     fromPage?: EModalStakingRoutes.WithdrawOptions;
     onSuccess?: () => void;
     allowPartialWithdraw?: boolean;
+    withdrawType?: IEarnWithdrawType;
   };
-  [EModalStakingRoutes.Claim]: IDetailPageInfoParams &
-    IDetailPageInfoParams & {
-      amount?: string;
-      onSuccess?: () => void;
-      identity?: string;
-      claimableAmount?: string;
-    };
+  [EModalStakingRoutes.Claim]: IDetailPageInfoParams & {
+    amount?: string;
+    onSuccess?: () => void;
+    identity?: string;
+    claimableAmount?: string;
+  };
   [EModalStakingRoutes.ClaimOptions]: IDetailPageInfoParams & {
     onSuccess?: () => void;
   };
   [EModalStakingRoutes.WithdrawOptions]: IDetailPageInfoParams & {
     onSuccess?: () => void;
+    isInModalContext?: boolean;
   };
   [EModalStakingRoutes.AssetProtocolList]: IBaseRouteParams & {
     symbol: string;
@@ -105,5 +147,31 @@ export type IModalStakingParamList = {
     filterType?: string;
     title?: string;
     alerts?: IEarnAlert[];
+  };
+  [EModalStakingRoutes.BorrowHistoryList]: IBaseRouteParams & {
+    provider: string;
+    marketAddress: string;
+    title?: string;
+    type?: string;
+  };
+  [EModalStakingRoutes.EarnTokenSelect]: {
+    networkId: string;
+    accountId: string;
+    provider: string;
+    symbol: string;
+    vault?: string;
+    action: 'stake' | 'unstake';
+    currentTokenAddress?: string;
+    onSelect?: (token: IEarnTokenItem) => void;
+  };
+  [EModalStakingRoutes.EarnAssetSearch]: {
+    availableAssetsByType: Partial<
+      Record<EAvailableAssetsTypeEnum, IEarnAvailableAsset[]>
+    >;
+    initialCategoryType?: EAvailableAssetsTypeEnum;
+    onAssetSelect?: (
+      asset: IEarnAvailableAsset,
+      categoryType: EAvailableAssetsTypeEnum,
+    ) => void;
   };
 };

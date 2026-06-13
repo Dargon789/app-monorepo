@@ -36,6 +36,7 @@ import {
 } from '@onekeyhq/shared/types/tx';
 
 import { usePreCheckFeeInfo } from '../../hooks/usePreCheckFeeInfo';
+import { SendTestIDs } from '../../testIDs';
 
 import TxFeeContainer from './TxFeeContainer';
 
@@ -98,10 +99,7 @@ function SendConfirmActionsContainer(props: IProps) {
   ).result;
 
   const { checkFeeInfoIsOverflow, showFeeInfoOverflowConfirm } =
-    usePreCheckFeeInfo({
-      accountId,
-      networkId,
-    });
+    usePreCheckFeeInfo();
 
   const handleOnConfirm = useCallback(async () => {
     const { serviceSend } = backgroundApiProxy;
@@ -159,6 +157,8 @@ function SendConfirmActionsContainer(props: IProps) {
     // fee info pre-check
     if (sendSelectedFeeInfo) {
       const isFeeInfoOverflow = await checkFeeInfoIsOverflow({
+        accountId,
+        networkId,
         feeAmount: sendSelectedFeeInfo.feeInfos?.[0]?.totalNative,
         feeSymbol:
           sendSelectedFeeInfo.feeInfos?.[0]?.feeInfo?.common?.nativeSymbol,
@@ -324,10 +324,12 @@ function SendConfirmActionsContainer(props: IProps) {
     <Page.Footer disableKeyboardAnimation>
       <Page.FooterActions
         confirmButtonProps={{
+          testID: SendTestIDs.confirmButton,
           disabled: isSubmitDisabled,
           loading: sendTxStatus.isSubmitting,
         }}
         cancelButtonProps={{
+          testID: SendTestIDs.cancelButton,
           disabled: sendTxStatus.isSubmitting,
         }}
         onConfirmText={

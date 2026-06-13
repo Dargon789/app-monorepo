@@ -28,8 +28,9 @@ type IProps = {
 
 const filterScamHistorySupportedNetworks =
   getNetworksSupportFilterScamHistory();
-const filterScamHistorySupportedNetworkIds =
-  filterScamHistorySupportedNetworks.map((n) => n.id);
+const filterScamHistorySupportedNetworkIds = new Set(
+  filterScamHistorySupportedNetworks.map((n) => n.id),
+);
 
 function TxHistoryListHeader({ filteredHistory: _filteredHistory }: IProps) {
   const intl = useIntl();
@@ -65,7 +66,7 @@ function TxHistoryListHeader({ filteredHistory: _filteredHistory }: IProps) {
   const filterScamHistorySupported = useMemo(
     () =>
       network?.isAllNetworks ||
-      filterScamHistorySupportedNetworkIds.includes(network?.id ?? ''),
+      filterScamHistorySupportedNetworkIds.has(network?.id ?? ''),
     [network],
   );
 
@@ -77,6 +78,7 @@ function TxHistoryListHeader({ filteredHistory: _filteredHistory }: IProps) {
             title={intl.formatMessage({ id: ETranslations.global_settings })}
             renderTrigger={
               <IconButton
+                testID="tx-history-settings-btn"
                 title={intl.formatMessage({
                   id: ETranslations.manage_token_custom_token_title,
                 })}
@@ -106,6 +108,7 @@ function TxHistoryListHeader({ filteredHistory: _filteredHistory }: IProps) {
                   }
                 >
                   <Switch
+                    testID="tx-history-scam-filter-switch"
                     isUncontrolled
                     disabled={!filterScamHistorySupported}
                     size={ESwitchSize.small}
@@ -126,6 +129,7 @@ function TxHistoryListHeader({ filteredHistory: _filteredHistory }: IProps) {
                   })}
                 >
                   <Switch
+                    testID="tx-history-low-value-filter-switch"
                     isUncontrolled
                     size={ESwitchSize.small}
                     onChange={handleFilterLowValueHistoryOnChange}

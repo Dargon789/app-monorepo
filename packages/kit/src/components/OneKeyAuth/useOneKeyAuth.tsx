@@ -14,13 +14,13 @@ import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import { EModalRoutes } from '@onekeyhq/shared/src/routes';
 import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
 import supabaseStorageInstance from '@onekeyhq/shared/src/storage/instance/supabaseStorageInstance';
+import { getSupabaseClient } from '@onekeyhq/shared/src/utils/supabaseClientUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { IPrimeUserInfo } from '@onekeyhq/shared/types/prime/primeTypes';
 
 import useAppNavigation from '../../hooks/useAppNavigation';
+import { logoutPurchasesSdk } from '../../views/Prime/hooks/purchasesSdkLogout';
 // import PrimeLoginEmailDialogV2 from '../../views/Prime/components/PrimeLoginEmailDialogV2/PrimeLoginEmailDialogV2';
-
-import { getSupabaseClient } from './supabase/getSupabaseClient';
 
 const EmailOTPDialog = LazyLoadPage(
   () => import('@onekeyhq/kit/src/components/OneKeyAuth/EmailOTPDialog'),
@@ -33,9 +33,7 @@ const EmailOTPDialog = LazyLoadPage(
 
 const PrimeLoginEmailDialogV2 = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Prime/components/PrimeLoginEmailDialogV2/PrimeLoginEmailDialogV2'
-    ),
+    import('@onekeyhq/kit/src/views/Prime/components/PrimeLoginEmailDialogV2/PrimeLoginEmailDialogV2'),
   0,
   true,
   <Stack>
@@ -47,6 +45,7 @@ export function useOneKeyAuthMethods() {
   const [user] = usePrimePersistAtom();
 
   const {
+    signInWithSocialLogin,
     signOut: supabaseSignOut,
     getAccessToken,
     isReady,
@@ -61,10 +60,35 @@ export function useOneKeyAuthMethods() {
   }, []);
 
   const logout: () => Promise<void> = useCallback(async () => {
+    let apiLogoutFailed = false;
     try {
       await apiLogout();
-    } catch {
-      // do nothing
+    } catch (e) {
+      apiLogoutFailed = true;
+      defaultLogger.prime.subscription.onekeyIdLogout({
+        reason: `useOneKeyAuth.logout: apiLogout threw, will force-clear local state: ${String(
+          e,
+        )}`,
+      });
+    }
+    // Defensive fallback: if apiLogout threw before its finally block ran
+    // (e.g., getAuthToken / getPrimeClient threw), force-clear local state here
+    // so the UI cannot keep rendering the previously-logged-in account.
+    if (apiLogoutFailed) {
+      try {
+        await backgroundApiProxy.simpleDb.prime.saveAuthToken('');
+        await backgroundApiProxy.servicePrime.setPrimePersistAtomNotLoggedIn();
+        defaultLogger.prime.subscription.onekeyIdLogout({
+          reason:
+            'useOneKeyAuth.logout: force-cleared local state after apiLogout failure',
+        });
+      } catch (e) {
+        defaultLogger.prime.subscription.onekeyIdLogout({
+          reason: `useOneKeyAuth.logout: force-clear local state also failed: ${String(
+            e,
+          )}`,
+        });
+      }
     }
     try {
       await supabaseSignOut();
@@ -78,12 +102,28 @@ export function useOneKeyAuthMethods() {
     }
   }, [apiLogout, supabaseSignOut]);
 
+  const logoutWithPurchasesSdk: () => Promise<void> = useCallback(async () => {
+    await logout();
+    try {
+      await logoutPurchasesSdk();
+    } catch {
+      // do nothing
+    }
+  }, [logout]);
+
   return useMemo(() => {
     return {
       isLoggedIn: user?.isLoggedIn && user?.isLoggedInOnServer,
-      isPrimeSubscriptionActive: user?.primeSubscription?.isActive,
+      isPrimeSubscriptionActive:
+        user?.isLoggedIn &&
+        user?.isLoggedInOnServer &&
+        user?.primeSubscription?.isActive,
+      // Subscription active flag only, independent of login state. Use this for
+      // analytics enrichment; use isPrimeSubscriptionActive for gating features.
+      isPrimeActive: user?.primeSubscription?.isActive === true,
       user,
       logout,
+      logoutWithPurchasesSdk,
       // apiLogout,
       // sdkLogout,
       getAccessToken,
@@ -94,17 +134,20 @@ export function useOneKeyAuthMethods() {
       supabaseSignInWithOtp,
       supabaseVerifyOtp,
       supabaseSignOut,
+      signInWithSocialLogin,
     };
   }, [
     getAccessToken,
     isReady,
     isSupabaseLoggedIn,
     logout,
+    logoutWithPurchasesSdk,
     user,
     supabaseUser,
     supabaseSignInWithOtp,
     supabaseVerifyOtp,
     supabaseSignOut,
+    signInWithSocialLogin,
   ]);
 }
 
@@ -168,12 +211,6 @@ export function useOneKeyAuth() {
             onClose: onCancelFirstStepFn,
             renderContent: (
               <PrimeLoginEmailDialogV2
-                title={intl.formatMessage({
-                  id: ETranslations.prime_signup_login,
-                })}
-                description={intl.formatMessage({
-                  id: ETranslations.prime_onekeyid_continue_description,
-                })}
                 onComplete={() => {
                   isClosedByNextStep = true;
                   void loginDialog.close();
@@ -186,7 +223,7 @@ export function useOneKeyAuth() {
         }
       });
     },
-    [intl, logout, toOneKeyIdPage],
+    [logout, toOneKeyIdPage],
   );
 
   const sendEmailOTP = useCallback(

@@ -21,6 +21,7 @@ import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 
 import { getEndpointInfo } from '../endpoints';
+import { devSettingsPersistAtom } from '../states/jotai/atoms/devSettings';
 
 import type { IBackgroundApi } from '../apis/IBackgroundApi';
 import type { AxiosInstance } from 'axios';
@@ -63,7 +64,7 @@ export default class ServiceBase {
           await this.backgroundApi.simpleDb.prime.getAuthToken();
         if (authToken) {
           // TODO use cookie instead of simpleDb
-          config.headers['X-Onekey-Request-Token'] = `${authToken}`;
+          config.headers['X-Onekey-Request-Token'] = authToken;
         }
         return config;
       });
@@ -134,6 +135,27 @@ export default class ServiceBase {
     return _oneKeyIdAuthClientsMap[name];
   };
 
+  // Returns the OneKey ID auth header for authenticating a single request,
+  // WITHOUT mutating the shared API client. Unlike getOneKeyIdClient — which
+  // permanently attaches request/response interceptors (auth token + prime
+  // invalid-token logout handling) onto the shared `clients[name]` instance and
+  // thus affects every other consumer of that endpoint — this only attaches the
+  // token to the one request it is spread into. Use it to opportunistically
+  // authenticate an individual wallet-endpoint request (e.g. so the server can
+  // attach per-user KYT risk data) while leaving the shared wallet client and
+  // all its other callers untouched.
+  getOneKeyIdAuthHeaders = async (): Promise<Record<string, string>> => {
+    try {
+      const authToken = await this.backgroundApi.simpleDb.prime.getAuthToken();
+      return authToken ? { 'X-Onekey-Request-Token': authToken } : {};
+    } catch {
+      // The token is opportunistic (e.g. for per-user KYT data). getAuthToken
+      // throws when no Supabase session/config is available, so proceed without
+      // it rather than failing the whole request.
+      return {};
+    }
+  };
+
   @backgroundMethod()
   async getActiveWalletAccount() {
     // eslint-disable-next-line @typescript-eslint/await-thenable
@@ -181,9 +203,7 @@ export default class ServiceBase {
 
   @backgroundMethod()
   async hideDialogLoading(
-    _payload?:
-      | IAppEventBusPayload[EAppEventBusNames.ShowDialogLoading]
-      | undefined,
+    _payload?: IAppEventBusPayload[EAppEventBusNames.ShowDialogLoading],
   ) {
     this.clearHideDialogLoadingTimer();
     appEventBus.emit(EAppEventBusNames.HideDialogLoading, undefined);
@@ -192,9 +212,7 @@ export default class ServiceBase {
   }
 
   clearHideDialogLoadingTimer(
-    _payload?:
-      | IAppEventBusPayload[EAppEventBusNames.ShowDialogLoading]
-      | undefined,
+    _payload?: IAppEventBusPayload[EAppEventBusNames.ShowDialogLoading],
   ) {
     // console.log('DialogLoading>>clear', payload, hideTimer);
 
@@ -260,6 +278,21 @@ export default class ServiceBase {
 
   @backgroundMethod()
   async showToast(params: IAppEventBusPayload[EAppEventBusNames.ShowToast]) {
+    appEventBus.emit(EAppEventBusNames.ShowToast, params);
+  }
+
+  async isDevModeEnabled() {
+    const devSettings = await devSettingsPersistAtom.get();
+    return !!devSettings.enabled;
+  }
+
+  @backgroundMethod()
+  async showToastIfDevMode(
+    params: IAppEventBusPayload[EAppEventBusNames.ShowToast],
+  ) {
+    if (!(await this.isDevModeEnabled())) {
+      return;
+    }
     appEventBus.emit(EAppEventBusNames.ShowToast, params);
   }
 }

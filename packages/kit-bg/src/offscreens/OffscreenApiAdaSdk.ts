@@ -67,4 +67,25 @@ export default class OffscreenApiAdaSdk implements IAdaSdkApi {
     // @ts-ignore
     return api.dAppSignData(...args);
   }
+
+  async parseRawTxInputs(rawTxHex: string) {
+    const api = await adaWebSdk.getCardanoApi();
+    return api.parseRawTxInputs(rawTxHex);
+  }
+
+  async parseRawTxBodyStakeInfo(rawTxHex: string) {
+    const api = await adaWebSdk.getCardanoApi();
+    return api.parseRawTxBodyStakeInfo(rawTxHex);
+  }
+
+  async extractStakeKeyHashFromBaseAddress(addr: string) {
+    const api = await adaWebSdk.getCardanoApi();
+    return api.extractStakeKeyHashFromBaseAddress(addr);
+  }
+
+  async batchGetShelleyAddressByRootKeyHex(...args: any[]) {
+    const api = await adaWebSdk.getCardanoApi();
+    // @ts-ignore
+    return api.batchGetShelleyAddressByRootKeyHex(...args);
+  }
 }

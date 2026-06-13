@@ -1,4 +1,3 @@
-/* eslint-disable spellcheck/spell-checker */
 import { useCallback, useMemo, useState } from 'react';
 
 import { EDeviceType } from '@onekeyfe/hd-shared';
@@ -23,6 +22,7 @@ import {
   YStack,
   useMedia,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_OPACITY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import type { IDBDevice } from '@onekeyhq/kit-bg/src/dbs/local/types';
@@ -31,10 +31,10 @@ import type {
   IDeviceHomeScreenSizeInfo,
   IHardwareHomeScreenData,
 } from '@onekeyhq/kit-bg/src/services/ServiceHardware/DeviceSettingsManager';
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import errorToastUtils from '@onekeyhq/shared/src/errors/utils/errorToastUtils';
 import { CoreSDKLoader } from '@onekeyhq/shared/src/hardware/instance';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import type {
@@ -117,6 +117,7 @@ function HomeScreenImageItem({
   onImageLayout?: (params: { width: number; height: number }) => void;
   onDelete?: (item: IHardwareHomeScreenData) => void;
 }) {
+  const intl = useIntl();
   const [showDelete, setShowDelete] = useState(false);
 
   return (
@@ -154,12 +155,12 @@ function HomeScreenImageItem({
         onLongPress={() => {
           if (platformEnv.isNative) {
             ActionList.show({
-              title: appLocale.intl.formatMessage({
+              title: intl.formatMessage({
                 id: ETranslations.explore_options,
               }),
               items: [
                 {
-                  label: appLocale.intl.formatMessage({
+                  label: intl.formatMessage({
                     id: ETranslations.global_delete,
                   }),
                   destructive: true,
@@ -209,6 +210,7 @@ function HomeScreenImageItem({
             zIndex={100}
             // backgroundColor="$bg"
             animation="quick"
+            animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
             enterStyle={
               platformEnv.isNativeAndroid
                 ? undefined
@@ -241,6 +243,7 @@ function HomeScreenImageItem({
             borderRadius="$full"
             backgroundColor="$bg"
             animation="quick"
+            animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
             enterStyle={
               platformEnv.isNativeAndroid
                 ? undefined
@@ -298,7 +301,11 @@ function UploadButton({
           borderColor="$borderSubdued"
           onPress={onUpload}
         >
-          <IconButton icon="PlusSmallOutline" onPress={onUpload} />
+          <IconButton
+            icon="PlusSmallOutline"
+            onPress={onUpload}
+            testID="account-manager-upload-button-icon-btn"
+          />
         </Stack>
       </Stack>
     );
@@ -349,6 +356,7 @@ function WallpaperCategorySection({
         </SizableText>
         {hasMore ? (
           <IconButton
+            testID="account-manager-on-toggle-expand-icon-btn"
             icon={
               isExpanded ? 'ChevronTopSmallOutline' : 'ChevronDownSmallOutline'
             }
@@ -406,6 +414,7 @@ function WallpaperCustomCategorySection({
   imageLayout?: { width: number; height: number };
   onImageLayout?: (params: { width: number; height: number }) => void;
 }) {
+  const intl = useIntl();
   const { result: deviceHomeScreens, run: runGetDeviceHomeScreens } =
     usePromiseResult<IHardwareHomeScreenData[]>(async () => {
       const data = UploadedHomeScreenCache.getCacheList(device.id);
@@ -428,7 +437,7 @@ function WallpaperCustomCategorySection({
 
     if (deviceHomeScreens?.length && deviceHomeScreens.length >= 7) {
       Toast.error({
-        title: appLocale.intl.formatMessage(
+        title: intl.formatMessage(
           {
             id: ETranslations.global_wallpaper_custom_max_limit,
           },
@@ -494,10 +503,11 @@ function WallpaperCustomCategorySection({
     deviceHomeScreens,
     onItemSelected,
     runGetDeviceHomeScreens,
+    intl,
   ]);
 
   const category = {
-    title: appLocale.intl.formatMessage({
+    title: intl.formatMessage({
       id: ETranslations.global_wallpaper_custom,
     }),
     data: deviceHomeScreens ?? [],
@@ -649,7 +659,7 @@ export default function HardwareHomeScreenModal({
           });
 
         return { homeScreenList: dataList, isLoadingError: false };
-      } catch (error) {
+      } catch (_error) {
         return { homeScreenList: [], isLoadingError: true };
       }
     },
@@ -690,7 +700,7 @@ export default function HardwareHomeScreenModal({
       !deviceUtils.isTouchDevice(deviceInfo?.deviceType)
     ) {
       categories.push({
-        title: appLocale.intl.formatMessage({
+        title: intl.formatMessage({
           id: ETranslations.global_wallpaper_collection,
         }),
         data: defaultWallpapers,
@@ -699,7 +709,7 @@ export default function HardwareHomeScreenModal({
 
     if (cobrandingWallpapers.length > 0) {
       categories.push({
-        title: appLocale.intl.formatMessage({
+        title: intl.formatMessage({
           id: ETranslations.global_wallpaper_cobranding,
         }),
         data: cobrandingWallpapers,
@@ -707,7 +717,7 @@ export default function HardwareHomeScreenModal({
     }
 
     return categories;
-  }, [deviceInfo?.deviceType, result?.homeScreenList]);
+  }, [deviceInfo?.deviceType, result?.homeScreenList, intl]);
 
   const ScreenContent = useMemo(() => {
     if (isHardwareHomeScreenLoading || result?.isLoadingError) {
@@ -845,6 +855,12 @@ export default function HardwareHomeScreenModal({
               isUserUpload,
             });
 
+            // Surface the real failure (e.g. webembed proxy missing) instead of
+            // letting the BG path throw a misleading "thumbnailHex not defined".
+            if (buildCustomHexError) {
+              throw new OneKeyLocalError(buildCustomHexError);
+            }
+
             const response =
               await backgroundApiProxy.serviceHardware.setDeviceHomeScreen({
                 dbDeviceId: device?.id,
@@ -857,12 +873,12 @@ export default function HardwareHomeScreenModal({
               });
             // setSelectedItem(undefined);
             Toast.success({
-              title: appLocale.intl.formatMessage({
+              title: intl.formatMessage({
                 id: ETranslations.hardware_wallpaper_add_success,
               }),
               message: response.applyScreen
                 ? undefined
-                : appLocale.intl.formatMessage({
+                : intl.formatMessage({
                     id: ETranslations.hardware_wallpaper_add_success_information,
                   }),
             });

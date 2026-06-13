@@ -18,6 +18,8 @@ import {
   ESwapTabSwitchType,
 } from '@onekeyhq/shared/types/swap/types';
 
+import { HomeTestIDs } from '../../testIDs';
+
 import { RawActions } from './RawActions';
 
 import type { IActionCustomization } from './types';
@@ -26,10 +28,12 @@ function WalletActionSwap({
   customization,
   inList,
   onClose,
+  showButtonStyle,
 }: {
   customization?: IActionCustomization;
   inList?: boolean;
   onClose?: () => void;
+  showButtonStyle?: boolean;
 }) {
   const {
     activeAccount: { account, network, wallet },
@@ -79,11 +83,10 @@ function WalletActionSwap({
     return (
       <ActionList.Item
         trackID="wallet-trade"
-        icon={customization?.icon ?? 'SwitchHorSolid'}
-        label={
-          customization?.label ??
-          intl.formatMessage({ id: ETranslations.global_trade })
-        }
+        icon={customization?.icon ?? 'SwitchHorOutline'}
+        label={intl.formatMessage({
+          id: customization?.labelId ?? ETranslations.global_trade,
+        })}
         onClose={() => {}}
         onPress={handleOnSwap}
         disabled={
@@ -98,14 +101,20 @@ function WalletActionSwap({
   return (
     <RawActions.Swap
       onPress={handleOnSwap}
-      label={customization?.label}
+      label={
+        customization?.labelId
+          ? intl.formatMessage({ id: customization.labelId })
+          : undefined
+      }
       icon={customization?.icon}
+      showButtonStyle={showButtonStyle}
       disabled={
         customization?.disabled ??
         (vaultSettings?.disabledSwapAction ||
           accountUtils.isUrlAccountFn({ accountId: account?.id ?? '' }))
       }
       trackID="wallet-trade"
+      testID={HomeTestIDs.swapButton}
     />
   );
 }

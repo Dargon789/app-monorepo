@@ -57,6 +57,7 @@ function DowngradeWarningDialogContent({
         })}
       </Dialog.Description>
       <Checkbox
+        testID="onboarding-handle-confirm-checkbox"
         value={checkState}
         label={intl.formatMessage({
           id: ETranslations.downgrade_warning_checkbox_label,
@@ -132,20 +133,28 @@ function OnboardingOnMountCmp() {
             return;
           }
         }
-      } catch (error) {
+      } catch (_error) {
         //
       }
 
       if (isOnboardingFromExtensionUrl()) {
         return;
       }
+      if (
+        platformEnv.isDesktop &&
+        (platformEnv.isE2E || process.env.DESKTOP_E2E_MODE === 'true')
+      ) {
+        return;
+      }
       const { isOnboardingDone } =
         await backgroundApiProxy.serviceOnboarding.isOnboardingDone();
       // dapp mode auto onboarding is conflict with url account landing page
-      if (!isOnboardingDone && !platformEnv.isWebDappMode) {
-        void toOnBoardingPage({
-          isFullModal: true,
-        });
+      if (
+        !isOnboardingDone &&
+        !platformEnv.isWebDappMode &&
+        !platformEnv.isExtensionUiSidePanel
+      ) {
+        void toOnBoardingPage();
       }
     },
     [

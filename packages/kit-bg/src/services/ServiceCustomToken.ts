@@ -1,7 +1,6 @@
 import {
   backgroundClass,
   backgroundMethod,
-  toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import {
@@ -32,7 +31,6 @@ class ServiceCustomToken extends ServiceBase {
     isDeleted: boolean;
   }) {
     const syncManagers = this.backgroundApi.servicePrimeCloudSync.syncManagers;
-    const now = await this.backgroundApi.servicePrimeCloudSync.timeNow();
     const syncCredential =
       await this.backgroundApi.servicePrimeCloudSync.getSyncCredentialSafe();
 
@@ -42,7 +40,7 @@ class ServiceCustomToken extends ServiceBase {
           return syncManagers.customToken.buildSyncItemByDBQuery({
             syncCredential,
             dbRecord: customToken,
-            dataTime: now,
+            dataTime: undefined,
             isDeleted,
           });
         }),
@@ -314,7 +312,6 @@ class ServiceCustomToken extends ServiceBase {
   }
 
   @backgroundMethod()
-  @toastIfError()
   async activateToken({
     accountId,
     networkId,
@@ -323,10 +320,11 @@ class ServiceCustomToken extends ServiceBase {
     accountId: string;
     networkId: string;
     token: IAccountToken;
-  }): Promise<boolean> {
+  }) {
     const vaultSetting =
       await this.backgroundApi.serviceNetwork.getVaultSettings({ networkId });
-    if (!vaultSetting.activateTokenRequired) return true;
+    if (!vaultSetting.activateTokenRequired)
+      return { token, isActivated: true };
     const vault = await vaultFactory.getVault({
       accountId,
       networkId,

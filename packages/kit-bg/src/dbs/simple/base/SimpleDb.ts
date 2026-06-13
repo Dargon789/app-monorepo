@@ -126,6 +126,15 @@ export class SimpleDb {
     return value;
   }
 
+  get swapProSelectToken() {
+    const SimpleDbEntitySwapProSelectToken = (
+      require('../entity/SimpleDbEntitySwapProSelectToken') as unknown as typeof import('../entity/SimpleDbEntitySwapProSelectToken')
+    ).SimpleDbEntitySwapProSelectToken;
+    const value = new SimpleDbEntitySwapProSelectToken();
+    Object.defineProperty(this, 'swapProSelectToken', { value });
+    return value;
+  }
+
   get localTokens() {
     const SimpleDbEntityLocalTokens = (
       require('../entity/SimpleDbEntityLocalTokens') as unknown as typeof import('../entity/SimpleDbEntityLocalTokens')
@@ -213,6 +222,15 @@ export class SimpleDb {
     ).SimpleDbEntityMarketWatchList;
     const value = new SimpleDbEntityMarketWatchList();
     Object.defineProperty(this, 'marketWatchList', { value });
+    return value;
+  }
+
+  get marketPresetSettings() {
+    const SimpleDbEntityMarketPresetSettings = (
+      require('../entity/SimpleDbEntityMarketPresetSettings') as unknown as typeof import('../entity/SimpleDbEntityMarketPresetSettings')
+    ).SimpleDbEntityMarketPresetSettings;
+    const value = new SimpleDbEntityMarketPresetSettings();
+    Object.defineProperty(this, 'marketPresetSettings', { value });
     return value;
   }
 
@@ -348,6 +366,15 @@ export class SimpleDb {
     ).SimpleDbEntityLocalNFTs;
     const value = new SimpleDbEntityLocalNFTs();
     Object.defineProperty(this, 'localNFTs', { value });
+    return value;
+  }
+
+  get botWallet() {
+    const SimpleDbEntityBotWallet = (
+      require('../entity/SimpleDbEntityBotWallet') as unknown as typeof import('../entity/SimpleDbEntityBotWallet')
+    ).SimpleDbEntityBotWallet;
+    const value = new SimpleDbEntityBotWallet();
+    Object.defineProperty(this, 'botWallet', { value });
     return value;
   }
 
@@ -510,6 +537,24 @@ export class SimpleDb {
     ).SimpleDbEntityDeFi;
     const value = new SimpleDbEntityDeFi();
     Object.defineProperty(this, 'deFi', { value });
+    return value;
+  }
+
+  get marketTokenPreference() {
+    const SimpleDbEntityMarketTokenPreference = (
+      require('../entity/SimpleDbEntityMarketTokenPreference') as unknown as typeof import('../entity/SimpleDbEntityMarketTokenPreference')
+    ).SimpleDbEntityMarketTokenPreference;
+    const value = new SimpleDbEntityMarketTokenPreference();
+    Object.defineProperty(this, 'marketTokenPreference', { value });
+    return value;
+  }
+
+  get rookieGuide() {
+    const SimpleDbEntityRookieGuide = (
+      require('../entity/SimpleDbEntityRookieGuide') as unknown as typeof import('../entity/SimpleDbEntityRookieGuide')
+    ).SimpleDbEntityRookieGuide;
+    const value = new SimpleDbEntityRookieGuide();
+    Object.defineProperty(this, 'rookieGuide', { value });
     return value;
   }
 }

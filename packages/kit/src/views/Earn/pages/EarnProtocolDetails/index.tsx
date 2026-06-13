@@ -13,6 +13,7 @@ import {
   XStack,
   YStack,
   useMedia,
+  useScrollContentTabBarOffset,
   useShare,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
@@ -21,7 +22,10 @@ import { CountDownCalendarAlert } from '@onekeyhq/kit/src/components/CountDownCa
 import { Token } from '@onekeyhq/kit/src/components/Token';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
-import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import {
+  useActiveAccount,
+  useSelectedAccount,
+} from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
 import {
   EJotaiContextStoreNames,
   useDevSettingsPersistAtom,
@@ -37,15 +41,17 @@ import {
   EModalStakingRoutes,
   ETabRoutes,
 } from '@onekeyhq/shared/src/routes';
+import earnUtils from '@onekeyhq/shared/src/utils/earnUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
-import type { ISupportedSymbol } from '@onekeyhq/shared/types/earn';
 import {
   normalizeToEarnProvider,
   normalizeToEarnSymbol,
 } from '@onekeyhq/shared/types/earn/earnProvider.constants';
 import type {
   IEarnAlert,
+  IEarnText,
   IEarnTokenInfo,
+  IProtocolInfo,
   IStakeEarnDetail,
 } from '@onekeyhq/shared/types/staking';
 
@@ -58,8 +64,10 @@ import {
 import { EarnActionIcon } from '../../../Staking/components/ProtocolDetails/EarnActionIcon';
 import { EarnAlert } from '../../../Staking/components/ProtocolDetails/EarnAlert';
 import { EarnIcon } from '../../../Staking/components/ProtocolDetails/EarnIcon';
+import { EarnPlatformBonusSection } from '../../../Staking/components/ProtocolDetails/EarnPlatformBonusSection';
 import { EarnText } from '../../../Staking/components/ProtocolDetails/EarnText';
 import { GridItem } from '../../../Staking/components/ProtocolDetails/GridItemV2';
+import { PendleRulesSection } from '../../../Staking/components/ProtocolDetails/PendleRulesSection';
 import { PeriodSection } from '../../../Staking/components/ProtocolDetails/PeriodSectionV2';
 import { ProtectionSection } from '../../../Staking/components/ProtocolDetails/ProtectionSectionV2';
 import { OverviewSkeleton } from '../../../Staking/components/StakingSkeleton';
@@ -72,6 +80,7 @@ import { EarnProviderMirror } from '../../EarnProviderMirror';
 import { EarnNavigation, EarnNetworkUtils } from '../../earnUtils';
 
 import { ApyChart } from './components/ApyChart';
+import { ProtocolIntroSection } from './components/ProtocolIntroSection';
 import { useProtocolDetailBreadcrumb } from './hooks/useProtocolDetailBreadcrumb';
 import { useProtocolDetailData } from './hooks/useProtocolDetailData';
 
@@ -85,7 +94,7 @@ function ManagersSection({
   noPadding?: boolean;
 }) {
   return managers?.items?.length ? (
-    <XStack gap="$1" alignItems="center" px={noPadding ? '$0' : '$5'}>
+    <XStack gap="$1" alignItems="center" px={noPadding ? '$0' : '$pagePadding'}>
       {managers.items.map((item, index) => (
         <Fragment key={index}>
           <XStack gap="$1" alignItems="center">
@@ -108,11 +117,15 @@ const ProtocolHeader = ({
   symbol,
   apyDetail,
   tokenInfo,
+  maturity,
+  maturityText,
   onShare,
 }: {
   symbol: string;
   apyDetail: IStakeEarnDetail['apyDetail'];
   tokenInfo?: IEarnTokenInfo;
+  maturity?: IStakeEarnDetail['maturity'];
+  maturityText?: IEarnText;
   onShare?: () => void;
 }) => {
   const intl = useIntl();
@@ -122,19 +135,46 @@ const ProtocolHeader = ({
     void EarnNavigation.popToEarnHome(navigation, { tab: 'portfolio' });
   }, [navigation]);
 
+  const formattedMaturityDate = useMemo(() => {
+    if (maturityText?.text) {
+      return maturityText.text;
+    }
+    if (!maturity?.date) return undefined;
+    try {
+      const date = new Date(maturity.date);
+      if (Number.isNaN(date.getTime())) return maturity.date;
+      return intl.formatDate(date, {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+      });
+    } catch {
+      return maturity.date;
+    }
+  }, [maturity?.date, maturityText?.text, intl]);
+
   return (
-    <YStack>
-      {/* Token icon and name with My Portfolio button - always show */}
-      <XStack jc="space-between" ai="center" h="$9">
-        <XStack gap="$2" ai="center">
-          <Token size="xs" tokenImageUri={tokenInfo?.token.logoURI} />
-          <SizableText size="$bodyLgMedium">
-            {tokenInfo?.token.symbol || symbol}
-          </SizableText>
+    <YStack gap="$2.5">
+      <XStack jc="space-between" ai="center">
+        <XStack gap="$3" ai="center" minWidth={0} flex={1}>
+          <XStack gap="$2" ai="center" flexShrink={0}>
+            <Token size="xs" tokenImageUri={tokenInfo?.token.logoURI} />
+            <SizableText size="$bodyLgMedium">
+              {tokenInfo?.token.symbol || symbol}
+            </SizableText>
+          </XStack>
+          {formattedMaturityDate ? (
+            <>
+              <Divider vertical h="$6" />
+              <SizableText size="$bodyLgMedium" numberOfLines={1}>
+                {formattedMaturityDate}
+              </SizableText>
+            </>
+          ) : null}
         </XStack>
       </XStack>
 
-      <XStack gap="$2" ai="center" pt="$2.5">
+      <XStack gap="$2" ai="center">
         <EarnText
           text={
             apyDetail?.description || {
@@ -150,6 +190,7 @@ const ProtocolHeader = ({
         />
         {onShare ? (
           <IconButton
+            testID="earn-icon-btn"
             icon="ShareOutline"
             size="small"
             variant="tertiary"
@@ -190,34 +231,84 @@ function ChartSection({
 }) {
   const intl = useIntl();
   const { gtMd } = useMedia();
+  const isPendleProvider = useMemo(
+    () => earnUtils.isPendleProvider({ providerName: provider }),
+    [provider],
+  );
 
   // Fetch chart data to get high/low values
-  const { result: apyHistory } = usePromiseResult(async () => {
-    const history = await backgroundApiProxy.serviceStaking.getApyHistory({
-      networkId,
-      symbol,
-      provider,
-      vault,
-    });
-    return history;
-  }, [networkId, symbol, provider, vault]);
+  const { result: chartData } = usePromiseResult(async () => {
+    if (isPendleProvider) {
+      // underlying-history returns both impliedApy and underlyingApy, single request suffices
+      const underlyingApyHistoryData =
+        await backgroundApiProxy.serviceStaking.getUnderlyingApyHistory({
+          networkId,
+          symbol,
+          provider,
+          vault,
+        });
+
+      const impliedApyHistory = underlyingApyHistoryData.results.map(
+        (item) => ({
+          timestamp: item.timestamp,
+          apy: item.impliedApy,
+        }),
+      );
+
+      const underlyingApyHistory = underlyingApyHistoryData.results.map(
+        (item) => ({
+          timestamp: item.timestamp,
+          apy: item.underlyingApy,
+        }),
+      );
+
+      return {
+        impliedApyHistory,
+        underlyingApyHistory,
+        hasNonZeroUnderlyingApy:
+          underlyingApyHistoryData.hasNonZeroUnderlyingApy,
+      };
+    }
+
+    const impliedApyHistory =
+      await backgroundApiProxy.serviceStaking.getApyHistory({
+        networkId,
+        symbol,
+        provider,
+        vault,
+      });
+
+    return {
+      impliedApyHistory,
+    };
+  }, [networkId, symbol, provider, vault, isPendleProvider]);
+
+  const { impliedApyHistory, underlyingApyHistory, hasNonZeroUnderlyingApy } =
+    chartData ?? {};
 
   // Calculate high and low APY
   const { high, low } = useMemo(() => {
-    if (!apyHistory || apyHistory.length === 0) {
+    if (!impliedApyHistory || impliedApyHistory.length === 0) {
       return { high: null, low: null };
     }
-    const apyValues = apyHistory.map((item) => Number(item.apy));
+    const apyValues = impliedApyHistory.map((item) => Number(item.apy));
     return {
       high: Math.max(...apyValues),
       low: Math.min(...apyValues),
     };
-  }, [apyHistory]);
+  }, [impliedApyHistory]);
+
+  const showUnderlyingApyToggle = Boolean(
+    isPendleProvider &&
+    hasNonZeroUnderlyingApy &&
+    underlyingApyHistory &&
+    underlyingApyHistory.length > 0,
+  );
 
   return (
     <YStack gap="$3">
       {/* High and Low values */}
-      {gtMd && high !== null && low !== null ? (
+      {gtMd && !isPendleProvider && high !== null && low !== null ? (
         <XStack gap="$4" pt="$6">
           <YStack>
             <SizableText size="$bodySm" color="$textSubdued">
@@ -238,7 +329,22 @@ function ChartSection({
         </XStack>
       ) : null}
       {/* Chart component */}
-      <ApyChart apyHistory={apyHistory} />
+      <ApyChart
+        apyHistory={impliedApyHistory}
+        underlyingApyHistory={underlyingApyHistory}
+        showChartControls={isPendleProvider}
+        showUnderlyingApyToggle={showUnderlyingApyToggle}
+        primaryApyLabel={
+          isPendleProvider
+            ? intl.formatMessage({ id: ETranslations.earn_fixed_income })
+            : undefined
+        }
+        secondaryApyLabel={
+          isPendleProvider
+            ? intl.formatMessage({ id: ETranslations.defi_underlying_apy })
+            : undefined
+        }
+      />
     </YStack>
   );
 }
@@ -261,23 +367,37 @@ function GridSection({
         <YStack gap="$6">
           <EarnText text={data.title} size="$headingLg" />
           <XStack flexWrap="wrap" m="$-5" p="$2">
-            {data.items.map((cell) => (
+            {data.items.map((cell, cellIndex) => (
               <GridItem
-                key={cell.title.text}
+                key={
+                  cell.title?.text ||
+                  cell.description?.text ||
+                  `grid-cell-${cellIndex}`
+                }
                 title={cell.title}
                 description={cell.description}
                 descriptionComponent={
                   cell?.items ? (
                     <YStack gap="$2">
-                      {(cell?.items ?? []).map((item) => (
-                        <XStack key={item.title.text} ai="center" gap="$1.5">
+                      {(cell?.items ?? []).map((item, itemIndex) => (
+                        <XStack
+                          key={
+                            item.title?.text ||
+                            item.logoURI ||
+                            `grid-item-${cellIndex}-${itemIndex}`
+                          }
+                          ai="center"
+                          gap="$1.5"
+                        >
                           <Token
                             size="xs"
                             borderRadius="$2"
                             mr="$0.5"
                             tokenImageUri={item.logoURI}
                           />
-                          <EarnText text={item.title} size="$bodyLgMedium" />
+                          {item.title?.text ? (
+                            <EarnText text={item.title} size="$bodyLgMedium" />
+                          ) : null}
                         </XStack>
                       ))}
                     </YStack>
@@ -364,6 +484,7 @@ function RiskSection({ risk }: { risk?: IStakeEarnDetail['risk'] }) {
 const DetailsPartComponent = ({
   detailInfo,
   tokenInfo,
+  protocolInfo,
   isLoading,
   keepSkeletonVisible,
   onRefresh,
@@ -375,6 +496,7 @@ const DetailsPartComponent = ({
 }: {
   detailInfo: IStakeEarnDetail | undefined;
   tokenInfo?: IEarnTokenInfo;
+  protocolInfo?: IProtocolInfo;
   isLoading: boolean;
   keepSkeletonVisible: boolean;
   onRefresh: () => void;
@@ -387,7 +509,7 @@ const DetailsPartComponent = ({
   const now = useMemo(() => Date.now(), []);
 
   return (
-    <YStack flex={6} gap="$5" px="$5">
+    <YStack flex={6} gap="$5" px="$pagePadding">
       <PageFrame
         LoadingSkeleton={OverviewSkeleton}
         loading={
@@ -404,6 +526,8 @@ const DetailsPartComponent = ({
                 symbol={symbol}
                 apyDetail={detailInfo.apyDetail}
                 tokenInfo={tokenInfo}
+                maturity={detailInfo.maturity}
+                maturityText={detailInfo.nums?.maturity}
                 onShare={onShare}
               />
               <ChartSection
@@ -413,12 +537,25 @@ const DetailsPartComponent = ({
                 vault={vault}
               />
             </YStack>
+            <EarnPlatformBonusSection
+              appearance="alert"
+              platformBonus={detailInfo.platformBonus}
+              protocolInfo={protocolInfo}
+              tokenInfo={tokenInfo}
+            />
             <GridSection data={detailInfo.intro} />
-            <GridSection data={detailInfo.rules} />
+            <ProtocolIntroSection protocolInfo={detailInfo.protocolInfo} />
+            {earnUtils.isPendleProvider({
+              providerName: provider,
+            }) ? (
+              <PendleRulesSection data={detailInfo.rules} />
+            ) : (
+              <GridSection data={detailInfo.rules} />
+            )}
             {detailInfo?.countDownAlert?.startTime &&
             detailInfo?.countDownAlert?.endTime &&
             now > detailInfo.countDownAlert.startTime &&
-            detailInfo.countDownAlert.endTime < now ? (
+            detailInfo.countDownAlert.endTime > now ? (
               <YStack pb="$1">
                 <CountDownCalendarAlert
                   description={detailInfo.countDownAlert.description.text}
@@ -453,6 +590,7 @@ const ManagePositionPart = ({
   tokenImageUri,
   accountId,
   indexedAccountId,
+  suppressPlatformBonus,
   onCreateAddress,
   onStakeWithdrawSuccess,
 }: {
@@ -463,6 +601,7 @@ const ManagePositionPart = ({
   tokenImageUri?: string;
   accountId: string;
   indexedAccountId?: string;
+  suppressPlatformBonus?: boolean;
   onCreateAddress?: () => Promise<void>;
   onStakeWithdrawSuccess?: () => void;
 }) => {
@@ -478,6 +617,7 @@ const ManagePositionPart = ({
           accountId={accountId}
           indexedAccountId={indexedAccountId}
           fallbackTokenImageUri={tokenImageUri}
+          suppressPlatformBonus={suppressPlatformBonus}
           onCreateAddress={onCreateAddress}
           onStakeWithdrawSuccess={onStakeWithdrawSuccess}
         />
@@ -493,13 +633,14 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
   const { shareText } = useShare();
   const [devSettings] = useDevSettingsPersistAtom();
   const { activeAccount } = useActiveAccount({ num: 0 });
-  const { account, indexedAccount } = activeAccount;
+  const { indexedAccount } = activeAccount;
+  const { selectedAccount } = useSelectedAccount({ num: 0 });
   const [keepSkeletonVisible, setKeepSkeletonVisible] = useState(false);
 
   // Parse route params, support both normal and share link routes
   const resolvedParams = useMemo<{
     networkId: string;
-    symbol: ISupportedSymbol;
+    symbol: string;
     provider: string;
     vault: string | undefined;
   }>(() => {
@@ -516,15 +657,13 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
       } = routeParams;
       const networkId = EarnNetworkUtils.getNetworkIdByName(network);
       const symbol = normalizeToEarnSymbol(symbolParam);
-      const provider = normalizeToEarnProvider(providerParam);
+      // Only use normalizeToEarnProvider for validation, keep provider lowercase for API calls
+      const normalizedProvider = normalizeToEarnProvider(providerParam);
 
       if (!networkId) {
         throw new OneKeyLocalError(`Unknown network: ${String(network)}`);
       }
-      if (!symbol) {
-        throw new OneKeyLocalError(`Unknown symbol: ${String(symbolParam)}`);
-      }
-      if (!provider) {
+      if (!normalizedProvider) {
         throw new OneKeyLocalError(
           `Unknown provider: ${String(providerParam)}`,
         );
@@ -533,7 +672,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
       return {
         networkId,
         symbol,
-        provider,
+        provider: normalizedProvider.toLowerCase(), // Keep lowercase for API consistency
         vault,
       };
     }
@@ -549,19 +688,28 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
     };
   }, [route.params]);
 
-  const accountId = account?.id || '';
-  const indexedAccountId = indexedAccount?.id;
+  // For cross-network: only use othersWalletAccountId (external wallets),
+  // NEVER account?.id which is network-specific and will mismatch.
+  const accountId = selectedAccount.othersWalletAccountId || '';
+  const indexedAccountId =
+    selectedAccount.indexedAccountId || indexedAccount?.id;
   const { networkId, symbol, provider, vault } = resolvedParams;
 
-  const { detailInfo, tokenInfo, isLoading, refreshData, refreshAccount } =
-    useProtocolDetailData({
-      accountId,
-      networkId,
-      indexedAccountId,
-      symbol,
-      provider,
-      vault,
-    });
+  const {
+    detailInfo,
+    tokenInfo,
+    protocolInfo,
+    isLoading,
+    refreshData,
+    refreshAccount,
+  } = useProtocolDetailData({
+    accountId,
+    networkId,
+    indexedAccountId,
+    symbol,
+    provider,
+    vault,
+  });
 
   useUnsupportedProtocol({
     detailInfo,
@@ -585,6 +733,10 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
 
   // Use custom hook for breadcrumb management
   const { breadcrumbProps } = useProtocolDetailBreadcrumb({
+    accountReady: activeAccount.ready,
+    accountId,
+    indexedAccountId,
+    networkId,
     symbol,
     provider,
     tokenInfo,
@@ -593,7 +745,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
   const pageTitle = useMemo(
     () => (
       <XStack gap="$3" ai="center">
-        <Token size="md" source={tokenInfo?.token?.logoURI} />
+        <Token size="md" tokenImageUri={tokenInfo?.token?.logoURI} />
         <SizableText size="$headingXl" numberOfLines={1} flexShrink={1}>
           {symbol}
         </SizableText>
@@ -604,13 +756,14 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
 
   const handleOpenManageModal = useCallback(
     (tab?: 'deposit') => {
+      const protocolVault = detailInfo?.protocol?.vault ?? vault;
       appNavigation.pushModal(EModalRoutes.StakingModal, {
         screen: EModalStakingRoutes.ManagePosition,
         params: {
           networkId,
           symbol,
           provider,
-          vault,
+          vault: protocolVault,
           tab,
           tokenImageUri: tokenInfo?.token?.logoURI,
         },
@@ -618,6 +771,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
     },
     [
       appNavigation,
+      detailInfo?.protocol?.vault,
       networkId,
       symbol,
       provider,
@@ -649,6 +803,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
     if (gtMd || !shareUrl) return null;
     return (
       <IconButton
+        testID="earn-header-right-icon-btn"
         icon="ShareOutline"
         variant="tertiary"
         onPress={handleShare}
@@ -663,6 +818,8 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
 
     return false;
   }, [symbol]);
+
+  const tabBarHeight = useScrollContentTabBarOffset();
 
   const pageFooter = useMemo(() => {
     if (gtMd) {
@@ -683,10 +840,11 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
         confirmButtonProps={{
           variant: 'primary',
           onPress,
+          mb: tabBarHeight,
         }}
       />
     );
-  }, [gtMd, intl, handleOpenManageModal, isCustomProtocol]);
+  }, [gtMd, intl, handleOpenManageModal, tabBarHeight, isCustomProtocol]);
 
   return (
     <EarnPageContainer
@@ -696,7 +854,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
       tabRoute={ETabRoutes.Earn}
       showBackButton
       header={
-        <XStack ml={gtMd ? 'auto' : '0'} pr="$2">
+        <XStack ml={gtMd ? 'auto' : '0'} pr="$2" pt={gtMd ? undefined : '$4'}>
           <ManagersSection managers={detailInfo?.managers} noPadding />
         </XStack>
       }
@@ -708,6 +866,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
           <DetailsPart
             detailInfo={detailInfo}
             tokenInfo={tokenInfo}
+            protocolInfo={protocolInfo}
             isLoading={isLoading ?? false}
             keepSkeletonVisible={keepSkeletonVisible}
             onRefresh={refreshData}
@@ -728,6 +887,7 @@ const EarnProtocolDetailsPage = ({ route }: { route: IRouteProps }) => {
               tokenImageUri={tokenInfo?.token?.logoURI}
               accountId={accountId}
               indexedAccountId={indexedAccountId}
+              suppressPlatformBonus={Boolean(detailInfo?.platformBonus)}
               onCreateAddress={onCreateAddress}
               onStakeWithdrawSuccess={handleStakeWithdrawSuccess}
             />

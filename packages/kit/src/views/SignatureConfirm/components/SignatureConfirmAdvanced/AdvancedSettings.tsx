@@ -2,22 +2,34 @@ import { useIntl } from 'react-intl';
 import { StyleSheet } from 'react-native';
 
 import { Accordion, Icon, SizableText, YStack } from '@onekeyhq/components';
+import {
+  ANIMATE_ONLY_OPACITY,
+  ANIMATE_ONLY_TRANSFORM,
+} from '@onekeyhq/components/src/utils/animationConstants';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+
+import { SignatureConfirmTestIDs } from '../../testIDs';
 
 type IProps = {
   children: React.ReactNode;
+  testID?: string;
 };
 
 function AdvancedSettings(props: IProps) {
-  const { children } = props;
+  const { children, testID } = props;
   const intl = useIntl();
   return (
     <YStack
+      testID={testID}
       pt="$5"
       borderTopWidth={StyleSheet.hairlineWidth}
       borderTopColor="$borderSubdued"
     >
-      <Accordion type="multiple" collapsable>
+      <Accordion
+        type="multiple"
+        collapsable
+        testID={SignatureConfirmTestIDs.AdvancedSettingsAccordion}
+      >
         <Accordion.Item value="advance">
           <Accordion.Trigger
             unstyled
@@ -50,7 +62,11 @@ function AdvancedSettings(props: IProps) {
                     id: ETranslations.global_advanced_settings,
                   })}
                 </SizableText>
-                <YStack animation="quick" rotate={open ? '180deg' : '0deg'}>
+                <YStack
+                  animation="quick"
+                  animateOnly={ANIMATE_ONLY_TRANSFORM}
+                  rotate={open ? '180deg' : '0deg'}
+                >
                   <Icon
                     name="ChevronDownSmallOutline"
                     color="$iconSubdued"
@@ -64,6 +80,7 @@ function AdvancedSettings(props: IProps) {
             <Accordion.Content
               unstyled
               animation="quick"
+              animateOnly={ANIMATE_ONLY_OPACITY}
               enterStyle={{ opacity: 0 }}
               exitStyle={{ opacity: 0 }}
               pt="$5"

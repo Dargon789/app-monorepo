@@ -6,6 +6,7 @@ import deviceUtils from '@onekeyhq/shared/src/utils/deviceUtils';
 import { EHardwareTransportType } from '@onekeyhq/shared/types';
 import { EConnectDeviceChannel } from '@onekeyhq/shared/types/connectDevice';
 import type { IConnectYourDeviceItem } from '@onekeyhq/shared/types/device';
+import { EHardwareVendor } from '@onekeyhq/shared/types/device';
 
 import backgroundApiProxy from '../../background/instance/backgroundApiProxy';
 
@@ -132,12 +133,14 @@ export const trackHardwareWalletConnection = async ({
   isSoftwareWalletOnlyUser,
   features,
   hardwareTransportType,
+  vendor = EHardwareVendor.onekey,
 }: {
   status: 'success' | 'failure';
   deviceType: IDeviceType;
   isSoftwareWalletOnlyUser: boolean;
   features?: Features;
   hardwareTransportType: EHardwareTransportType | undefined | 'QRCode';
+  vendor?: EHardwareVendor;
 }) => {
   const connectionType: IHardwareCommunicationType =
     getHardwareCommunicationTypeString(hardwareTransportType);
@@ -156,6 +159,7 @@ export const trackHardwareWalletConnection = async ({
       hardwareWalletType: 'Standard',
       communication: connectionType,
       deviceType,
+      vendor,
       ...(firmwareVersions && { firmwareVersions }),
     },
     isSoftwareWalletOnlyUser,
@@ -168,5 +172,5 @@ export const shuffleWordsIndices = (length: number) => {
     const j = Math.floor(Math.random() * (i + 1));
     [indices[i], indices[j]] = [indices[j], indices[i]];
   }
-  return indices.slice(0, 3).sort((a, b) => a - b);
+  return indices.slice(0, 3).toSorted((a, b) => a - b);
 };

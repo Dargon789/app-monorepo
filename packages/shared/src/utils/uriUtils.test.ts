@@ -1,9 +1,30 @@
-import {
+import platformEnv from '../platformEnv';
+
+import uriUtils, {
+  buildGoogleSearchUrl,
   containsPunycode,
+  ensureHttpPrefix,
   ensureHttpsPrefix,
+  isIpAddressUrl,
+  isLocalhostOrPrivateIpUrl,
+  isLocalhostUrl,
+  isPublicIpAddressUrl,
   isUrlWithoutProtocol,
+  parseUrl,
   validateUrl,
 } from './uriUtils';
+
+describe('buildUrl', () => {
+  test('omits undefined/null query params (does not serialize to literal "undefined")', () => {
+    const url = uriUtils.buildUrl({
+      protocol: 'onekey-wallet',
+      path: 'invited_by_friend',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: { code: 'abc', page: undefined } as any,
+    });
+    expect(url).toBe('onekey-wallet://invited_by_friend?code=abc');
+  });
+});
 
 describe('Punycode detection', () => {
   test('detects Punycode in URL', () => {
@@ -82,6 +103,21 @@ describe('validateUrl', () => {
     });
   });
 
+  test('uses http for bare public IP addresses', () => {
+    expect(validateUrl('6.6.6.6')).toBe('http://6.6.6.6');
+    expect(validateUrl('6.6.6.6:8080/path')).toBe('http://6.6.6.6:8080/path');
+    expect(validateUrl('6。6。6。6:8080')).toBe('http://6.6.6.6:8080');
+    expect(validateUrl('http://6.6.6.6:8080/path')).toBe(
+      'http://6.6.6.6:8080/path',
+    );
+    expect(validateUrl('https://6.6.6.6:8080/path')).toBe(
+      'https://6.6.6.6:8080/path',
+    );
+    expect(validateUrl('[2606:4700:4700::1111]')).toBe(
+      'http://[2606:4700:4700::1111]',
+    );
+  });
+
   test('returns Google search URL for invalid inputs', () => {
     const invalidInputs = [
       'search query',
@@ -95,6 +131,231 @@ describe('validateUrl', () => {
       expect(result).toBe(
         `https://www.google.com/search?q=${encodeURIComponent(input)}`,
       );
+    });
+  });
+
+  test('allows HTTP localhost only when explicitly enabled', () => {
+    const testCases = [
+      {
+        input: 'http://localhost:3000/path?query=value',
+        expected: 'http://localhost:3000/path?query=value',
+      },
+      { input: 'http://127.0.0.1:5173/', expected: 'http://127.0.0.1:5173/' },
+      { input: 'localhost', expected: 'http://localhost' },
+      { input: 'localhost:3000', expected: 'http://localhost:3000' },
+      { input: '127.0.0.1:5173', expected: 'http://127.0.0.1:5173' },
+      { input: '127。0。0。1:8888', expected: 'http://127.0.0.1:8888' },
+      { input: '[::1]:5173', expected: 'http://[::1]:5173' },
+      { input: '10.0.0.1:3000', expected: 'http://10.0.0.1:3000' },
+      { input: '192.168.0.1', expected: 'http://192.168.0.1' },
+      {
+        input: '169.254.169.254/latest/meta-data',
+        expected: 'http://169.254.169.254/latest/meta-data',
+      },
+    ];
+    testCases.forEach(({ input, expected }) => {
+      expect(validateUrl(input)).not.toBe(expected);
+      expect(validateUrl(input, { allowLocalhostUrl: true })).toBe(expected);
+    });
+  });
+
+  test('normalizes only localhost and IP hostname separators', () => {
+    expect(
+      validateUrl('http://localhost/file。json?name=a．b#part｡1', {
+        allowLocalhostUrl: true,
+      }),
+    ).toBe('http://localhost/file。json?name=a．b#part｡1');
+    expect(
+      validateUrl('http://127。0。0。1/file。json?name=a．b#part｡1', {
+        allowLocalhostUrl: true,
+      }),
+    ).toBe('http://127.0.0.1/file。json?name=a．b#part｡1');
+    expect(validateUrl('6。6。6。6/file。json?name=a．b#part｡1')).toBe(
+      'http://6.6.6.6/file。json?name=a．b#part｡1',
+    );
+  });
+});
+
+describe('parseDappRedirect', () => {
+  test('allows localhost redirects only when explicitly enabled', () => {
+    const localUrls = [
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.2:5173',
+      'http://127。0。0。1:8888',
+      'https://127.0.0.1:3000/',
+      'https://127。0。0。1:3000/',
+      'http://[::1]:5173',
+      'http://10.0.0.1:3000',
+      'http://172.16.0.1',
+      'http://192.168.0.1',
+      'http://169.254.169.254/latest/meta-data',
+      'http://[fc00::1]:5173',
+      'http://[fe80::1]:5173',
+    ];
+    localUrls.forEach((url) => {
+      expect(uriUtils.parseDappRedirect(url, []).action).toBe(
+        uriUtils.EDAppOpenActionEnum.DENY,
+      );
+      expect(
+        uriUtils.parseDappRedirect(url, [], {
+          allowLocalhostUrl: true,
+        }).action,
+      ).toBe(uriUtils.EDAppOpenActionEnum.ALLOW);
+    });
+  });
+
+  test('does not bypass protocol checks for localhost redirects', () => {
+    ['ftp://localhost', 'file://127.0.0.1'].forEach((url) => {
+      expect(
+        uriUtils.parseDappRedirect(url, [], {
+          allowLocalhostUrl: true,
+        }).action,
+      ).toBe(uriUtils.EDAppOpenActionEnum.DENY);
+    });
+  });
+
+  test('allows HTTP public IP redirects without allowing HTTP domains', () => {
+    [
+      'http://6.6.6.6',
+      'http://6.6.6.6:8080/path',
+      'http://[2606:4700:4700::1111]/',
+    ].forEach((url) => {
+      expect(uriUtils.parseDappRedirect(url, []).action).toBe(
+        uriUtils.EDAppOpenActionEnum.ALLOW,
+      );
+    });
+    expect(uriUtils.parseDappRedirect('http://example.com', []).action).toBe(
+      uriUtils.EDAppOpenActionEnum.DENY,
+    );
+  });
+
+  test('blocks private and reserved HTTP IP redirects without local URL access', () => {
+    [
+      'http://127.0.0.2',
+      'http://10.0.0.1',
+      'http://192.168.0.1',
+      'http://169.254.169.254/latest/meta-data',
+      'http://100.64.0.1',
+      'http://192.0.2.1',
+      'http://198.51.100.1',
+      'http://203.0.113.1',
+      'http://[::ffff:192.168.0.1]/',
+      'http://[2001:db8::1]/',
+    ].forEach((url) => {
+      expect(uriUtils.parseDappRedirect(url, []).action).toBe(
+        uriUtils.EDAppOpenActionEnum.DENY,
+      );
+    });
+  });
+});
+
+describe('isLocalhostUrl', () => {
+  test('matches localhost and 127.0.0.1 inputs with or without protocol', () => {
+    [
+      'localhost',
+      'localhost:3000',
+      'http://localhost:3000/path',
+      '127.0.0.1',
+      '127.0.0.1:5173',
+      'http://127.0.0.1:5173/',
+      '127。0。0。1',
+      '127。0。0。1:8888',
+      'http://127。0。0。1:8888/',
+      '127．0．0．1:8888',
+      '127｡0｡0｡1:8888',
+      '[::1]:5173',
+      'http://[::1]:5173/',
+    ].forEach((url) => {
+      expect(isLocalhostUrl(url)).toBe(true);
+    });
+  });
+
+  test('rejects non-localhost hostnames', () => {
+    [
+      'localhost.com',
+      'example.com',
+      'http://example.com/localhost',
+      'search query',
+      'http://',
+    ].forEach((url) => {
+      expect(isLocalhostUrl(url)).toBe(false);
+    });
+  });
+});
+
+describe('isIpAddressUrl', () => {
+  test('matches IP inputs with or without protocol', () => {
+    [
+      '6.6.6.6',
+      '6.6.6.6:8080',
+      'http://6.6.6.6:8080/path',
+      'https://6.6.6.6/path',
+      '10.0.0.1',
+      '[2001:db8::1]:8080',
+      'http://[2001:db8::1]:8080/path',
+    ].forEach((url) => {
+      expect(isIpAddressUrl(url)).toBe(true);
+    });
+  });
+
+  test('rejects domain names and incomplete IP-like text', () => {
+    ['qq.com', 'example.com', '5.5.5', 'search query'].forEach((url) => {
+      expect(isIpAddressUrl(url)).toBe(false);
+    });
+  });
+});
+
+describe('isPublicIpAddressUrl', () => {
+  test('matches only globally routable IP inputs', () => {
+    [
+      '6.6.6.6',
+      'http://6.6.6.6:8080/path',
+      '[2606:4700:4700::1111]:8080',
+      'http://[2606:4700:4700::1111]/',
+      'http://[::ffff:8.8.8.8]/',
+    ].forEach((url) => {
+      expect(isPublicIpAddressUrl(url)).toBe(true);
+    });
+
+    [
+      '127.0.0.2',
+      '10.0.0.1',
+      '192.168.0.1',
+      '169.254.169.254',
+      '192.0.2.1',
+      '203.0.113.1',
+      '[::1]',
+      '[fc00::1]',
+      '[fe80::1]',
+      '[2001:db8::1]',
+      'http://[::ffff:192.168.0.1]/',
+    ].forEach((url) => {
+      expect(isPublicIpAddressUrl(url)).toBe(false);
+    });
+  });
+});
+
+describe('isLocalhostOrPrivateIpUrl', () => {
+  test('matches localhost and non-public IP inputs', () => {
+    [
+      'localhost',
+      '127.0.0.1',
+      '127.0.0.2',
+      '10.0.0.1',
+      '192.168.0.1',
+      '169.254.169.254',
+      '[::1]',
+      '[fc00::1]',
+      '[fe80::1]',
+      '[2001:db8::1]',
+      'http://[::ffff:192.168.0.1]/',
+    ].forEach((url) => {
+      expect(isLocalhostOrPrivateIpUrl(url)).toBe(true);
+    });
+
+    ['onekey.so', '6.6.6.6', '[2606:4700:4700::1111]'].forEach((url) => {
+      expect(isLocalhostOrPrivateIpUrl(url)).toBe(false);
     });
   });
 });
@@ -182,5 +443,143 @@ describe('ensureHttpsPrefix', () => {
 
   test('returns empty string for empty input', () => {
     expect(ensureHttpsPrefix('')).toBe('');
+  });
+});
+
+describe('ensureHttpPrefix', () => {
+  test('returns URL unchanged if it already has a protocol', () => {
+    expect(ensureHttpPrefix('http://localhost:3000')).toBe(
+      'http://localhost:3000',
+    );
+    expect(ensureHttpPrefix('https://example.com')).toBe('https://example.com');
+    expect(ensureHttpPrefix('onekey-wallet:account/list')).toBe(
+      'onekey-wallet:account/list',
+    );
+    expect(ensureHttpPrefix('mailto:test@example.com')).toBe(
+      'mailto:test@example.com',
+    );
+  });
+
+  test('adds http:// prefix to URL-like text without protocol', () => {
+    expect(ensureHttpPrefix('localhost:3000')).toBe('http://localhost:3000');
+    expect(ensureHttpPrefix('6.6.6.6:8080')).toBe('http://6.6.6.6:8080');
+    expect(ensureHttpPrefix('6。6。6。6:8080')).toBe('http://6.6.6.6:8080');
+  });
+
+  test('normalizes only localhost and IP host separators', () => {
+    expect(ensureHttpPrefix('http://localhost/file。json?name=a．b')).toBe(
+      'http://localhost/file。json?name=a．b',
+    );
+    expect(ensureHttpPrefix('http://127。0。0。1/file。json?name=a．b')).toBe(
+      'http://127.0.0.1/file。json?name=a．b',
+    );
+    expect(ensureHttpPrefix('http://6。6。6。6/file。json?name=a．b')).toBe(
+      'http://6.6.6.6/file。json?name=a．b',
+    );
+  });
+});
+
+describe('buildGoogleSearchUrl', () => {
+  test('builds an explicit Google search URL for localhost keywords', () => {
+    expect(buildGoogleSearchUrl('http://localhost:3000')).toBe(
+      'https://www.google.com/search?q=http%3A%2F%2Flocalhost%3A3000',
+    );
+  });
+});
+
+describe('parseUrl', () => {
+  test('parses standard https URLs correctly', () => {
+    const result = parseUrl('https://example.com/path?q=1');
+    expect(result).toMatchObject({
+      hostname: 'example.com',
+      pathname: '/path',
+      urlSchema: 'https',
+    });
+  });
+
+  test('normalizes custom scheme URLs where hostname is empty', () => {
+    // Hermes URL parser returns hostname='' and pathname='//host/path'
+    // for custom schemes; this tests the normalization logic
+    const result = parseUrl('onekey-wallet://account/list');
+    expect(result).toMatchObject({
+      hostname: 'account',
+      pathname: '/list',
+      urlSchema: 'onekey-wallet',
+    });
+  });
+
+  test('normalizes custom scheme URLs with no path', () => {
+    const result = parseUrl('onekey-wallet://account');
+    expect(result).toMatchObject({
+      hostname: 'account',
+      urlSchema: 'onekey-wallet',
+    });
+    // V8 returns pathname='' for custom schemes without a path,
+    // Hermes normalization produces pathname='/' via the fallback branch.
+    // Accept either to keep the test cross-engine compatible.
+    expect(['', '/']).toContain(result?.pathname);
+  });
+
+  test('normalizes origin to null for non-http schemes', () => {
+    const result = parseUrl('onekey-wallet://account/list');
+    expect(result?.origin).toBe('null');
+  });
+
+  test('preserves origin for http/https schemes', () => {
+    const result = parseUrl('https://example.com/path');
+    expect(result?.origin).toBe('https://example.com');
+  });
+
+  test('builds urlPathList correctly for custom schemes', () => {
+    const result = parseUrl('onekey-wallet://account/list');
+    expect(result?.urlPathList).toEqual(['account', 'list']);
+  });
+
+  test('returns null for invalid URLs', () => {
+    expect(parseUrl('not a url')).toBeNull();
+  });
+});
+
+describe('validateUrl trailing slash handling', () => {
+  test('strips root-only trailing slash', () => {
+    // Root-only path: https://google.com/ -> https://google.com
+    expect(validateUrl('https://google.com/')).toBe('https://google.com');
+  });
+
+  test('trailing slash on deeper paths depends on platform', () => {
+    // On native (Hermes), trailing slashes are stripped (Hermes URL parser quirk).
+    // On Node/web, trailing slashes are preserved (semantically meaningful).
+    const expected = platformEnv.isNative
+      ? 'https://example.com/path'
+      : 'https://example.com/path/';
+    expect(validateUrl('https://example.com/path/')).toBe(expected);
+  });
+
+  test('preserves paths without trailing slash', () => {
+    expect(validateUrl('https://example.com/path')).toBe(
+      'https://example.com/path',
+    );
+  });
+
+  test('query params and hash after normalization', () => {
+    const expected = platformEnv.isNative
+      ? 'https://example.com/path?q=1#hash'
+      : 'https://example.com/path/?q=1#hash';
+    expect(validateUrl('https://example.com/path/?q=1#hash')).toBe(expected);
+  });
+});
+
+describe('containsPunycode', () => {
+  test('detects unicode hostnames (Hermes keeps unicode, V8 normalizes to xn--)', () => {
+    // xn-- prefixed domains
+    expect(containsPunycode('http://xn--fiq228c.com')).toBe(true);
+    // Unicode domains
+    expect(containsPunycode('https://аррӏе.com')).toBe(true);
+    expect(containsPunycode('https://新华网.cn')).toBe(true);
+  });
+
+  test('returns false for plain ASCII domains', () => {
+    expect(containsPunycode('https://google.com')).toBe(false);
+    expect(containsPunycode('https://example.co.uk')).toBe(false);
   });
 });

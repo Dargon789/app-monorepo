@@ -1,38 +1,45 @@
-import { Stack } from '@onekeyhq/components';
+import { XStack, YStack } from '@onekeyhq/components';
 
-import { MarketTokenListNetworkSelector } from '../MarketTokenListNetworkSelector';
+import { MobileNetworkDropdown } from '../MobileNetworkDropdown';
+import { TimeRangeDropdown } from '../TimeRangeDropdown';
 
-import type { ILiquidityFilter } from '../../types';
 import type { ITimeRangeSelectorValue } from '../TimeRangeSelector';
 
 export interface IMarketFilterBarSmallProps {
   selectedNetworkId?: string;
   timeRange?: ITimeRangeSelectorValue;
-  liquidityFilter?: ILiquidityFilter;
   onNetworkIdChange?: (networkId: string) => void;
   onTimeRangeChange?: (value: ITimeRangeSelectorValue) => void;
-  onLiquidityFilterChange?: (filter: ILiquidityFilter) => void;
 }
 
 function MarketFilterBarSmall({
   selectedNetworkId,
+  timeRange = '1h',
   onNetworkIdChange,
+  onTimeRangeChange,
 }: IMarketFilterBarSmallProps) {
-  const handleNetworkIdChange = (networkId: string) => {
-    onNetworkIdChange?.(networkId);
-  };
-
   return (
-    <MarketTokenListNetworkSelector
-      selectedNetworkId={selectedNetworkId}
-      onSelectNetworkId={handleNetworkIdChange}
-      placement="bottom-start"
-      containerStyle={{
-        px: '$4',
-        pt: '$3',
-        pb: '$2',
-      }}
-    />
+    <YStack>
+      <XStack
+        px="$5"
+        pt="$3"
+        pb="$2"
+        justifyContent="space-between"
+        alignItems="center"
+      >
+        <MobileNetworkDropdown
+          selectedNetworkId={selectedNetworkId}
+          onNetworkIdChange={onNetworkIdChange}
+        />
+        {onTimeRangeChange ? (
+          <TimeRangeDropdown
+            value={timeRange}
+            onChange={onTimeRangeChange}
+            compact
+          />
+        ) : null}
+      </XStack>
+    </YStack>
   );
 }
 

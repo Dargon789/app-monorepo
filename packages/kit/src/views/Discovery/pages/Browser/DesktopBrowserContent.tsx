@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+import type { ReactNode } from 'react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import { Freeze } from 'react-freeze';
@@ -11,6 +13,7 @@ import {
   Stack,
   XStack,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_OPACITY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 import {
   EAppEventBusNames,
   appEventBus,
@@ -18,7 +21,12 @@ import {
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import WebContent from '../../components/WebContent/WebContent';
-import { useWebTabDataById } from '../../hooks/useWebTabs';
+import { useDiscoveryMessageHandler } from '../../hooks/useDiscoveryMessageHandler';
+import {
+  useShouldKeepWebViewAlive,
+  useWebTabDataById,
+} from '../../hooks/useWebTabs';
+import { releaseDesktopWebviewResources } from '../../utils/desktopWebviewCleanup';
 import { webviewRefs } from '../../utils/explorerUtils';
 import DashboardContent from '../Dashboard/DashboardContent';
 
@@ -150,6 +158,7 @@ function BasicFind({ id }: { id: string }) {
           top="$2.5"
           zIndex={100_000}
           animation="quick"
+          animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
           enterStyle={{
             opacity: 0,
             y: -20,
@@ -171,6 +180,7 @@ function BasicFind({ id }: { id: string }) {
             gap="$4"
           >
             <Input
+              testID="discovery-input"
               autoFocus
               onChangeText={handleTextChange}
               containerProps={{
@@ -223,6 +233,8 @@ function BasicFind({ id }: { id: string }) {
 
 const Find = memo(BasicFind);
 
+const DESKTOP_HOME_PAGE_VISIBLE_DELAY_MS = 200;
+
 function BasicDesktopBrowserContent({
   id,
   activeTabId,
@@ -232,15 +244,66 @@ function BasicDesktopBrowserContent({
 }) {
   const { tab } = useWebTabDataById(id);
   const isActive = activeTabId === id;
+  const isHomeTab = !tab?.url;
+  const [homePageReady, setHomePageReady] = useState(!isHomeTab);
+
+  // Keep-alive LRU: only the most-recently-active window of tabs keeps its
+  // WebView mounted. Evicted (cold) tabs unmount their WebView to free memory;
+  // the home/dashboard tab has no WebView and is unaffected.
+  const keepAlive = useShouldKeepWebViewAlive(id);
+  const shouldMountWebView = Boolean(tab?.url) && keepAlive;
+
+  // Aggressively release the webview's resources when this tab closes OR when it
+  // is evicted from the keep-alive window.
+  useEffect(() => {
+    if (!shouldMountWebView) {
+      releaseDesktopWebviewResources(id);
+    }
+  }, [id, shouldMountWebView]);
+  useEffect(() => () => releaseDesktopWebviewResources(id), [id]);
+
+  useEffect(() => {
+    if (!isHomeTab) {
+      setHomePageReady(true);
+      return undefined;
+    }
+
+    setHomePageReady(false);
+    const timer = setTimeout(() => {
+      setHomePageReady(true);
+    }, DESKTOP_HOME_PAGE_VISIBLE_DELAY_MS);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isHomeTab]);
+
+  const { customReceiveHandler } = useDiscoveryMessageHandler();
+
+  let body: ReactNode = null;
+  if (!tab?.url) {
+    body = (
+      <Stack flex={1} opacity={homePageReady ? 1 : 0}>
+        <DashboardContent tabId={id} />
+      </Stack>
+    );
+  } else if (shouldMountWebView) {
+    body = (
+      <WebContent
+        id={id}
+        url={tab.url}
+        isCurrent={isActive}
+        customReceiveHandler={customReceiveHandler}
+      />
+    );
+  }
+  // else: cold (evicted) tab renders nothing — it is off-screen behind the
+  // active tab and remounts/reloads when activated again.
 
   return (
     <Freeze key={id} freeze={!isActive}>
       {platformEnv.isDesktop ? <Find id={id} /> : null}
-      {tab?.url ? (
-        <WebContent id={id} url={tab.url} isCurrent={isActive} />
-      ) : (
-        <DashboardContent />
-      )}
+      {body}
     </Freeze>
   );
 }

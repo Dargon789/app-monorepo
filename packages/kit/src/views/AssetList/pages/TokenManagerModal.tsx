@@ -10,6 +10,7 @@ import {
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import { EModalAssetListRoutes } from '@onekeyhq/shared/src/routes';
 import type { IModalAssetListParamList } from '@onekeyhq/shared/src/routes';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
@@ -26,6 +27,7 @@ import { TokenManagerList } from '../components/TokenManager/TokenManagerList';
 import { useAccountInfoForManageToken } from '../hooks/useAddToken';
 import { useTokenManagement } from '../hooks/useTokenManagement';
 import { useTokenSearch } from '../hooks/useTokenSearch';
+import { AssetListTestIDs } from '../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -97,6 +99,11 @@ function TokenManagerModal() {
         });
         void refreshTokenLists();
         isEditRef.current = true;
+        defaultLogger.account.wallet.addCustomToken({
+          network: token.networkId ?? '',
+          tokenSymbol: token.symbol ?? '',
+          tokenAddress: token.address ?? '',
+        });
         Toast.success({
           title: intl.formatMessage({
             id: ETranslations.address_book_add_address_toast_add_success,
@@ -192,6 +199,11 @@ function TokenManagerModal() {
         });
       }
       isEditRef.current = true;
+      defaultLogger.account.wallet.removeCustomToken({
+        network: token.networkId ?? networkId,
+        tokenSymbol: token.symbol ?? '',
+        tokenAddress: token.address ?? '',
+      });
       setTimeout(() => {
         void refreshTokenLists();
         Toast.success({
@@ -212,6 +224,10 @@ function TokenManagerModal() {
       findAccountInfoForNetwork,
     ],
   );
+
+  useEffect(() => {
+    defaultLogger.account.wallet.enterManageToken();
+  }, []);
 
   useEffect(() => {
     const fn = () => {
@@ -240,6 +256,7 @@ function TokenManagerModal() {
       <Page.Body>
         <Stack px="$5" pb="$4">
           <SearchBar
+            testID={AssetListTestIDs.tokenManagerSearchBar}
             placeholder={intl.formatMessage({
               id: ETranslations.token_selector_search_placeholder,
             })}

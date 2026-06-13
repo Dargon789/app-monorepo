@@ -120,7 +120,7 @@ function ImportAddressCore({
   inputTextDebounced,
   networkIdText,
   deriveTypeValue,
-  isFromOnboardingV2,
+  isFromOnboardingV2: _isFromOnboardingV2,
 }: IImportAddressCoreProps) {
   const intl = useIntl();
   const media = useMedia();
@@ -186,7 +186,7 @@ function ImportAddressCore({
                     onPress: async () => {
                       const result = await start({
                         handlers: [],
-                        autoHandleResult: false,
+                        autoExecuteParsedAction: false,
                       });
                       form.setValue('publicKeyValue', result.raw);
                     },
@@ -245,6 +245,7 @@ function ImportAddressCore({
           name="accountName"
         >
           <Input
+            testID="onboarding-input"
             maxLength={MAX_LENGTH_ACCOUNT_NAME}
             placeholder={intl.formatMessage({
               id: ETranslations.form_enter_account_name_placeholder,

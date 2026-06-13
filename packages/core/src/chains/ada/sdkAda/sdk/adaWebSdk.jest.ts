@@ -1,5 +1,7 @@
 import * as Loader from '@onekeyfe/cardano-coin-selection-asmjs';
 
+import { batchGetShelleyAddressByRootKeyHex } from '../shelley-address';
+
 import type { IGetCardanoApi } from './types';
 
 const getCardanoApi: IGetCardanoApi = async () => ({
@@ -13,6 +15,11 @@ const getCardanoApi: IGetCardanoApi = async () => ({
   dAppGetUtxos: Loader.dAppUtils.getUtxos,
   dAppConvertCborTxToEncodeTx: Loader.dAppUtils.convertCborTxToEncodeTx,
   dAppSignData: Loader.dAppUtils.signData,
+  parseRawTxInputs: Loader.onekeyUtils.parseRawTxInputs,
+  parseRawTxBodyStakeInfo: Loader.onekeyUtils.parseRawTxBodyStakeInfo,
+  extractStakeKeyHashFromBaseAddress:
+    Loader.onekeyUtils.extractStakeKeyHashFromBaseAddress,
+  batchGetShelleyAddressByRootKeyHex,
 });
 
 export default {

@@ -6,6 +6,8 @@ import { Button, useClipboard } from '@onekeyhq/components';
 import type { IButtonProps } from '@onekeyhq/components';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
+import { ReferFriendsTestIDs } from '../../../testIDs';
+
 export function CopyLinkButton({
   url,
   buttonProps,
@@ -17,11 +19,12 @@ export function CopyLinkButton({
   const { copyUrl } = useClipboard();
 
   const handleCopy = useCallback(() => {
-    void copyUrl(url);
+    copyUrl(url);
   }, [url, copyUrl]);
 
   return (
     <Button
+      testID={ReferFriendsTestIDs.copyLinkBtn}
       variant="secondary"
       size="small"
       onPress={handleCopy}

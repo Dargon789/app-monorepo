@@ -22,7 +22,6 @@ import earnUtils from '@onekeyhq/shared/src/utils/earnUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 import { EEarnProviderEnum } from '@onekeyhq/shared/types/earn';
-import { EEarnLabels } from '@onekeyhq/shared/types/staking';
 
 import { BabylonTrackingAlert } from '../../components/BabylonTrackingAlert';
 import {
@@ -38,10 +37,8 @@ import { StakedValueSection } from '../../components/ProtocolDetails/StakedValue
 import { StakingTransactionIndicator } from '../../components/StakingActivityIndicator';
 import { OverviewSkeleton } from '../../components/StakingSkeleton';
 import { useEarnSignMessage } from '../../hooks/useEarnSignMessage';
+import { StakingTestIDs } from '../../testIDs';
 import { buildLocalTxStatusSyncId } from '../../utils/utils';
-
-import { useHandleStake, useHandleWithdraw } from './useHandleActions';
-import { useHandleClaim } from './useHandleClaim';
 
 const ProtocolDetailsPage = () => {
   const route = useAppRoute<
@@ -51,7 +48,7 @@ const ProtocolDetailsPage = () => {
   const { accountId, networkId, indexedAccountId, symbol, provider, vault } =
     route.params;
   const appNavigation = useAppNavigation();
-  const [stakeLoading, setStakeLoading] = useState(false);
+  const [stakeLoading, _] = useState(false);
   const { result: earnAccount, run: refreshAccount } = usePromiseResult(
     async () =>
       backgroundApiProxy.serviceStaking.getEarnAccount({
@@ -98,8 +95,6 @@ const ProtocolDetailsPage = () => {
   const { isEventActive, effectiveTime } = useEarnEventActive(
     result?.provider.eventEndTime,
   );
-  const handleWithdraw = useHandleWithdraw();
-  const handleStake = useHandleStake();
 
   const { result: trackingResp, run: refreshTracking } = usePromiseResult(
     async () => {
@@ -165,17 +160,18 @@ const ProtocolDetailsPage = () => {
     // });
   }, []);
 
-  const handleClaim = useHandleClaim({
-    accountId: earnAccount?.accountId,
-    networkId,
-  });
-  const onClaim = useCallback(
-    async (params?: {
-      amount: string;
-      claimTokenAddress?: string;
-      isReward?: boolean;
-      isMorphoClaim?: boolean;
-    }) => {
+  // const handleClaim = useHandleClaim({
+  //   accountId: earnAccount?.accountId,
+  //   networkId,
+  // });
+  const onClaim = useCallback(async () =>
+    //   params?: {
+    //   amount: string;
+    //   claimTokenAddress?: string;
+    //   isReward?: boolean;
+    //   isMorphoClaim?: boolean;
+    // }
+    {
       // if (!result) return;
       // const { amount, claimTokenAddress, isReward, isMorphoClaim } =
       //   params ?? {};
@@ -205,9 +201,7 @@ const ProtocolDetailsPage = () => {
       //     tags: [buildLocalTxStatusSyncId(result)],
       //   },
       // });
-    },
-    [],
-  );
+    }, []);
 
   const onPortfolioDetails = useMemo(
     () =>
@@ -361,7 +355,10 @@ const ProtocolDetailsPage = () => {
           onConfirmText={intl.formatMessage({
             id: ETranslations.earn_register,
           })}
-          confirmButtonProps={registerButtonProps}
+          confirmButtonProps={{
+            ...registerButtonProps,
+            testID: StakingTestIDs.protocolDetailsRegisterBtn,
+          }}
         />
       );
     }
@@ -370,11 +367,17 @@ const ProtocolDetailsPage = () => {
         onConfirmText={intl.formatMessage({
           id: ETranslations.earn_deposit,
         })}
-        confirmButtonProps={stakeButtonProps}
+        confirmButtonProps={{
+          ...stakeButtonProps,
+          testID: StakingTestIDs.protocolDetailsStakeBtn,
+        }}
         onCancelText={intl.formatMessage({
           id: ETranslations.global_withdraw,
         })}
-        cancelButtonProps={withdrawButtonProps}
+        cancelButtonProps={{
+          ...withdrawButtonProps,
+          testID: StakingTestIDs.protocolDetailsWithdrawBtn,
+        }}
       />
     );
   }, [
@@ -393,7 +396,7 @@ const ProtocolDetailsPage = () => {
     [onHistory],
   );
   return (
-    <Page scrollEnabled>
+    <Page scrollEnabled testID={StakingTestIDs.protocolDetailsPage}>
       <Page.Header
         title={intl.formatMessage(
           { id: ETranslations.earn_earn_symbol },

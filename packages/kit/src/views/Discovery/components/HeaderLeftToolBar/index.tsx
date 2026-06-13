@@ -17,6 +17,7 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { EShortcutEvents } from '@onekeyhq/shared/src/shortcuts/shortcuts.enum';
 
 import { useUrlRiskConfig } from '../../hooks/useUrlRiskConfig';
+import { DiscoveryTestIDs } from '../../testIDs';
 
 import HeaderLeftToolBarInput from './HeaderLeftToolBarInput';
 
@@ -34,6 +35,10 @@ function HeaderLeftToolBar({
   onBookmarkPress,
   isPinned,
   onPinnedPress,
+  isTranslated,
+  onTranslate,
+  onRetranslate,
+  onTestAITranslateError,
 }: {
   url: string;
   canGoBack?: boolean;
@@ -48,6 +53,10 @@ function HeaderLeftToolBar({
   onBookmarkPress?: (bookmark: boolean) => void;
   isPinned?: boolean;
   onPinnedPress?: (pinned: boolean) => void;
+  isTranslated?: boolean;
+  onTranslate?: () => void;
+  onRetranslate?: () => void;
+  onTestAITranslateError?: (testFlag: string) => void;
 }) {
   const { hostSecurity, iconConfig } = useUrlRiskConfig(url);
   const intl = useIntl();
@@ -94,7 +103,7 @@ function HeaderLeftToolBar({
           icon="ChevronLeftOutline"
           disabled={!canGoBack}
           onPress={goBack}
-          testID="browser-bar-go-back"
+          testID={DiscoveryTestIDs.browserBackButton}
         />
         <HeaderIconButton
           title={
@@ -106,7 +115,7 @@ function HeaderLeftToolBar({
           icon="ChevronRightOutline"
           disabled={!canGoForward}
           onPress={goForward}
-          testID="browser-bar-go-forward"
+          testID={DiscoveryTestIDs.browserForwardButton}
         />
         <HeaderIconButton
           title={
@@ -117,7 +126,11 @@ function HeaderLeftToolBar({
           titlePlacement="bottom"
           icon={loading ? 'CrossedLargeOutline' : 'RotateClockwiseOutline'}
           onPress={loading ? stopLoading : reload}
-          testID={`action-header-item-${loading ? 'stop-loading' : 'reload'}`}
+          testID={
+            loading
+              ? 'action-header-item-stop-loading'
+              : DiscoveryTestIDs.browserRefreshButton
+          }
         />
       </HeaderButtonGroup>
       <HeaderLeftToolBarInput
@@ -132,6 +145,10 @@ function HeaderLeftToolBar({
         isLoading={loading}
         onBookmarkPress={onBookmarkPress}
         onPinnedPress={onPinnedPress}
+        isTranslated={isTranslated}
+        onTranslate={onTranslate}
+        onRetranslate={onRetranslate}
+        onTestAITranslateError={onTestAITranslateError}
       />
     </XStack>
   );

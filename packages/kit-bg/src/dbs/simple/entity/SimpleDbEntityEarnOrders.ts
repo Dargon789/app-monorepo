@@ -1,4 +1,5 @@
 import { backgroundMethod } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import type { IEarnOrderTrackingInfo } from '@onekeyhq/shared/types/staking';
 import type { EDecodedTxStatus } from '@onekeyhq/shared/types/tx';
 
 import { SimpleDbEntityBase } from '../base/SimpleDbEntityBase';
@@ -11,6 +12,9 @@ export interface IEarnOrderItem {
   status: EDecodedTxStatus;
   updatedAt: number;
   createdAt: number;
+  stakingLabel?: IEarnOrderTrackingInfo['stakingLabel'];
+  stakingProtocol?: IEarnOrderTrackingInfo['stakingProtocol'];
+  stakingTags?: IEarnOrderTrackingInfo['stakingTags'];
 }
 
 export interface IEarnOrderDBStructure {
@@ -21,7 +25,8 @@ export interface IEarnOrderDBStructure {
 export type IAddEarnOrderParams = Omit<
   IEarnOrderItem,
   'updatedAt' | 'createdAt' | 'previousTxIds'
->;
+> &
+  IEarnOrderTrackingInfo;
 
 export class SimpleDbEntityEarnOrders extends SimpleDbEntityBase<IEarnOrderDBStructure> {
   entityName = 'earnOrders';
@@ -32,8 +37,8 @@ export class SimpleDbEntityEarnOrders extends SimpleDbEntityBase<IEarnOrderDBStr
   async addOrder(order: IAddEarnOrderParams) {
     await this.setRawData((rawData) => {
       const data: IEarnOrderDBStructure = {
-        data: { ...(rawData?.data || {}) },
-        txIdToOrderIdMap: { ...(rawData?.txIdToOrderIdMap || {}) },
+        data: { ...rawData?.data },
+        txIdToOrderIdMap: { ...rawData?.txIdToOrderIdMap },
       };
       const now = Date.now();
       data.data[order.orderId] = {
@@ -60,8 +65,8 @@ export class SimpleDbEntityEarnOrders extends SimpleDbEntityBase<IEarnOrderDBStr
 
     await this.setRawData((rawData) => {
       const data: IEarnOrderDBStructure = {
-        data: { ...(rawData?.data || {}) },
-        txIdToOrderIdMap: { ...(rawData?.txIdToOrderIdMap || {}) },
+        data: { ...rawData?.data },
+        txIdToOrderIdMap: { ...rawData?.txIdToOrderIdMap },
       };
 
       const orderId = data.txIdToOrderIdMap[currentTxId];

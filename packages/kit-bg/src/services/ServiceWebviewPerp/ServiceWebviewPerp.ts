@@ -3,7 +3,6 @@ import BigNumber from 'bignumber.js';
 import { isNumber, isString } from 'lodash';
 import pTimeout from 'p-timeout';
 
-import type { IAlertType } from '@onekeyhq/components';
 import {
   backgroundClass,
   backgroundMethod,
@@ -19,6 +18,11 @@ import thirdpartyLocaleConverter from '@onekeyhq/shared/src/locale/thirdpartyLoc
 import type { ILocaleSymbol } from '@onekeyhq/shared/src/locale/type';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import cacheUtils from '@onekeyhq/shared/src/utils/cacheUtils';
+import { extractHyperLiquidErrorMessage } from '@onekeyhq/shared/src/utils/hyperLiquidErrorResolver';
+import type {
+  ITokenSearchAliasItem,
+  ITokenSearchAliases,
+} from '@onekeyhq/shared/src/utils/perpsUtils';
 import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type {
@@ -27,15 +31,14 @@ import type {
   IHyperLiquidUserBuilderFeeStatus,
 } from '@onekeyhq/shared/types/hyperliquid';
 import type {
-  EPerpUserType,
   IHyperLiquidErrorLocaleItem,
+  IPerpServerBannerConfig,
+  IPerpsAssetMetaMap,
 } from '@onekeyhq/shared/types/hyperliquid/types';
 
-import {
-  perpsUserConfigPersistAtom,
-  settingsPersistAtom,
-} from '../../states/jotai/atoms';
+import { settingsPersistAtom } from '../../states/jotai/atoms';
 import ServiceBase from '../ServiceBase';
+import { logHyperLiquidApiFailure } from '../ServiceHyperLiquid/utils/logHyperLiquidApiFailure';
 
 import type { IHyperliquidCustomSettings } from '../../dbs/simple/entity/SimpleDbEntityPerp';
 import type {
@@ -46,6 +49,10 @@ import type {
   IJsBridgeMessagePayload,
   IJsonRpcRequest,
 } from '@onekeyfe/cross-inpage-provider-types';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 export interface IHyperliquidClearinghouseState {
   marginSummary: {
@@ -130,6 +137,55 @@ export interface IHyperliquidVaultEquity {
 
 export type IHyperliquidMaxBuilderFee = number;
 
+export interface IHyperliquidUserFeesDailyVolume {
+  date: string;
+  userCross: string;
+  userAdd: string;
+  exchange: string;
+}
+
+export interface IHyperliquidUserFeesVipTier {
+  ntlCutoff: string;
+  cross: string;
+  add: string;
+  spotCross: string;
+  spotAdd: string;
+}
+
+export interface IHyperliquidUserFeesStakingDiscountTier {
+  bpsOfMaxSupply: string;
+  discount: string;
+}
+
+export interface IHyperliquidUserFeesResponse {
+  dailyUserVlm: IHyperliquidUserFeesDailyVolume[];
+  feeSchedule: {
+    cross: string;
+    add: string;
+    spotCross: string;
+    spotAdd: string;
+    tiers: {
+      vip: IHyperliquidUserFeesVipTier[];
+      mm?: {
+        makerFractionCutoff: string;
+        add: string;
+      }[];
+    };
+    referralDiscount?: string;
+    stakingDiscountTiers?: IHyperliquidUserFeesStakingDiscountTier[];
+  };
+  userCrossRate: string;
+  userAddRate: string;
+  userSpotCrossRate?: string;
+  userSpotAddRate?: string;
+  activeReferralDiscount?: string;
+  activeStakingDiscount?: IHyperliquidUserFeesStakingDiscountTier | null;
+  trial?: unknown;
+  feeTrialEscrow?: string;
+  nextTrialAvailableTimestamp?: number | null;
+  stakingLink?: unknown;
+}
+
 export interface IHyperliquidApproveBuilderFeeRequest {
   userAddress: string;
   builderAddress: string;
@@ -151,16 +207,7 @@ export enum EPerpDefaultTabType {
   Native = 'native',
   Web = 'web',
 }
-export interface IPerpServerBannerConfig {
-  id: string;
-  alertType: IAlertType;
-  title: string;
-  description: string;
-  href?: string;
-  hrefType?: string;
-  useSystemBrowser?: boolean;
-  canClose?: boolean;
-}
+export type { IPerpServerBannerConfig };
 
 export interface IPerpServerDepositConfig {
   network: IPerpsDepositNetwork;
@@ -182,6 +229,24 @@ export interface IPerpServerCommonConfig {
   ipDisablePerp?: boolean;
 }
 
+export interface IPerpDynamicTab {
+  tabId: string;
+  name: string;
+  tokens: string[];
+}
+
+// Re-export types from perpsUtils for backward compatibility
+export type { ITokenSearchAliasItem, ITokenSearchAliases };
+
+export interface IPerpServerActivityCard {
+  id: string;
+  imageUrl?: string;
+  iconName?: string;
+  title: string;
+  subtitle: string;
+  url: string;
+}
+
 export interface IPerpServerConfigResponse {
   referrerConfig: IPerpServerReferrerConfig;
   customSettings?: IHyperliquidCustomSettings;
@@ -197,6 +262,10 @@ export interface IPerpServerConfigResponse {
   bannerConfig?: IPerpServerBannerConfig;
   depositTokenConfig?: IPerpServerDepositConfig[];
   hyperLiquidErrorLocales?: IHyperLiquidErrorLocaleItem[];
+  tokenSearchAliases?: ITokenSearchAliases;
+  tokenSelectorTabs?: IPerpDynamicTab[];
+  perpsAssetMetaMap?: IPerpsAssetMetaMap;
+  activityCards?: IPerpServerActivityCard[];
 }
 @backgroundClass()
 class ServiceWebviewPerp extends ServiceBase {
@@ -209,10 +278,30 @@ class ServiceWebviewPerp extends ServiceBase {
     // TODO init by server api
   }
 
+  private resolveHyperliquidRequestAction(
+    endpoint: string,
+    body: Record<string, unknown>,
+  ) {
+    if (typeof body.type === 'string') {
+      return body.type;
+    }
+    const { action } = body;
+    if (
+      isRecord(action) &&
+      'type' in action &&
+      typeof action.type === 'string'
+    ) {
+      return action.type;
+    }
+    return endpoint;
+  }
+
   private async hyperliquidRequestBase<T>(
     endpoint: string,
-    body: Record<string, any>,
+    body: Record<string, unknown>,
   ): Promise<T> {
+    const logEndpoint = endpoint === 'exchange' ? 'exchange' : 'info';
+    const action = this.resolveHyperliquidRequestAction(endpoint, body);
     try {
       const response = await axios.post<T>(
         `https://api.hyperliquid.xyz/${endpoint}`,
@@ -234,11 +323,32 @@ class ServiceWebviewPerp extends ServiceBase {
           typeof responseDataWithError.response === 'string'
             ? responseDataWithError.response
             : stringUtils.stableStringify(responseDataWithError.response);
-        throw new OneKeyError(errorMessage);
+        const err = new OneKeyError(errorMessage);
+        await logHyperLiquidApiFailure({
+          endpoint: logEndpoint,
+          action,
+          request: body,
+          response: responseDataWithError,
+          error: err,
+          extra: { source: 'ServiceWebviewPerp' },
+        });
+        throw err;
       }
       return response.data;
     } catch (error) {
       if (error && axios.isAxiosError(error)) {
+        await logHyperLiquidApiFailure({
+          endpoint: logEndpoint,
+          action,
+          request: body,
+          error,
+          extra: { source: 'ServiceWebviewPerp' },
+        });
+        const extractedMessage = extractHyperLiquidErrorMessage(error);
+        if (extractedMessage && extractedMessage !== error.message) {
+          throw new OneKeyError(extractedMessage);
+        }
+
         const errorMessage = `Hyperliquid API error 8712: ${[
           error?.name,
           error?.code,
@@ -256,6 +366,13 @@ class ServiceWebviewPerp extends ServiceBase {
       if (e instanceof OneKeyError) {
         throw e;
       }
+      await logHyperLiquidApiFailure({
+        endpoint: logEndpoint,
+        action,
+        request: body,
+        error,
+        extra: { source: 'ServiceWebviewPerp' },
+      });
       throw new OneKeyError(
         `Hyperliquid API error 6632: ${[
           e?.name,
@@ -270,13 +387,13 @@ class ServiceWebviewPerp extends ServiceBase {
   }
 
   private async hyperliquidInfoRequest<T>(
-    body: Record<string, any>,
+    body: Record<string, unknown>,
   ): Promise<T> {
     return this.hyperliquidRequestBase<T>('info', body);
   }
 
   private async hyperliquidExchangeRequest<T>(
-    body: Record<string, any>,
+    body: Record<string, unknown>,
   ): Promise<T> {
     return this.hyperliquidRequestBase<T>('exchange', body);
   }
@@ -375,6 +492,18 @@ class ServiceWebviewPerp extends ServiceBase {
       type: 'maxBuilderFee',
       user: userAddress.toLowerCase(),
       builder: builderAddress.toLowerCase(),
+    });
+  }
+
+  @backgroundMethod()
+  async getUserFees({
+    userAddress,
+  }: {
+    userAddress: string;
+  }): Promise<IHyperliquidUserFeesResponse> {
+    return this.hyperliquidInfoRequest<IHyperliquidUserFeesResponse>({
+      type: 'userFees',
+      user: userAddress.toLowerCase(),
     });
   }
 
@@ -535,14 +664,15 @@ class ServiceWebviewPerp extends ServiceBase {
   @backgroundMethod()
   @toastIfError()
   async approveBuilderFeeIfRequired({
-    request,
+    request: _request,
     userAddress,
     chainId,
     skipApproveAction,
   }: {
     request: IJsBridgeMessagePayload;
     userAddress: string;
-    // eslint-disable-next-line spellcheck/spell-checker
+
+    // oxlint-disable-next-line @cspell/spellchecker
     chainId: string; // 0xa4b1 Arbitrum hex chainId
     skipApproveAction?: boolean;
   }): Promise<IHyperLiquidUserBuilderFeeStatus> {
@@ -584,7 +714,7 @@ class ServiceWebviewPerp extends ServiceBase {
           milliseconds: 5000,
         });
         return status;
-      } catch (e) {
+      } catch (_e) {
         return { ...status, expectBuilderAddress: '', expectMaxBuilderFee: 0 };
       }
     }
@@ -613,7 +743,7 @@ class ServiceWebviewPerp extends ServiceBase {
 
   @backgroundMethod()
   async getBuilderFeeConfig() {
-    void this.backgroundApi.serviceHyperliquid.updatePerpsConfigByServerWithCache();
+    void this.backgroundApi.serviceHyperliquid.updatePerpsConfigByServerSilently();
     // try {
     //   const p = this.updateBuilderFeeConfigByServer();
     //   await pTimeout(p, {
@@ -624,6 +754,7 @@ class ServiceWebviewPerp extends ServiceBase {
     // }
     const shouldModifyPlaceOrderPayload = true;
 
+    /* eslint-disable prefer-const */
     let {
       hyperliquidCustomSettings,
       hyperliquidCustomLocalStorage,
@@ -631,6 +762,7 @@ class ServiceWebviewPerp extends ServiceBase {
       hyperliquidBuilderAddress: expectBuilderAddress,
       hyperliquidMaxBuilderFee: expectMaxBuilderFee,
     } = await this.backgroundApi.simpleDb.perp.getPerpData();
+    /* eslint-enable prefer-const */
     if (!expectMaxBuilderFee || expectMaxBuilderFee < 0) {
       expectMaxBuilderFee = 0;
     }
@@ -651,7 +783,6 @@ class ServiceWebviewPerp extends ServiceBase {
     }
     const customLocalStorage: Record<string, any> = {
       'hyperliquid.coin_selector.tab': `"perps"`, // "perps", "all", "spot"
-      'activeCoin': 'BTC', // do not use `"BTC"`
       ...hyperliquidCustomLocalStorage,
     };
     if (localeStr) {
@@ -754,17 +885,6 @@ class ServiceWebviewPerp extends ServiceBase {
           path: '/perps',
         });
     }
-  }
-
-  @backgroundMethod()
-  async setPerpUserConfig(type: EPerpUserType) {
-    // if (type === EPerpUserType.PERP_WEB) {
-    //   void this.backgroundApi.serviceHyperliquidSubscription.pauseSubscriptions();
-    // }
-    await perpsUserConfigPersistAtom.set((prev) => ({
-      ...prev,
-      perpUserConfig: { ...prev.perpUserConfig, currentUserType: type },
-    }));
   }
 }
 

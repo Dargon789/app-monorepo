@@ -1,20 +1,28 @@
 import type { IPageScreenProps } from '@onekeyhq/components';
 import { Page, SizableText, YStack } from '@onekeyhq/components';
+import { useKeylessWalletFeatureIsEnabled } from '@onekeyhq/kit/src/components/KeylessWallet/useKeylessWallet';
 import type {
   EOnboardingPagesV2,
   IOnboardingParamListV2,
 } from '@onekeyhq/shared/src/routes/onboardingv2';
 
 import { OnboardingLayout } from '../components/OnboardingLayout';
+import { OnboardingTestIDs } from '../testIDs';
 
 export default function KeylessWalletRecovery({
-  route,
+  route: _route,
 }: IPageScreenProps<
   IOnboardingParamListV2,
   EOnboardingPagesV2.KeylessWalletRecovery
 >) {
+  const isKeylessWalletEnabled = useKeylessWalletFeatureIsEnabled();
+
+  if (!isKeylessWalletEnabled) {
+    return null;
+  }
+
   return (
-    <Page>
+    <Page testID={OnboardingTestIDs.keylessWalletRecoveryPage}>
       <OnboardingLayout>
         <OnboardingLayout.Header title="Restore your wallet" />
         <OnboardingLayout.Body constrained={false}>

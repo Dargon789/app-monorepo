@@ -5,7 +5,6 @@ import { getFontSize } from '@onekeyhq/components/src/shared/tamagui';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { useSelectionColor } from '../../hooks';
-import { useScrollToLocation } from '../../layouts/ScrollView';
 import { getSharedInputStyles } from '../Input/sharedStyles';
 
 import { TextArea as TMTextArea } from './TamaguiTextArea';
@@ -34,6 +33,8 @@ function BaseTextArea(
     size,
     onFocus,
     verticalAlign,
+    testID,
+    children: _children,
     ...props
   }: ITextAreaProps,
   forwardedRef: Ref<TextInput>,
@@ -48,13 +49,11 @@ function BaseTextArea(
   useImperativeHandle(forwardedRef, () => ref.current as TextInput);
 
   const selectionColor = useSelectionColor();
-  const { scrollToView } = useScrollToLocation(ref);
   const handleFocus = useCallback(
     async (e: NativeSyntheticEvent<TextInputFocusEventData>) => {
       onFocus?.(e);
-      scrollToView();
     },
-    [onFocus, scrollToView],
+    [onFocus],
   );
 
   return (
@@ -78,6 +77,7 @@ function BaseTextArea(
       borderCurve="continuous"
       editable={editable}
       verticalAlign={verticalAlign || defaultAlignVertical}
+      testID={testID}
       {...props}
     />
   );

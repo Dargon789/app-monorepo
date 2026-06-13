@@ -1,5 +1,12 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { useIntl } from 'react-intl';
 import { InputAccessoryView, Keyboard } from 'react-native';
@@ -26,19 +33,39 @@ import {
   YStack,
   useIsKeyboardShown,
 } from '@onekeyhq/components';
+import {
+  FixedColumnShadowOverlay,
+  SimpleEdgeShadowOverlay,
+} from '@onekeyhq/kit/src/components/FixedColumnShadowOverlay';
+import {
+  SHADOW_CONSTANTS,
+  getWebClipPath,
+  getWebShadowStyle,
+  useFixedColumnShadow,
+} from '@onekeyhq/kit/src/hooks/useFixedColumnShadow';
+import { useThemeVariant } from '@onekeyhq/kit/src/hooks/useThemeVariant';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
+import {
+  type IPerpsMobileLayoutTraceRect,
+  getPerpsMobileLayoutTraceRect,
+  isPerpsMobileLayoutTraceRectChanged,
+  tracePerpsMobileLayout,
+} from '../../../utils/mobileLayoutTrace';
 import { PullToRefresh } from '../../PullToRefresh';
 import { calcCellAlign, getColumnStyle } from '../utils';
+
+import type { LayoutChangeEvent } from 'react-native';
 
 const TradesHistoryLoadingView = () => {
   return (
     <Stack
       flex={1}
       alignItems="flex-start"
-      justifyContent="center"
+      justifyContent="flex-start"
       p="$6"
+      pt="$10"
       gap="$2"
     >
       <Skeleton h="$8" w="$40" />
@@ -96,6 +123,7 @@ const PaginationDoneOnKeyboard = ({
         ) : null}
       </XStack>
       <Button
+        testID="perp-btn"
         variant="tertiary"
         onPress={() => {
           Keyboard.dismiss();
@@ -122,6 +150,7 @@ export const InputWithAccessoryDoneView = ({
   return (
     <XStack {...(xStackProps ?? {})}>
       <Input
+        testID="perp-input-with-accessory-done-view-input"
         {...props}
         onBlur={(e) => {
           if (props.onBlur) {
@@ -156,6 +185,7 @@ const PaginationFooter = ({
   onPageChange,
   headerBgColor,
   headerTextColor,
+  borderColor,
   onViewAll,
 }: {
   currentPage: number;
@@ -165,6 +195,7 @@ const PaginationFooter = ({
   onPageChange: (page: number) => void;
   headerBgColor: string;
   headerTextColor: string;
+  borderColor: string;
   isMobile?: boolean;
   onViewAll?: () => void;
 }) => {
@@ -192,6 +223,10 @@ const PaginationFooter = ({
     handleInputSubmit();
   };
 
+  if (totalPages <= 1 && !onViewAll) {
+    return null;
+  }
+
   return (
     <XStack
       py="$3"
@@ -200,10 +235,13 @@ const PaginationFooter = ({
       justifyContent={isMobile ? 'center' : 'flex-start'}
       alignItems="center"
       bg={headerBgColor}
+      borderTopWidth="$px"
+      borderTopColor={borderColor}
     >
       {totalPages > 1 ? (
         <>
           <IconButton
+            testID="perp-handle-input-blur-icon-btn"
             borderRadius="$full"
             borderWidth="$px"
             borderColor="$border"
@@ -242,6 +280,7 @@ const PaginationFooter = ({
             </SizableText>
           </XStack>
           <IconButton
+            testID="perp-icon-btn"
             borderRadius="$full"
             borderWidth="$px"
             borderColor="$border"
@@ -255,6 +294,7 @@ const PaginationFooter = ({
       ) : null}
       {onViewAll ? (
         <Button
+          testID="perp-btn"
           variant="tertiary"
           size="small"
           onPress={() => {
@@ -272,26 +312,37 @@ export interface IColumnConfig {
   tooltip?: string;
   key: string;
   title: string;
-  width?: number; // 固定宽度
+  width?: number; // Fixed width
   minWidth?: number;
   flex?: number;
   align?: 'left' | 'center' | 'right';
   onPress?: () => void;
+  fixed?: boolean;
 }
 
-export interface ICommonTableListViewProps {
+export type IRenderMode = 'full' | 'left' | 'right';
+
+export interface ICommonTableListViewProps<T = unknown> {
   columns: IColumnConfig[];
-  data: any[];
-  renderRow: (item: any, index: number) => ReactElement;
+  data: T[];
+  renderRow: (
+    item: T,
+    index: number,
+    renderMode?: IRenderMode,
+    isHovered?: boolean,
+    onHoverChange?: (index: number | null) => void,
+  ) => ReactElement;
+  keyExtractor?: (item: T, index: number) => string;
   emptyMessage?: string;
   emptySubMessage?: string;
+  ListEmptyComponent?: ReactElement | null;
   minTableWidth?: number;
   headerBgColor?: string;
   headerTextColor?: string;
   borderColor?: string;
   rowHoverColor?: string;
   isMobile?: boolean;
-  // 分页相关
+  // pagination
   enablePagination?: boolean;
   pageSize?: number;
   currentListPage?: number;
@@ -300,25 +351,30 @@ export interface ICommonTableListViewProps {
   disableListScroll?: boolean;
   listLoading?: boolean;
   paginationToBottom?: boolean;
+  enableDesktopVerticalScroll?: boolean;
   listViewDebugRenderTrackerProps?: IDebugRenderTrackerProps;
   onViewAll?: () => void;
   onPullToRefresh?: () => Promise<void>;
+  ListHeaderComponent?: ReactElement | null;
 }
 
-export function CommonTableListView({
+export function CommonTableListView<T>({
   columns,
   data,
   useTabsList,
   disableListScroll,
   renderRow,
+  keyExtractor,
   currentListPage,
   listLoading,
   setCurrentListPage,
   paginationToBottom,
+  enableDesktopVerticalScroll,
   isMobile,
   emptyMessage = 'No data',
   emptySubMessage = 'Data will appear here',
-  minTableWidth,
+  ListEmptyComponent,
+  minTableWidth: _minTableWidth,
   headerBgColor = '$bgSubtle',
   headerTextColor = '$textSubdued',
   borderColor = '$borderSubdued',
@@ -327,20 +383,57 @@ export function CommonTableListView({
   listViewDebugRenderTrackerProps,
   onViewAll,
   onPullToRefresh,
-}: ICommonTableListViewProps) {
-  // Use explicit prop if provided, otherwise default to true (for backward compatibility)
-  // When used inside Tabs.Container, should be true; when used in standalone ScrollView, should be false
+  ListHeaderComponent,
+}: ICommonTableListViewProps<T>) {
   const shouldUseTabsList = useTabsList ?? true;
+  const themeVariant = useThemeVariant();
+  const isDark = themeVariant === 'dark';
 
-  const paginatedData = useMemo<any[]>(() => {
+  const scrollableColumns = useMemo(
+    () => columns.filter((c) => !c.fixed),
+    [columns],
+  );
+  const fixedColumns = useMemo(() => columns.filter((c) => c.fixed), [columns]);
+  const hasFixedColumns = fixedColumns.length > 0;
+
+  const scrollableMinWidth = useMemo(
+    () =>
+      scrollableColumns.reduce(
+        (sum, col) => sum + (col.width || col.minWidth || 0),
+        0,
+      ),
+    [scrollableColumns],
+  );
+  const fixedMinWidth = useMemo(
+    () =>
+      fixedColumns.reduce(
+        (sum, col) => sum + (col.width || col.minWidth || 0),
+        0,
+      ),
+    [fixedColumns],
+  );
+
+  const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
+
+  // Fixed column shadow management using shared hook
+  // Right-fixed column: shadow shows when scrollable content is not scrolled to end
+  const {
+    showShadow: showFixedShadow,
+    scrollViewRef,
+    handleNativeScroll,
+    handleWebScroll,
+  } = useFixedColumnShadow({
+    position: 'right',
+    enabled: hasFixedColumns,
+    initialVisible: true,
+  });
+
+  const paginatedData = useMemo<T[]>(() => {
     if (!enablePagination || data.length <= pageSize || !currentListPage) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return data;
     }
-
     const startIndex = (currentListPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return data.slice(startIndex, endIndex);
   }, [data, currentListPage, pageSize, enablePagination]);
 
@@ -367,18 +460,182 @@ export function CommonTableListView({
     }
   };
   const ListComponent = shouldUseTabsList ? Tabs.FlatList : ListView;
+  const defaultEmptyComponent = (
+    <YStack flex={1} alignItems="center" p="$6">
+      <SizableText size="$bodyMd" color="$textSubdued" textAlign="center">
+        {emptyMessage}
+      </SizableText>
+      <SizableText
+        size="$bodySm"
+        color="$textSubdued"
+        textAlign="center"
+        mt="$2"
+      >
+        {emptySubMessage}
+      </SizableText>
+    </YStack>
+  );
+  const emptyComponent = ListEmptyComponent ?? defaultEmptyComponent;
+  const desktopEmptyComponent = ListEmptyComponent ? (
+    emptyComponent
+  ) : (
+    <YStack flex={1} justifyContent="flex-start" alignItems="flex-start" p="$5">
+      <SizableText size="$bodyMd" color="$text" textAlign="center">
+        {emptyMessage}
+      </SizableText>
+      <SizableText
+        size="$bodySm"
+        color="$textSubdued"
+        textAlign="center"
+        mt="$2"
+      >
+        {emptySubMessage}
+      </SizableText>
+    </YStack>
+  );
+  const effectiveListLoading = Boolean(
+    listLoading && paginatedData.length === 0,
+  );
+  const showDesktopEmptyState =
+    !effectiveListLoading && paginatedData.length === 0;
+  const mobileLayoutRectsRef = useRef<
+    Record<string, IPerpsMobileLayoutTraceRect | undefined>
+  >({});
+  const mobileContentHeightRef = useRef<number | undefined>(undefined);
+  const traceName =
+    listViewDebugRenderTrackerProps?.name ?? 'CommonTableListView';
+
+  const handleMobileTraceLayout = useCallback(
+    (name: string, event: LayoutChangeEvent) => {
+      const rect = getPerpsMobileLayoutTraceRect(event);
+      if (
+        isPerpsMobileLayoutTraceRectChanged(
+          mobileLayoutRectsRef.current[name],
+          rect,
+        )
+      ) {
+        tracePerpsMobileLayout(`tableList.${name}.layout`, {
+          traceName,
+          rect,
+          dataLength: data.length,
+          paginatedLength: paginatedData.length,
+          listLoading: effectiveListLoading,
+          useTabsList: shouldUseTabsList,
+          disableListScroll,
+          hasHeader: Boolean(ListHeaderComponent),
+          hasEmptyComponent: Boolean(ListEmptyComponent),
+          enablePagination,
+          totalPages,
+        });
+        mobileLayoutRectsRef.current[name] = rect;
+      }
+    },
+    [
+      ListEmptyComponent,
+      ListHeaderComponent,
+      data.length,
+      disableListScroll,
+      enablePagination,
+      effectiveListLoading,
+      paginatedData.length,
+      shouldUseTabsList,
+      totalPages,
+      traceName,
+    ],
+  );
+
+  const handleMobileContentSizeChange = useCallback(
+    (_width: number, height: number) => {
+      const roundedHeight = Math.round(height * 100) / 100;
+      const prevHeight = mobileContentHeightRef.current;
+      if (
+        prevHeight === undefined ||
+        Math.abs(prevHeight - roundedHeight) > 0.5
+      ) {
+        tracePerpsMobileLayout('tableList.contentSize.height', {
+          traceName,
+          height: roundedHeight,
+          prevHeight,
+          delta:
+            prevHeight === undefined ? undefined : roundedHeight - prevHeight,
+          dataLength: data.length,
+          paginatedLength: paginatedData.length,
+          listLoading: effectiveListLoading,
+          useTabsList: shouldUseTabsList,
+          disableListScroll,
+          hasHeader: Boolean(ListHeaderComponent),
+          hasEmptyComponent: Boolean(ListEmptyComponent),
+        });
+        mobileContentHeightRef.current = roundedHeight;
+      }
+    },
+    [
+      ListEmptyComponent,
+      ListHeaderComponent,
+      data.length,
+      disableListScroll,
+      effectiveListLoading,
+      paginatedData.length,
+      shouldUseTabsList,
+      traceName,
+    ],
+  );
+
+  useEffect(() => {
+    if (!isMobile) {
+      return;
+    }
+    tracePerpsMobileLayout('tableList.state', {
+      traceName,
+      dataLength: data.length,
+      paginatedLength: paginatedData.length,
+      listLoading: effectiveListLoading,
+      useTabsList: shouldUseTabsList,
+      disableListScroll,
+      hasHeader: Boolean(ListHeaderComponent),
+      hasEmptyComponent: Boolean(ListEmptyComponent),
+      enablePagination,
+      totalPages,
+      currentListPage,
+      paginationToBottom,
+      onViewAll: Boolean(onViewAll),
+    });
+  }, [
+    ListEmptyComponent,
+    ListHeaderComponent,
+    currentListPage,
+    data.length,
+    disableListScroll,
+    enablePagination,
+    isMobile,
+    effectiveListLoading,
+    onViewAll,
+    paginatedData.length,
+    paginationToBottom,
+    shouldUseTabsList,
+    totalPages,
+    traceName,
+  ]);
 
   if (isMobile) {
     const ListContent = (
       <DebugRenderTracker {...listViewDebugRenderTrackerProps}>
         <ListComponent
+          onLayout={(event) => handleMobileTraceLayout('list', event)}
+          onContentSizeChange={handleMobileContentSizeChange}
+          showsVerticalScrollIndicator={false}
           refreshControl={
             shouldUseTabsList && onPullToRefresh ? (
               <PullToRefresh onRefresh={onPullToRefresh} />
             ) : undefined
           }
+          windowSize={
+            platformEnv.isNativeAndroid && shouldUseTabsList ? 3 : undefined
+          }
           scrollEnabled={shouldUseTabsList || !disableListScroll}
           data={paginatedData}
+          keyExtractor={keyExtractor}
+          ListHeaderComponent={ListHeaderComponent}
           ListFooterComponent={
             enablePagination &&
             currentListPage &&
@@ -393,48 +650,48 @@ export function CommonTableListView({
                 onPageChange={handlePageChange}
                 headerBgColor={headerBgColor}
                 headerTextColor={headerTextColor}
+                borderColor={borderColor}
               />
             ) : null
           }
           renderItem={({ item, index }) => {
-            return renderRow(item, index);
+            return renderRow(item, index, 'full');
           }}
           ListEmptyComponent={
-            listLoading ? (
-              <TradesHistoryLoadingView />
-            ) : (
-              <YStack flex={1} alignItems="center" p="$6">
-                <SizableText
-                  size="$bodyMd"
-                  color="$textSubdued"
-                  textAlign="center"
-                >
-                  {emptyMessage}
-                </SizableText>
-                <SizableText
-                  size="$bodySm"
-                  color="$textSubdued"
-                  textAlign="center"
-                  mt="$2"
-                >
-                  {emptySubMessage}
-                </SizableText>
-              </YStack>
-            )
+            effectiveListLoading ? <TradesHistoryLoadingView /> : emptyComponent
           }
           contentContainerStyle={{
+            flexGrow: paginatedData.length === 0 ? 1 : undefined,
             paddingBottom: enablePagination && totalPages > 1 ? 0 : 16,
           }}
         />
       </DebugRenderTracker>
     );
+
+    // Wrap with shadow overlay for native platforms
+    const ListWithShadow = (
+      <Stack
+        flex={1}
+        position="relative"
+        onLayout={(event) => handleMobileTraceLayout('listWithShadow', event)}
+      >
+        {ListContent}
+        <SimpleEdgeShadowOverlay isDark={isDark} position="right" />
+      </Stack>
+    );
+
     if (
       (paginationToBottom && currentListPage && totalPages > 1) ||
       onViewAll
     ) {
       return (
-        <YStack flex={1}>
-          {ListContent}
+        <YStack
+          flex={1}
+          onLayout={(event) =>
+            handleMobileTraceLayout('withPaginationRoot', event)
+          }
+        >
+          {ListWithShadow}
           <PaginationFooter
             isMobile={isMobile}
             currentPage={currentListPage ?? 1}
@@ -445,171 +702,209 @@ export function CommonTableListView({
             onPageChange={handlePageChange}
             headerBgColor={headerBgColor}
             headerTextColor={headerTextColor}
+            borderColor={borderColor}
           />
         </YStack>
       );
     }
-    return ListContent;
+    return ListWithShadow;
   }
 
-  return (
-    <YStack flex={1}>
-      <Tabs.ScrollView
+  const renderHeaderCell = (column: IColumnConfig, _index: number) => (
+    <XStack
+      key={column.key}
+      {...getColumnStyle(column)}
+      justifyContent={calcCellAlign(column.align) as any}
+      onPress={column.onPress}
+      cursor="default"
+    >
+      {column.tooltip ? (
+        <Tooltip
+          placement="top"
+          renderTrigger={
+            <SizableText
+              size="$bodySmMedium"
+              borderBottomWidth="$px"
+              borderTopWidth={0}
+              borderLeftWidth={0}
+              borderRightWidth={0}
+              borderBottomColor="$border"
+              borderStyle="dashed"
+              cursor="help"
+              color={column.onPress ? '$textSuccess' : headerTextColor}
+              textAlign={column.align || 'left'}
+            >
+              {column.title}
+            </SizableText>
+          }
+          renderContent={column.tooltip}
+        />
+      ) : (
+        <SizableText
+          size="$bodySmMedium"
+          borderBottomWidth="$px"
+          borderBottomColor="transparent"
+          color={column.onPress ? '$textSuccess' : headerTextColor}
+          textAlign={column.align || 'left'}
+        >
+          {column.title}
+        </SizableText>
+      )}
+    </XStack>
+  );
+  const desktopTable = (
+    <XStack flex={1}>
+      {/* Scrollable columns */}
+      <ScrollView
+        ref={scrollViewRef}
         style={{
           flex: 1,
         }}
         horizontal
         showsHorizontalScrollIndicator
         nestedScrollEnabled
+        onScroll={platformEnv.isNative ? handleNativeScroll : handleWebScroll}
+        scrollEventThrottle={16}
         contentContainerStyle={{
-          minWidth: minTableWidth,
+          minWidth: scrollableMinWidth,
           flexGrow: 1,
         }}
       >
-        <ScrollView
-          style={{
-            flex: 1,
-          }}
-          horizontal
-          showsHorizontalScrollIndicator
-          nestedScrollEnabled
-          contentContainerStyle={{
-            minWidth: minTableWidth,
-            flexGrow: 1,
+        <YStack flex={1} minWidth={scrollableMinWidth} cursor="default">
+          <XStack
+            py="$2"
+            pl="$5"
+            pr="$3"
+            display="flex"
+            minWidth={scrollableMinWidth}
+            width="100%"
+            borderBottomWidth="$px"
+            borderBottomColor={borderColor}
+            bg={headerBgColor}
+          >
+            {scrollableColumns.map((column, index) =>
+              renderHeaderCell(column, index),
+            )}
+          </XStack>
+          <YStack flex={1} pb={enablePagination ? 0 : '$4'}>
+            {effectiveListLoading ? (
+              <YStack
+                flex={1}
+                justifyContent="center"
+                alignItems="center"
+                p="$20"
+              >
+                <Spinner size="large" />
+              </YStack>
+            ) : null}
+            {showDesktopEmptyState ? desktopEmptyComponent : null}
+            {!effectiveListLoading && paginatedData.length > 0
+              ? paginatedData.map((item, index) => (
+                  <Fragment key={keyExtractor?.(item, index) ?? String(index)}>
+                    {renderRow(
+                      item,
+                      index,
+                      hasFixedColumns ? 'left' : 'full',
+                      hoveredRowIndex === index,
+                      setHoveredRowIndex,
+                    )}
+                  </Fragment>
+                ))
+              : null}
+          </YStack>
+        </YStack>
+      </ScrollView>
+
+      {/* Fixed columns */}
+      {hasFixedColumns ? (
+        <YStack
+          minWidth={fixedMinWidth}
+          cursor="default"
+          bg="$bgApp"
+          $platform-web={{
+            boxShadow: showFixedShadow
+              ? getWebShadowStyle('right', isDark)
+              : 'none',
+            clipPath: getWebClipPath('right'),
+            transition: `box-shadow ${SHADOW_CONSTANTS.TRANSITION_DURATION} ease-in-out`,
           }}
         >
-          <YStack
-            flex={1}
-            minWidth={minTableWidth}
-            width="100%"
-            cursor="default"
+          <FixedColumnShadowOverlay
+            position="right"
+            visible={showFixedShadow}
+            isDark={isDark}
+          />
+          <XStack
+            py="$2"
+            px="$3"
+            display="flex"
+            borderBottomWidth="$px"
+            borderBottomColor={borderColor}
+            bg={headerBgColor}
           >
-            <XStack
-              py="$2"
-              px="$3"
-              display="flex"
-              minWidth={minTableWidth}
-              width="100%"
-              borderBottomWidth="$px"
-              borderBottomColor={borderColor}
-              bg={headerBgColor}
-            >
-              {columns.map((column, index) => {
-                return (
-                  <XStack
-                    key={column.key}
-                    {...getColumnStyle(column)}
-                    justifyContent={calcCellAlign(column.align) as any}
-                    {...(index === 0 && {
-                      pl: '$2',
-                    })}
-                    onPress={column.onPress}
-                    cursor={column.onPress ? 'pointer' : 'default'}
-                  >
-                    {column.tooltip ? (
-                      <Tooltip
-                        placement="top"
-                        renderTrigger={
-                          <SizableText
-                            size="$bodySm"
-                            borderBottomWidth="$px"
-                            borderTopWidth={0}
-                            borderLeftWidth={0}
-                            borderRightWidth={0}
-                            borderBottomColor="$border"
-                            borderStyle="dashed"
-                            cursor="help"
-                            color={
-                              column.onPress ? '$textSuccess' : headerTextColor
-                            }
-                            fontWeight="600"
-                            textAlign={column.align || 'left'}
-                          >
-                            {column.title}
-                          </SizableText>
-                        }
-                        renderContent={column.tooltip}
-                      />
-                    ) : (
-                      <SizableText
-                        size="$bodySm"
-                        color={
-                          column.onPress ? '$textSuccess' : headerTextColor
-                        }
-                        fontWeight="600"
-                        textAlign={column.align || 'left'}
-                      >
-                        {column.title}
-                      </SizableText>
-                    )}
-                  </XStack>
-                );
-              })}
-            </XStack>
-            <ListView
-              debugRenderTrackerProps={listViewDebugRenderTrackerProps}
-              style={{
-                height: 400,
-              }}
-              data={paginatedData}
-              renderItem={({ item, index }) => {
-                return renderRow(item, index);
-              }}
-              ListEmptyComponent={
-                listLoading ? (
-                  <YStack
-                    flex={1}
-                    justifyContent="center"
-                    alignItems="center"
-                    p="$20"
-                  >
-                    <Spinner size="large" />
-                  </YStack>
-                ) : (
-                  <YStack
-                    flex={1}
-                    justifyContent="flex-start"
-                    alignItems="flex-start"
-                    p="$5"
-                  >
-                    <SizableText
-                      size="$bodyMd"
-                      color="$text"
-                      textAlign="center"
-                    >
-                      {emptyMessage}
-                    </SizableText>
-                    <SizableText
-                      size="$bodySm"
-                      color="$textSubdued"
-                      textAlign="center"
-                      mt="$2"
-                    >
-                      {emptySubMessage}
-                    </SizableText>
-                  </YStack>
-                )
-              }
-              contentContainerStyle={{
-                paddingBottom: enablePagination ? 0 : 16,
-              }}
-            />
-            {enablePagination && currentListPage ? (
-              <PaginationFooter
-                currentPage={currentListPage}
-                totalPages={totalPages}
-                onPreviousPage={handlePreviousPage}
-                onNextPage={handleNextPage}
-                onPageChange={handlePageChange}
-                isMobile={isMobile}
-                headerBgColor={headerBgColor}
-                headerTextColor={headerTextColor}
-                onViewAll={onViewAll}
-              />
+            {fixedColumns.map((column, index) =>
+              renderHeaderCell(column, index),
+            )}
+          </XStack>
+          <YStack flex={1} pb={enablePagination ? 0 : '$4'}>
+            {effectiveListLoading ? <YStack flex={1} p="$20" /> : null}
+            {!effectiveListLoading && paginatedData.length === 0 ? (
+              <YStack flex={1} p="$5" />
             ) : null}
+            {!effectiveListLoading && paginatedData.length > 0
+              ? paginatedData.map((item, index) => (
+                  <Fragment key={keyExtractor?.(item, index) ?? String(index)}>
+                    {renderRow(
+                      item,
+                      index,
+                      'right',
+                      hoveredRowIndex === index,
+                      setHoveredRowIndex,
+                    )}
+                  </Fragment>
+                ))
+              : null}
           </YStack>
-        </ScrollView>
-      </Tabs.ScrollView>
+        </YStack>
+      ) : null}
+    </XStack>
+  );
+
+  const shouldEnableDesktopVerticalScroll =
+    enableDesktopVerticalScroll && !disableListScroll;
+
+  return (
+    <YStack flex={1}>
+      <YStack flex={1}>
+        {shouldEnableDesktopVerticalScroll ? (
+          <ScrollView
+            style={{
+              flex: 1,
+            }}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
+            {desktopTable}
+          </ScrollView>
+        ) : (
+          desktopTable
+        )}
+
+        {enablePagination && currentListPage ? (
+          <PaginationFooter
+            currentPage={currentListPage}
+            totalPages={totalPages}
+            onPreviousPage={handlePreviousPage}
+            onNextPage={handleNextPage}
+            onPageChange={handlePageChange}
+            isMobile={isMobile}
+            headerBgColor={headerBgColor}
+            headerTextColor={headerTextColor}
+            borderColor={borderColor}
+            onViewAll={onViewAll}
+          />
+        ) : null}
+      </YStack>
     </YStack>
   );
 }

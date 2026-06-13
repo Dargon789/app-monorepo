@@ -1,47 +1,77 @@
 import { memo, useMemo } from 'react';
 
-import { find } from 'lodash';
-
 import {
   NumberSizeableText,
   XStack,
   YStack,
   useMedia,
 } from '@onekeyhq/components';
-import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import type { IDBUtxoAccount } from '@onekeyhq/kit-bg/src/dbs/local/types';
+import type { INetworkAccount } from '@onekeyhq/shared/types/account';
 
+import { Currency } from '../Currency';
 import { NetworkAvatarBase } from '../NetworkAvatar';
 
 import { useAddressTypeSelectorStableContext } from './AddressTypeSelectorContext';
 
 function AddressTypeFiat({
-  accountId,
-  xpub,
+  account,
 }: {
-  accountId: string | undefined;
-  xpub: string | undefined;
+  account: INetworkAccount | undefined;
 }) {
-  const [settings] = useSettingsPersistAtom();
-
   const { tokenMap, networkLogoURI } = useAddressTypeSelectorStableContext();
 
   const media = useMedia();
 
+  const accountKeyCandidates = useMemo(() => {
+    if (!account) {
+      return new Set<string>();
+    }
+
+    const utxoAccount = account as IDBUtxoAccount;
+    const rawCandidates = [
+      utxoAccount.xpubSegwit,
+      utxoAccount.xpub,
+      account.address,
+      account.addressDetail.address,
+      account.addressDetail.displayAddress,
+      account.addressDetail.normalizedAddress,
+    ].filter((value): value is string => Boolean(value));
+
+    return new Set(
+      rawCandidates.flatMap((value) => [value, value.toLowerCase()]),
+    );
+  }, [account]);
+
   const tokenFiat = useMemo(() => {
-    if (!tokenMap) {
+    if (!tokenMap || accountKeyCandidates.size === 0) {
       return null;
     }
-    const result = find(tokenMap, (_, key) => !!(xpub && key.includes(xpub)));
+
+    const result = Object.entries(tokenMap).find(([key]) => {
+      const keyArr = key.split('_');
+      if (keyArr.length < 3) {
+        return false;
+      }
+
+      const accountKey = keyArr.slice(1, -1).join('_');
+      return (
+        accountKeyCandidates.has(accountKey) ||
+        accountKeyCandidates.has(accountKey.toLowerCase())
+      );
+    })?.[1];
+
     if (!result) {
       return {
         balanceParsed: '0',
         fiatValue: '0',
+        currency: undefined as string | undefined,
       };
     }
     return result;
-  }, [tokenMap, xpub]);
+  }, [accountKeyCandidates, tokenMap]);
 
-  if (!accountId || !tokenFiat) {
+  if (!account?.id || !tokenFiat) {
     return null;
   }
 
@@ -56,19 +86,17 @@ function AddressTypeFiat({
           {tokenFiat.balanceParsed}
         </NumberSizeableText>
       </XStack>
-      <NumberSizeableText
+      <Currency
         size="$bodyMd"
         color="$textSubdued"
         formatter="value"
-        formatterOptions={{
-          currency: settings.currencyInfo.symbol,
-        }}
+        sourceCurrency={tokenFiat.currency}
         $gtMd={{
           size: '$bodySm',
         }}
       >
         {tokenFiat.fiatValue}
-      </NumberSizeableText>
+      </Currency>
     </YStack>
   );
 }

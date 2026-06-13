@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import BigNumber from 'bignumber.js';
 
 import { NumberSizeableText, Stack } from '@onekeyhq/components';
+import { Currency } from '@onekeyhq/kit/src/components/Currency';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import NumberSizeableTextWrapper from '@onekeyhq/kit/src/components/NumberSizeableTextWrapper';
 import { Token, TokenName } from '@onekeyhq/kit/src/components/Token';
@@ -10,10 +11,8 @@ import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
 import { useAllTokenListMapAtom } from '@onekeyhq/kit/src/states/jotai/contexts/tokenList';
 import { useUniversalSearchActions } from '@onekeyhq/kit/src/states/jotai/contexts/universalSearch';
-import {
-  useSettingsPersistAtom,
-  useSettingsValuePersistAtom,
-} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { useSettingsValuePersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import {
   EModalAssetDetailRoutes,
   EModalRoutes,
@@ -27,16 +26,17 @@ import type { IAccountToken } from '@onekeyhq/shared/types/token';
 interface IUniversalSearchAccountAssetItemProps {
   item: IUniversalSearchAccountAssets;
   allAggregateTokenMap?: Record<string, { tokens: IAccountToken[] }>;
+  getSearchInput: () => string;
 }
 
 export function UniversalSearchAccountAssetItem({
   item,
   allAggregateTokenMap,
+  getSearchInput,
 }: IUniversalSearchAccountAssetItemProps) {
   const navigation = useAppNavigation();
   const { activeAccount } = useActiveAccount({ num: 0 });
   const universalSearchActions = useUniversalSearchActions();
-  const [settings] = useSettingsPersistAtom();
   const [{ hideValue }] = useSettingsValuePersistAtom();
   const { token, tokenFiat } = item.payload;
   const priceChange = tokenFiat?.price24h ?? 0;
@@ -47,6 +47,13 @@ export function UniversalSearchAccountAssetItem({
   const fiatValue = new BigNumber(tokenFiat?.fiatValue ?? 0);
 
   const handlePress = useCallback(async () => {
+    defaultLogger.universalSearch.search.universalSearchClick({
+      searchText: getSearchInput(),
+      type: item.type,
+      itemId: token.address ?? token.symbol ?? '',
+      itemTitle: token.name ?? token.symbol ?? '',
+    });
+
     navigation.pop();
     if (
       !activeAccount ||
@@ -94,6 +101,7 @@ export function UniversalSearchAccountAssetItem({
   }, [
     activeAccount,
     allTokenListMapAtom,
+    getSearchInput,
     item.type,
     navigation,
     token,
@@ -143,14 +151,14 @@ export function UniversalSearchAccountAssetItem({
         </NumberSizeableTextWrapper>
       </Stack>
       <Stack flexDirection="column" alignItems="flex-end" flexShrink={1}>
-        <NumberSizeableTextWrapper
+        <Currency
           formatter="value"
-          formatterOptions={{ currency: settings.currencyInfo.symbol }}
+          sourceCurrency={tokenFiat?.currency}
           size="$bodyLgMedium"
           hideValue={hideValue}
         >
           {fiatValue.isNaN() ? 0 : fiatValue.toFixed()}
-        </NumberSizeableTextWrapper>
+        </Currency>
         <NumberSizeableText
           formatter="priceChange"
           formatterOptions={{ showPlusMinusSigns }}

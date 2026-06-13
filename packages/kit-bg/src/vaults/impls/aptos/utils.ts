@@ -58,6 +58,8 @@ export const APTOS_NATIVE_TRANSFER_FUNC = '0x1::aptos_account::transfer';
 // Transfer legacy coin & native coin, not register account
 export const APTOS_NATIVE_TRANSFER_FUNC_LEGACY =
   '0x1::aptos_account::transfer_coins';
+export const APTOS_NATIVE_BATCH_TRANSFER_FUNC_LEGACY =
+  '0x1::aptos_account::batch_transfer_coins';
 
 export const APTOS_TRANSFER_FUNGIBLE_FUNC =
   '0x1::primary_fungible_store::transfer';
@@ -101,6 +103,7 @@ export function getTransactionTypeByPayload({
       function_name === APTOS_NATIVE_TRANSFER_FUNC ||
       function_name === APTOS_TRANSFER_FUNC ||
       function_name === APTOS_NATIVE_TRANSFER_FUNC_LEGACY ||
+      function_name === APTOS_NATIVE_BATCH_TRANSFER_FUNC_LEGACY ||
       function_name === APTOS_TRANSFER_FUNGIBLE_FUNC
     ) {
       return EDecodedTxActionType.ASSET_TRANSFER;
@@ -174,28 +177,28 @@ export async function buildSignedTx(
 
 export function convertRpcError(error: string): OneKeyError {
   // more: https://github.com/aptos-labs/aptos-core/blob/1b3348636fd24a8eb413c34f2ebb2c76c25e10d5/developer-docs-site/docs/guides/handle-aptos-errors.md
-  if (error.indexOf('EACCOUNT_DOES_NOT_EXIST') !== -1) {
+  if (error.includes('EACCOUNT_DOES_NOT_EXIST')) {
     return new OneKeyInternalError(error);
   }
   if (
-    error.indexOf('EINSUFFICIENT_BALANCE') !== -1 ||
-    error.indexOf('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE') !== -1
+    error.includes('EINSUFFICIENT_BALANCE') ||
+    error.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')
   ) {
     return new OneKeyInternalError(error);
   }
 
-  if (error.indexOf('ECOIN_STORE_NOT_PUBLISHED') !== -1) {
+  if (error.includes('ECOIN_STORE_NOT_PUBLISHED')) {
     return new OneKeyInternalError(error);
   }
 
-  if (error.indexOf('ECOLLECTION_ALREADY_EXISTS') !== -1) {
+  if (error.includes('ECOLLECTION_ALREADY_EXISTS')) {
     return new OneKeyInternalError(error);
   }
-  if (error.indexOf('ECOLLECTION_NOT_PUBLISHED') !== -1) {
+  if (error.includes('ECOLLECTION_NOT_PUBLISHED')) {
     return new OneKeyInternalError(error);
   }
 
-  if (error.indexOf('ETOKEN_DATA_ALREADY_EXISTS') !== -1) {
+  if (error.includes('ETOKEN_DATA_ALREADY_EXISTS')) {
     return new OneKeyInternalError(error);
   }
   return new OneKeyError(error);
@@ -259,7 +262,7 @@ export async function getAccountResource(
     let err;
     try {
       err = JSON.parse(error?.message);
-    } catch (e) {
+    } catch (_e) {
       throw error;
     }
     const { error_code: errorCode } = err || {};
@@ -277,7 +280,7 @@ export async function getAccountResource(
 export async function getAccountCoinResource(
   client: AptosClient,
   address: string,
-  tokenAddress?: string | undefined,
+  tokenAddress?: string,
 ): Promise<MoveResource | undefined> {
   // The coin type to use, defaults to 0x1::aptos_coin::AptosCoin
   const typeTag = `${APTOS_COINSTORE}<${tokenAddress ?? APTOS_NATIVE_COIN}>`;
@@ -370,7 +373,7 @@ export function formatSignMessageRequest(
     try {
       const urlObj = new URL(application);
       host = urlObj.host;
-    } catch (error) {
+    } catch (_error) {
       host = application;
     }
     request.application = host;
@@ -394,7 +397,7 @@ export function generateRegisterToken(tokenAddress: string): ITxPayload {
 }
 
 export function getTokenType(tokenAddress: string): 'legacy' | 'fungible' {
-  if (tokenAddress.indexOf('::') !== -1) {
+  if (tokenAddress.includes('::')) {
     return 'legacy';
   }
   return 'fungible';
@@ -581,9 +584,8 @@ export async function buildSimpleTransaction(
 
   let gasUnitPrice: number | undefined = input.gasUnitPrice;
 
-  const { sequence_number: sequenceNumber } = await aptosClient.getAccount(
-    sender,
-  );
+  const { sequence_number: sequenceNumber } =
+    await aptosClient.getAccount(sender);
 
   if ('function' in payload) {
     // function

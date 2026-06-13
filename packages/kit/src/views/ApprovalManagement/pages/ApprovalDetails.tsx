@@ -47,6 +47,7 @@ import {
 } from '../components/ApprovalManagementContext';
 import ApprovedTokenItem from '../components/ApprovedTokenItem';
 import { useBulkRevoke } from '../hooks/useBulkRevoke';
+import { ApprovalManagementTestIDs } from '../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -146,17 +147,20 @@ function ApprovalDetails() {
       if (!isMountedRef.current) return;
 
       const isSelectAll = _isSelectAll === true;
-      const selectedAllTokens = approval.approvals.reduce((acc, item) => {
-        acc[
-          approvalUtils.buildSelectedTokenKey({
-            accountId: approval.accountId,
-            networkId: approval.networkId,
-            contractAddress: approval.contractAddress,
-            tokenAddress: item.tokenAddress,
-          })
-        ] = isSelectAll;
-        return acc;
-      }, {} as Record<string, boolean>);
+      const selectedAllTokens = approval.approvals.reduce(
+        (acc, item) => {
+          acc[
+            approvalUtils.buildSelectedTokenKey({
+              accountId: approval.accountId,
+              networkId: approval.networkId,
+              contractAddress: approval.contractAddress,
+              tokenAddress: item.tokenAddress,
+            })
+          ] = isSelectAll;
+          return acc;
+        },
+        {} as Record<string, boolean>,
+      );
       setSelectedTokens(selectedAllTokens);
     },
     [
@@ -355,6 +359,7 @@ function ApprovalDetails() {
           </YStack>
           <XStack gap="$5" alignItems="center">
             <IconButton
+              testID={ApprovalManagementTestIDs.copyContractAddressBtn}
               title={intl.formatMessage({ id: ETranslations.global_copy })}
               variant="tertiary"
               icon="Copy3Outline"
@@ -365,6 +370,7 @@ function ApprovalDetails() {
               }}
             />
             <IconButton
+              testID={ApprovalManagementTestIDs.viewInExplorerBtn}
               title={intl.formatMessage({
                 id: ETranslations.global_view_in_blockchain_explorer,
               })}
@@ -443,6 +449,7 @@ function ApprovalDetails() {
                 })}
               </SizableText>
               <Button
+                testID={ApprovalManagementTestIDs.bulkRevokeToggleBtn}
                 variant="tertiary"
                 size="small"
                 onPress={() => {

@@ -11,9 +11,10 @@ import {
   XStack,
 } from '@onekeyhq/components';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
+import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { checkIsOnlyOneTokenHasBalance } from '@onekeyhq/shared/src/utils/tokenUtils';
 
-import { useAccountData } from '../../hooks/useAccountData';
 import {
   useAggregateTokensListMapAtom,
   useAllTokenListMapAtom,
@@ -32,6 +33,7 @@ type IProps = {
   textProps?: ISizableTextProps;
   withAggregateBadge?: boolean;
   showNetworkName?: boolean;
+  showDeFiReceiptTokenBadge?: boolean;
 } & IXStackProps;
 
 function TokenNameView(props: IProps) {
@@ -46,13 +48,13 @@ function TokenNameView(props: IProps) {
     textProps,
     withAggregateBadge,
     showNetworkName,
+    showDeFiReceiptTokenBadge,
     ...rest
   } = props;
   const intl = useIntl();
 
-  const { network } = useAccountData({ networkId });
   const [aggregateTokensListMap] = useAggregateTokensListMapAtom();
-  const { allAggregateTokenMap } = useTokenListViewContext();
+  const { allAggregateTokenMap, networksMap } = useTokenListViewContext();
   const [allTokenListMap] = useAllTokenListMapAtom();
   const allAggregateTokenList = useMemo(
     () => allAggregateTokenMap?.[$key]?.tokens ?? [],
@@ -63,9 +65,8 @@ function TokenNameView(props: IProps) {
     [aggregateTokensListMap, $key],
   );
   const firstAggregateToken = aggregateTokenList?.[0];
-  const { network: firstAggregateTokenNetwork } = useAccountData({
-    networkId: firstAggregateToken?.networkId,
-  });
+  const shouldShowDeFiReceiptTokenBadge =
+    showDeFiReceiptTokenBadge && !platformEnv.isNative;
 
   const { tokenHasBalance, tokenHasBalanceCount } = useMemo(() => {
     return checkIsOnlyOneTokenHasBalance({
@@ -75,15 +76,45 @@ function TokenNameView(props: IProps) {
     });
   }, [aggregateTokenList, allTokenListMap, allAggregateTokenList]);
 
-  const { network: tokenHasBalanceNetwork } = useAccountData({
-    networkId: tokenHasBalance?.networkId,
-  });
+  const network = useMemo(() => {
+    if (!networkId) return undefined;
+    return (
+      networksMap?.[networkId] ?? networkUtils.getLocalNetworkInfo(networkId)
+    );
+  }, [networksMap, networkId]);
+
+  const firstAggregateTokenNetwork = useMemo(() => {
+    const id = firstAggregateToken?.networkId;
+    if (!id) return undefined;
+    return networksMap?.[id] ?? networkUtils.getLocalNetworkInfo(id);
+  }, [firstAggregateToken?.networkId, networksMap]);
+
+  const tokenHasBalanceNetwork = useMemo(() => {
+    const id = tokenHasBalance?.networkId;
+    if (!id) return undefined;
+    return networksMap?.[id] ?? networkUtils.getLocalNetworkInfo(id);
+  }, [networksMap, tokenHasBalance?.networkId]);
 
   return (
     <XStack alignItems="center" gap="$1" {...rest}>
       <SizableText minWidth={0} numberOfLines={1} {...textProps}>
         {name}
       </SizableText>
+      {shouldShowDeFiReceiptTokenBadge ? (
+        <Tooltip
+          renderContent={intl.formatMessage({
+            id: ETranslations.wallet_defi_receipt_token__desc,
+          })}
+          renderTrigger={
+            <Icon
+              flexShrink={0}
+              name="TicketOutline"
+              color="$iconSubdued"
+              size="$5"
+            />
+          }
+        />
+      ) : null}
       {isAllNetworks &&
       withAggregateBadge &&
       isAggregateToken &&
@@ -104,9 +135,10 @@ function TokenNameView(props: IProps) {
         <Badge flexShrink={1}>
           <Badge.Text numberOfLines={1}>
             {network?.isAggregateNetwork
-              ? tokenHasBalanceNetwork?.name ?? firstAggregateTokenNetwork?.name
-              : (network?.name || tokenHasBalanceNetwork?.name) ??
-                firstAggregateTokenNetwork?.name}
+              ? (tokenHasBalanceNetwork?.name ??
+                firstAggregateTokenNetwork?.name)
+              : ((network?.name || tokenHasBalanceNetwork?.name) ??
+                firstAggregateTokenNetwork?.name)}
           </Badge.Text>
         </Badge>
       ) : null}

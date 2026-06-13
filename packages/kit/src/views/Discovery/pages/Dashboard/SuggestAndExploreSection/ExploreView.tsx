@@ -98,7 +98,7 @@ export function ExploreView({
     if (isEmpty) {
       return (
         <Empty
-          icon="SearchOutline"
+          illustration="QuestionMark"
           title={intl.formatMessage({ id: ETranslations.global_no_results })}
         />
       );
@@ -110,7 +110,7 @@ export function ExploreView({
             (_, index) =>
               ({
                 dappId: index.toString(),
-              } as IDApp),
+              }) as IDApp,
           ),
           chunkSize,
         ),
@@ -136,6 +136,7 @@ export function ExploreView({
     <>
       <XStack py="$2">
         <Select
+          testID="discovery-open-chain-selector-select"
           title={intl.formatMessage({ id: ETranslations.explore_categories })}
           items={selectOptions}
           value={selectedCategory}

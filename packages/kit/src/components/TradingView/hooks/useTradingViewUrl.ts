@@ -11,23 +11,30 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { useLocaleVariant } from '../../../hooks/useLocaleVariant';
 import { useThemeVariant } from '../../../hooks/useThemeVariant';
+import { TRADING_VIEW_DISABLED_FEATURES_URL_PARAM } from '../constants';
 import { getTradingViewTimezone } from '../utils/tradingViewTimezone';
+
+import type { ITradingViewDisabledFeature } from '../constants';
 
 interface IUseTradingViewUrlOptions {
   additionalParams?: Record<string, string>;
+  disabledFeatures?: readonly ITradingViewDisabledFeature[];
 }
 
 export function useTradingViewUrl(options: IUseTradingViewUrlOptions = {}) {
-  const { additionalParams } = options;
+  const { additionalParams, disabledFeatures } = options;
 
   const calendars = useCalendars();
   const systemLocale = useLocaleVariant();
   const theme = useThemeVariant();
   const [devSettings] = useDevSettingsPersistAtom();
+  const localTradingViewUrl = platformEnv.isNativeAndroid
+    ? 'http://10.0.2.2:5173/'
+    : 'http://localhost:5173/';
 
   const baseUrl = useMemo(() => {
     if (devSettings.enabled && devSettings.settings?.useLocalTradingViewUrl) {
-      return 'http://localhost:5173/';
+      return localTradingViewUrl;
     }
 
     if (devSettings.enabled) {
@@ -35,7 +42,11 @@ export function useTradingViewUrl(options: IUseTradingViewUrlOptions = {}) {
     }
 
     return TRADING_VIEW_URL;
-  }, [devSettings.enabled, devSettings.settings?.useLocalTradingViewUrl]);
+  }, [
+    devSettings.enabled,
+    devSettings.settings?.useLocalTradingViewUrl,
+    localTradingViewUrl,
+  ]);
 
   const finalUrl = useMemo(() => {
     const timezone = getTradingViewTimezone(calendars);
@@ -46,6 +57,9 @@ export function useTradingViewUrl(options: IUseTradingViewUrlOptions = {}) {
     url.searchParams.set('locale', locale);
     url.searchParams.set('platform', platformEnv.appPlatform ?? 'web');
     url.searchParams.set('theme', theme);
+    if (platformEnv.version) {
+      url.searchParams.set('appVersion', platformEnv.version);
+    }
 
     // Add any additional parameters
     if (additionalParams) {
@@ -54,8 +68,27 @@ export function useTradingViewUrl(options: IUseTradingViewUrlOptions = {}) {
       });
     }
 
+    const serializedDisabledFeatures = disabledFeatures
+      ?.filter(
+        (feature, index, features) => features.indexOf(feature) === index,
+      )
+      .join(',');
+    if (serializedDisabledFeatures) {
+      url.searchParams.set(
+        TRADING_VIEW_DISABLED_FEATURES_URL_PARAM,
+        serializedDisabledFeatures,
+      );
+    }
+
     return url.toString();
-  }, [baseUrl, calendars, systemLocale, theme, additionalParams]);
+  }, [
+    additionalParams,
+    baseUrl,
+    calendars,
+    disabledFeatures,
+    systemLocale,
+    theme,
+  ]);
 
   return {
     baseUrl,

@@ -18,6 +18,7 @@ import {
 import { has } from 'lodash';
 
 import RN_AES from '@onekeyhq/shared/src/modules3rdParty/react-native-aes-crypto';
+import RN_QUICK_CRYPTO from '@onekeyhq/shared/src/modules3rdParty/react-native-quick-crypto';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { OneKeyLocalError } from '../../errors';
@@ -49,7 +50,7 @@ async function hmacSHA256ByWebCrypto(
 ): Promise<Buffer> {
   const cryptoKey = await globalThis.crypto.subtle.importKey(
     'raw',
-    key,
+    key as unknown as ArrayBuffer,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -57,7 +58,7 @@ async function hmacSHA256ByWebCrypto(
   const signature = await globalThis.crypto.subtle.sign(
     'HMAC',
     cryptoKey,
-    data,
+    data as unknown as ArrayBuffer,
   );
   return Buffer.from(signature);
 }
@@ -127,7 +128,7 @@ async function hmacSHA512ByWebCrypto(
 ): Promise<Buffer> {
   const cryptoKey = await globalThis.crypto.subtle.importKey(
     'raw',
-    key,
+    key as unknown as ArrayBuffer,
     { name: 'HMAC', hash: 'SHA-512' },
     false,
     ['sign'],
@@ -135,7 +136,7 @@ async function hmacSHA512ByWebCrypto(
   const signature = await globalThis.crypto.subtle.sign(
     'HMAC',
     cryptoKey,
-    data,
+    data as unknown as ArrayBuffer,
   );
   return Buffer.from(signature);
 }
@@ -155,6 +156,12 @@ function hmacSHA512ByNodeCrypto(key: Buffer, data: Buffer): Buffer {
   return createHmacByNode('sha512', key).update(data).digest();
 }
 
+function hmacSHA512ByRNQuickCrypto(key: Buffer, data: Buffer): Buffer {
+  return Buffer.from(
+    RN_QUICK_CRYPTO.createHmac('sha512', key).update(data).digest(),
+  );
+}
+
 function _hmacSHA512Check(key: Buffer, data: Buffer) {
   if (!key || key.length <= 0) {
     throw new OneKeyLocalError('Zero-length key is not supported');
@@ -166,6 +173,10 @@ function _hmacSHA512Check(key: Buffer, data: Buffer) {
 
 function hmacSHA512Sync(key: Buffer, data: Buffer): Buffer {
   _hmacSHA512Check(key, data);
+  if (platformEnv.isNative) {
+    const r: Buffer = hmacSHA512ByRNQuickCrypto(key, data);
+    return r;
+  }
   const r: Buffer = hmacSHA512ByAsmcrypto(key, data);
   return r;
 }
@@ -198,7 +209,10 @@ async function sha256ByRNAes(data: Buffer): Promise<Buffer> {
 }
 
 async function sha256ByWebCrypto(data: Buffer): Promise<Buffer> {
-  const hash = await globalThis.crypto.subtle.digest('SHA-256', data);
+  const hash = await globalThis.crypto.subtle.digest(
+    'SHA-256',
+    data as unknown as BufferSource,
+  );
   return Buffer.from(hash);
 }
 
@@ -261,7 +275,10 @@ async function sha512ByRNAes(data: Buffer): Promise<Buffer> {
 }
 
 async function sha512ByWebCrypto(data: Buffer): Promise<Buffer> {
-  const hash = await globalThis.crypto.subtle.digest('SHA-512', data);
+  const hash = await globalThis.crypto.subtle.digest(
+    'SHA-512',
+    data as unknown as BufferSource,
+  );
   return Buffer.from(hash);
 }
 
@@ -576,6 +593,15 @@ async function $testSampleForHash() {
       fn: () => hmacSHA512ByNodeCrypto(key, data),
     }),
   );
+  if (platformEnv.isNative) {
+    tasks.push(
+      await runAppCryptoTestTask({
+        expect,
+        name: 'hmacSHA512ByRNQuickCrypto',
+        fn: () => hmacSHA512ByRNQuickCrypto(key, data),
+      }),
+    );
+  }
   tasks.push(
     await runAppCryptoTestTask({
       expect,
@@ -880,6 +906,7 @@ export {
   hmacSHA256Sync,
   hmacSHA512,
   hmacSHA512Sync,
+  hmacSHA512ByRNQuickCrypto,
   sha256,
   sha256Sync,
   sha512,

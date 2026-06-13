@@ -6,10 +6,12 @@ import { useIntl } from 'react-intl';
 import { ActionList } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import AddressTypeSelector from '@onekeyhq/kit/src/components/AddressTypeSelector/AddressTypeSelector';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfile';
 import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
 import { useAllTokenListMapAtom } from '@onekeyhq/kit/src/states/jotai/contexts/tokenList';
+import { showBotWalletDisabledToast } from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
 import { useFiatCrypto } from '@onekeyhq/kit/src/views/FiatCrypto/hooks';
 import { WALLET_TYPE_WATCHING } from '@onekeyhq/shared/src/consts/dbConsts';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
@@ -17,7 +19,10 @@ import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type { IWalletActionBaseParams } from '@onekeyhq/shared/src/logger/scopes/wallet/scenes/walletActions';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
-import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
+import {
+  openFiatCryptoUrl,
+  openUrlExternal,
+} from '@onekeyhq/shared/src/utils/openUrlUtils';
 import type { INetworkAccount } from '@onekeyhq/shared/types/account';
 
 export function WalletActionBuy({
@@ -37,10 +42,19 @@ export function WalletActionBuy({
   const {
     activeAccount: { network, account, wallet, vaultSettings, indexedAccount },
   } = useActiveAccount({ num: 0 });
-  const { isSupported, handleFiatCrypto } = useFiatCrypto({
+  const { isSupported: isBuySupported, handleFiatCrypto: handleBuyFiatCrypto } =
+    useFiatCrypto({
+      networkId: network?.id ?? '',
+      accountId: account?.id ?? '',
+      fiatCryptoType: 'buy',
+    });
+  const {
+    isSupported: isSellSupported,
+    handleFiatCrypto: handleSellFiatCrypto,
+  } = useFiatCrypto({
     networkId: network?.id ?? '',
     accountId: account?.id ?? '',
-    fiatCryptoType: 'buy',
+    fiatCryptoType: 'sell',
   });
 
   const intl = useIntl();
@@ -56,21 +70,44 @@ export function WalletActionBuy({
     [network?.id, account?.id],
   );
 
-  const isBuyDisabled = useMemo(() => {
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId: wallet?.id,
+    },
+  );
+  const isAddMoneyBlockedByBotWallet = isBotWallet && isBotWalletDeactivated;
+
+  const shouldOpenSellForBotWallet =
+    isAddMoneyBlockedByBotWallet && isSellSupported;
+
+  const isBuyAndSellDisabled = useMemo(() => {
     if (wallet?.type === WALLET_TYPE_WATCHING && !platformEnv.isDev) {
       return true;
     }
 
-    if (!isSupported) {
+    if (!isBuySupported && !isSellSupported) {
+      return true;
+    }
+
+    if (isAddMoneyBlockedByBotWallet && !isSellSupported) {
       return true;
     }
 
     return false;
-  }, [isSupported, wallet?.type]);
+  }, [
+    isBuySupported,
+    isSellSupported,
+    wallet?.type,
+    isAddMoneyBlockedByBotWallet,
+  ]);
 
   const { isSoftwareWalletOnlyUser } = useUserWalletProfile();
   const handleBuyToken = useCallback(async () => {
-    if (isBuyDisabled) return;
+    if (isAddMoneyBlockedByBotWallet && !shouldOpenSellForBotWallet) {
+      showBotWalletDisabledToast('addMoney');
+      return;
+    }
+    if (isBuyAndSellDisabled) return;
 
     if (
       await backgroundApiProxy.serviceAccount.checkIsWalletNotBackedUp({
@@ -87,11 +124,18 @@ export function WalletActionBuy({
       isSoftwareWalletOnlyUser,
     });
 
-    handleFiatCrypto({ sameModal });
+    if (shouldOpenSellForBotWallet) {
+      handleSellFiatCrypto({ sameModal });
+    } else {
+      handleBuyFiatCrypto({ sameModal });
+    }
     onClose();
   }, [
-    isBuyDisabled,
-    handleFiatCrypto,
+    isAddMoneyBlockedByBotWallet,
+    shouldOpenSellForBotWallet,
+    isBuyAndSellDisabled,
+    handleBuyFiatCrypto,
+    handleSellFiatCrypto,
     network,
     wallet,
     isSoftwareWalletOnlyUser,
@@ -101,11 +145,13 @@ export function WalletActionBuy({
   ]);
 
   if (
+    isBuySupported &&
     !network?.isAllNetworks &&
     !accountUtils.isOthersWallet({ walletId: wallet?.id ?? '' }) &&
     vaultSettings?.mergeDeriveAssetsEnabled &&
     nativeToken &&
-    !isBuyDisabled
+    !isBuyAndSellDisabled &&
+    !shouldOpenSellForBotWallet
   ) {
     return (
       <AddressTypeSelector
@@ -119,15 +165,15 @@ export function WalletActionBuy({
         renderSelectorTrigger={
           renderTrigger ? (
             renderTrigger({
-              disabled: isBuyDisabled,
+              disabled: isBuyAndSellDisabled,
               onPress: () => {},
             })
           ) : (
             <ActionList.Item
               trackID="wallet-buy"
-              icon="PlusLargeOutline"
-              label={intl.formatMessage({ id: ETranslations.global_buy })}
-              disabled={isBuyDisabled}
+              icon="CurrencyDollarOutline"
+              label={intl.formatMessage({ id: ETranslations.buy_and_sell })}
+              disabled={isBuyAndSellDisabled}
               onClose={() => {}}
               onPress={() => {}}
             />
@@ -151,8 +197,13 @@ export function WalletActionBuy({
               accountId: a?.id ?? '',
               type: 'buy',
             });
-          openUrlExternal(url);
-          onClose();
+          if (!url) return;
+          if (platformEnv.isDesktop || platformEnv.isNative) {
+            openFiatCryptoUrl(url);
+          } else {
+            openUrlExternal(url);
+            onClose();
+          }
         }}
         doubleConfirm
       />
@@ -161,7 +212,7 @@ export function WalletActionBuy({
 
   if (renderTrigger) {
     return renderTrigger({
-      disabled: isBuyDisabled,
+      disabled: isBuyAndSellDisabled,
       onPress: handleBuyToken,
     });
   }
@@ -169,11 +220,16 @@ export function WalletActionBuy({
   return (
     <ActionList.Item
       trackID="wallet-buy"
-      icon="PlusLargeOutline"
-      label={intl.formatMessage({ id: ETranslations.global_buy })}
+      icon="CurrencyDollarOutline"
+      label={intl.formatMessage({ id: ETranslations.buy_and_sell })}
       onClose={() => {}}
       onPress={handleBuyToken}
-      disabled={isBuyDisabled}
+      disabled={isBuyAndSellDisabled}
+      allowPressWhenDisabled={
+        isAddMoneyBlockedByBotWallet === true
+          ? !shouldOpenSellForBotWallet
+          : undefined
+      }
     />
   );
 }

@@ -17,6 +17,7 @@ import type { ESiteMode } from '../../views/Discovery/types';
 import type { IJsBridgeReceiveHandler } from '@onekeyfe/cross-inpage-provider-types';
 import type { WebViewProps as RNWebViewProps } from 'react-native-webview';
 import type {
+  ShouldStartLoadRequest,
   WebViewErrorEvent,
   WebViewNavigation,
   WebViewNavigationEvent,
@@ -25,15 +26,14 @@ import type {
 } from 'react-native-webview/lib/WebViewTypes';
 
 export interface IWebViewProps
-  extends IElectronWebViewEvents,
-    Partial<RNWebViewProps> {
+  extends IElectronWebViewEvents, Partial<RNWebViewProps> {
   id?: string;
   src?: string;
   onSrcChange?: (src: string) => void;
   openUrlInExt?: boolean;
   onWebViewRef?: (ref: IWebViewRef | null) => void;
   onNavigationStateChange?: (event: WebViewNavigation) => void;
-  onShouldStartLoadWithRequest?: (event: WebViewNavigation) => boolean;
+  onShouldStartLoadWithRequest?: (event: ShouldStartLoadRequest) => boolean;
   allowpopups?: boolean;
   allowsBackForwardNavigationGestures?: boolean;
   containerProps?: ComponentProps<typeof Stack>;
@@ -75,6 +75,20 @@ export interface IWebViewProps
    * @default true
    */
   useInjectedNativeCode?: boolean;
+  /** @platform native
+   * @description Whitelisted origins that may request camera or microphone access.
+   */
+  mediaPermissionWhitelist?: string[];
+  /** Disable OneKey inpage provider injection and bridge connection.
+   * Use for content-only WebViews (e.g. WebView overlay from deeplink/notification).
+   * @see IInpageProviderWebViewProps.disableBridge
+   */
+  disableBridge?: boolean;
+  /** @platform desktop
+   * @description Electron <webview> partition string.
+   * @see IInpageProviderWebViewProps.partition
+   */
+  partition?: string;
 }
 
 const WebView: FC<IWebViewProps> = ({
@@ -115,7 +129,12 @@ const WebView: FC<IWebViewProps> = ({
   ) {
     return (
       <Stack flex={1} alignItems="center" justifyContent="center">
-        <Button onPress={() => extUtils.openUrlInTab(src)}>Open</Button>
+        <Button
+          testID="web-view-open-btn"
+          onPress={() => extUtils.openUrlInTab(src)}
+        >
+          Open
+        </Button>
       </Stack>
     );
   }

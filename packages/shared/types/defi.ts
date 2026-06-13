@@ -1,9 +1,10 @@
-import type { ICurrencyItem } from '@onekeyhq/kit/src/views/Setting/pages/Currency';
+import type { ICurrencyItem } from './currency';
 
 export type IFetchAccountDeFiPositionsParams = {
   accountId: string;
   networkId: string;
   accountAddress?: string;
+  xpub?: string;
   isAllNetworks?: boolean;
   allNetworksAccountId?: string;
   allNetworksNetworkId?: string;
@@ -12,6 +13,11 @@ export type IFetchAccountDeFiPositionsParams = {
   lowValueProtocolsThresholdUsd?: number;
   sourceCurrencyInfo?: ICurrencyItem;
   targetCurrencyInfo?: ICurrencyItem;
+  isForceRefresh?: boolean;
+  // When false, the request is NOT registered with the shared abort pool and
+  // will not be cancelled by abortFetchAccountDeFiPositions(). Use for
+  // background schedulers whose fetches should survive UI-initiated aborts.
+  abortable?: boolean;
 };
 
 export enum EDeFiAssetType {
@@ -68,6 +74,7 @@ export type IProtocolSummary = {
   protocolName: string;
   totalValue: number;
   totalDebt: number;
+  totalReward: number;
   netWorth: number;
   networkIds: string[];
   positionCount: number;
@@ -83,6 +90,7 @@ export type IFetchAccountDeFiPositionsResp = {
     totals: {
       totalValue: number;
       totalDebt: number;
+      totalReward: number;
       netWorth: number;
       chains: string[];
       protocolCount: number;

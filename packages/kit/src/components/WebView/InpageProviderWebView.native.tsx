@@ -44,7 +44,10 @@ const injectedMetaJavaScript = `
 
 const defaultOnMessage = (_event: any) => {};
 
-const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
+type INativeInpageProviderWebViewProps = IInpageProviderWebViewProps &
+  Pick<WebViewProps, 'containerStyle' | 'style'>;
+
+const InpageProviderWebView: FC<INativeInpageProviderWebViewProps> = forwardRef(
   (
     {
       src = '',
@@ -54,6 +57,8 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
       onShouldStartLoadWithRequest,
       nativeWebviewSource,
       nativeInjectedJavaScriptBeforeContentLoaded,
+      style,
+      containerStyle: webViewContainerStyle,
       isSpinnerLoading,
       onContentLoaded,
       onOpenWindow,
@@ -66,12 +71,19 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
       onProgress,
       webviewDebuggingEnabled,
       siteMode,
+      mediaPermissionWhitelist,
       onMessage,
       useGeckoView,
       useInjectedNativeCode = true,
       pullToRefreshEnabled,
       allowsBackForwardNavigationGestures,
-    }: IInpageProviderWebViewProps,
+      allowFileAccessFromFileURLs,
+      allowFileAccess,
+      allowingReadAccessToURL,
+      onError,
+      onHttpError,
+      disableBridge,
+    }: INativeInpageProviderWebViewProps,
     ref: any,
   ) => {
     const [progress, setProgress] = useState(5);
@@ -111,7 +123,8 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
     );
 
     const nativeInjectedJsCode = useMemo(() => {
-      let code: string = useInjectedNativeCode ? injectedNativeCode : '';
+      let code: string =
+        useInjectedNativeCode && !disableBridge ? injectedNativeCode : '';
       if (nativeInjectedJavaScriptBeforeContentLoaded) {
         code += `
         ;(function() {
@@ -130,6 +143,7 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
       }
       return code;
     }, [
+      disableBridge,
       isDesktopMode,
       nativeInjectedJavaScriptBeforeContentLoaded,
       useInjectedNativeCode,
@@ -196,8 +210,11 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
           ref={setWebViewRef}
           src={src}
           onSrcChange={onSrcChange}
-          receiveHandler={receiveHandler}
+          receiveHandler={disableBridge ? undefined : receiveHandler}
+          disableBridge={disableBridge}
           injectedJavaScriptBeforeContentLoaded={nativeInjectedJsCode}
+          style={style}
+          containerStyle={webViewContainerStyle}
           onLoadProgress={({ nativeEvent }) => {
             const p = Math.ceil(nativeEvent.progress * 100);
             onProgress?.(p);
@@ -214,11 +231,12 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
           onLoadStart={onLoadStart}
           onLoadEnd={onLoadEnd}
           onScroll={onScroll}
-          // allowFileAccessFromFileURLs
-          // allowFileAccess
+          allowFileAccessFromFileURLs={allowFileAccessFromFileURLs}
+          allowFileAccess={allowFileAccess}
           // allowUniversalAccessFromFileURLs
           // *** Note that static HTML will require setting originWhitelist to ["*"].
           originWhitelist={['*']}
+          mediaPermissionWhitelist={mediaPermissionWhitelist}
           userAgent={isDesktopMode ? desktopUserAgent : undefined}
           // https://github.com/react-native-webview/react-native-webview/issues/1779
           onMessage={onMessage || defaultOnMessage}
@@ -227,6 +245,9 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
             allowsBackForwardNavigationGestures
           }
           {...nativeWebviewProps}
+          allowingReadAccessToURL={allowingReadAccessToURL}
+          onError={onError}
+          onHttpError={onHttpError}
         />
       </Stack>
     );

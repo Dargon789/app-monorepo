@@ -7,17 +7,22 @@ import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/background
 import { WalletListView } from '@onekeyhq/kit/src/components/WalletListView';
 import { navigateToBackupWalletReminderPage } from '@onekeyhq/kit/src/hooks/usePageNavigation';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { shouldShowMnemonicBackupEntryForWallet } from '@onekeyhq/kit/src/utils/botWalletStatusUtils';
 import type { IDBWallet } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { EReasonForNeedPassword } from '@onekeyhq/shared/types/setting';
+
+import { ManualBackupTestIDs } from '../../testIDs';
 
 export default function ManualBackupSelectWalletPage() {
   const intl = useIntl();
   const walletList = usePromiseResult(async () => {
     const { wallets } = await backgroundApiProxy.serviceAccount.getWallets();
     const hdWalletList = wallets.filter((wallet) =>
-      accountUtils.isHdWallet({ walletId: wallet.id }),
+      shouldShowMnemonicBackupEntryForWallet({
+        walletId: wallet.id,
+        isKeylessWallet: wallet.isKeyless,
+      }),
     );
     return hdWalletList;
   }, []).result;
@@ -29,7 +34,7 @@ export default function ManualBackupSelectWalletPage() {
         reason: EReasonForNeedPassword.Security,
       });
 
-    await navigateToBackupWalletReminderPage({
+    navigateToBackupWalletReminderPage({
       walletId: item.id,
       isWalletBackedUp: item.backuped,
       mnemonic,
@@ -47,9 +52,10 @@ export default function ManualBackupSelectWalletPage() {
         <WalletListView
           walletList={walletList}
           onPick={onPick}
+          testID={ManualBackupTestIDs.walletList}
           ListEmptyComponent={
             <Empty
-              icon="SearchOutline"
+              illustration="QuestionMark"
               title={intl.formatMessage({
                 id: ETranslations.backup_no_data,
               })}

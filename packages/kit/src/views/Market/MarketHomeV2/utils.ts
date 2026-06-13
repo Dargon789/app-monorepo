@@ -2,6 +2,17 @@
 
 import BigNumber from 'bignumber.js';
 
+import type { IMarketCategoryItem } from './types';
+
+const SPOT_CATEGORIES_WITH_FULL_STATS = new Set(['trending', 'x_mentioned']);
+
+export const COMPACT_SPOT_HIDDEN_DESKTOP_COLUMNS = [
+  'transactions',
+  'uniqueTraders',
+  'holders',
+  'tokenAge',
+] as const;
+
 /**
  * Validate liquidity input to only allow numbers and k/m/b/t/K/M/B/T characters
  * Unit letters can only appear at the end and only one unit is allowed
@@ -111,4 +122,50 @@ export const validateMaximumMinLiquidity = (value: string): boolean => {
   const maximumMinValue = 1_000_000_000_000; // 1 trillion
 
   return numValue <= maximumMinValue;
+};
+
+/**
+ * Spot categories backed by per-token OKX detail APIs only expose a compact
+ * metric set, so desktop list pages should hide the extended stats columns to
+ * match watchlist behavior.
+ */
+export const shouldHideSpotExtendedStats = (
+  selectedCategory?: string,
+): boolean => {
+  const normalizedCategory = selectedCategory || 'trending';
+  return !SPOT_CATEGORIES_WITH_FULL_STATS.has(normalizedCategory);
+};
+
+export const isMarketStockCategory = (
+  category?: Pick<IMarketCategoryItem, 'id' | 'name' | 'isStockCategory'>,
+): boolean => {
+  if (!category) {
+    return false;
+  }
+
+  if (category.isStockCategory) {
+    return true;
+  }
+
+  const normalizedId = category.id.trim().toLowerCase();
+  const normalizedName = category.name.trim().toLowerCase();
+
+  return (
+    normalizedId.includes('stock') ||
+    normalizedName.includes('stock') ||
+    normalizedName.includes('股票')
+  );
+};
+
+export const isMarketStockCategoryById = (
+  categories: IMarketCategoryItem[] | undefined,
+  categoryId: string | undefined,
+): boolean => {
+  if (!categoryId || !categories?.length) {
+    return false;
+  }
+
+  return categories.some(
+    (category) => category.id === categoryId && isMarketStockCategory(category),
+  );
 };

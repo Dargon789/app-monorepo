@@ -1,18 +1,22 @@
 import BigNumber from 'bignumber.js';
-import { forEach, isNil, uniqBy } from 'lodash';
+import { forEach, isEmpty, isNil, isUndefined, uniqBy } from 'lodash';
 
 import { wrappedTokens } from '../../types/swap/SwapProvider.constants';
 import { getNetworkIdsMap } from '../config/networkIds';
 import { AGGREGATE_TOKEN_MOCK_NETWORK_ID } from '../consts/networkConsts';
 import { SEARCH_KEY_MIN_LENGTH } from '../consts/walletConsts';
+import { OneKeyInternalError } from '../errors';
 
 import accountUtils from './accountUtils';
 import networkUtils from './networkUtils';
+import { isValidNumberValue } from './tokenValueUtils';
 
+import type { IServerNetwork } from '../../types';
 import type {
   IAccountToken,
   IAggregateToken,
   IFetchAccountTokensResp,
+  IToken,
   ITokenData,
   ITokenFiat,
 } from '../../types/token';
@@ -25,6 +29,19 @@ export const caseSensitiveNetworkImpl = [
   'sui',
   'ton',
 ];
+
+/**
+ * Display token symbol preserving API casing for mixed-case symbols (e.g. fAI, aPolWBTC)
+ * while converting short all-lowercase tickers to uppercase (e.g. btc -> BTC, eth -> ETH).
+ */
+export function formatTokenSymbolForDisplay(symbol: string): string {
+  if (!symbol || typeof symbol !== 'string') return symbol;
+  const trimmed = symbol.trim();
+  if (trimmed.length <= 5 && trimmed === trimmed.toLowerCase()) {
+    return trimmed.toUpperCase();
+  }
+  return trimmed;
+}
 
 export function getMergedTokenData({
   tokens,
@@ -88,6 +105,91 @@ export function getEmptyTokenData() {
   };
 }
 
+function tokenFieldsContainKeyword(token: IAccountToken, kw: string): boolean {
+  return (
+    token.name?.toLowerCase().includes(kw) ||
+    token.symbol?.toLowerCase().includes(kw) ||
+    token.commonSymbol?.toLowerCase().includes(kw) ||
+    token.address?.toLowerCase() === kw ||
+    false
+  );
+}
+
+function networkFieldsContainKeyword(
+  network: IServerNetwork | undefined,
+  kw: string,
+): boolean {
+  if (!network) return false;
+  return (
+    network.name?.toLowerCase().includes(kw) ||
+    network.code?.toLowerCase().includes(kw) ||
+    network.shortname?.toLowerCase().includes(kw) ||
+    network.shortcode?.toLowerCase().includes(kw) ||
+    false
+  );
+}
+
+const tokenSearchKeywordAliasMap: Record<string, string[]> = {
+  eth: ['ether'],
+};
+
+export function buildTokenSearchKeywordQueries(keywords?: string): string[] {
+  const trimmedKeywords = keywords?.trim();
+  if (!trimmedKeywords) {
+    return [];
+  }
+
+  const searchTerms = trimmedKeywords.split(/\s+/).filter(Boolean);
+  if (searchTerms.length < 2) {
+    return [trimmedKeywords];
+  }
+
+  const queries = new Set<string>([trimmedKeywords]);
+  searchTerms.forEach((term, index) => {
+    const aliases = tokenSearchKeywordAliasMap[term.toLowerCase()];
+    aliases?.forEach((alias) => {
+      const nextTerms = [...searchTerms];
+      nextTerms[index] = alias;
+      queries.add(nextTerms.join(' '));
+    });
+  });
+
+  return Array.from(queries);
+}
+
+enum ESearchStrength {
+  BOTH = 1,
+  NETWORK_ONLY = 2,
+  TOKEN_ONLY = 3,
+}
+
+function computeSearchStrength(
+  token: IAccountToken,
+  keywords: string[],
+  network: IServerNetwork | undefined,
+): { matched: boolean; strength: ESearchStrength } {
+  let anyTokenHit = false;
+  let anyNetworkHit = false;
+
+  for (const kw of keywords) {
+    const hitToken = tokenFieldsContainKeyword(token, kw);
+    const hitNetwork = networkFieldsContainKeyword(network, kw);
+    if (!hitToken && !hitNetwork)
+      return { matched: false, strength: ESearchStrength.TOKEN_ONLY };
+    if (hitToken) anyTokenHit = true;
+    if (hitNetwork) anyNetworkHit = true;
+  }
+
+  let strength = ESearchStrength.TOKEN_ONLY;
+  if (anyTokenHit && anyNetworkHit) {
+    strength = ESearchStrength.BOTH;
+  } else if (anyNetworkHit) {
+    strength = ESearchStrength.NETWORK_ONLY;
+  }
+
+  return { matched: true, strength };
+}
+
 export function getFilteredTokenBySearchKey({
   tokens,
   searchKey,
@@ -96,6 +198,10 @@ export function getFilteredTokenBySearchKey({
   allowEmptyWhenBelowMinLength,
   aggregateTokenListMap,
   searchKeyLengthThreshold,
+  networksMap,
+  enableNetworkSearch,
+  tokenFiatMap,
+  localAggregateTokenListMap,
 }: {
   tokens: IAccountToken[];
   searchKey: string;
@@ -104,6 +210,10 @@ export function getFilteredTokenBySearchKey({
   allowEmptyWhenBelowMinLength?: boolean;
   aggregateTokenListMap?: Record<string, { tokens: IAccountToken[] }>;
   searchKeyLengthThreshold?: number;
+  networksMap?: Record<string, IServerNetwork>;
+  enableNetworkSearch?: boolean;
+  tokenFiatMap?: Record<string, ITokenFiat>;
+  localAggregateTokenListMap?: Record<string, { tokens: IAccountToken[] }>;
 }) {
   let mergedTokens = tokens;
 
@@ -132,33 +242,102 @@ export function getFilteredTokenBySearchKey({
     return allowEmptyWhenBelowMinLength ? [] : mergedTokens;
   }
 
-  // eslint-disable-next-line no-param-reassign
-  searchKey = searchKey.trim().toLowerCase();
+  const trimmedSearchKey = searchKey.trim().toLowerCase();
 
-  const filteredTokens = mergedTokens.filter((token) => {
-    if (token.isAggregateToken) {
-      const aggregateTokenList = aggregateTokenListMap?.[token.$key];
-      if (
-        aggregateTokenList?.tokens?.some(
-          (t) => t.address?.toLowerCase() === searchKey,
-        )
-      ) {
-        return true;
+  if (!enableNetworkSearch) {
+    return mergedTokens.filter((token) => {
+      if (token.isAggregateToken) {
+        const aggregateTokenList = aggregateTokenListMap?.[token.$key];
+        if (
+          aggregateTokenList?.tokens?.some(
+            (t) => t.address?.toLowerCase() === trimmedSearchKey,
+          )
+        ) {
+          return true;
+        }
       }
-      return (
-        token.name?.toLowerCase().includes(searchKey) ||
-        token.symbol?.toLowerCase().includes(searchKey) ||
-        token.commonSymbol?.toLowerCase().includes(searchKey)
-      );
-    }
-    return (
-      token.name?.toLowerCase().includes(searchKey) ||
-      token.symbol?.toLowerCase().includes(searchKey) ||
-      token.address?.toLowerCase() === searchKey
-    );
-  });
+      return tokenFieldsContainKeyword(token, trimmedSearchKey);
+    });
+  }
 
-  return filteredTokens;
+  const keywords = trimmedSearchKey.split(/\s+/).filter(Boolean);
+  if (keywords.length === 0) return [];
+
+  const results: Array<{
+    token: IAccountToken;
+    strength: ESearchStrength;
+  }> = [];
+
+  for (const token of mergedTokens) {
+    if (token.isAggregateToken) {
+      const subTokens = aggregateTokenListMap?.[token.$key]?.tokens ?? [];
+
+      const matchedSubs: Array<{
+        token: IAccountToken;
+        strength: ESearchStrength;
+      }> = [];
+      for (const sub of subTokens) {
+        const network = networksMap?.[sub.networkId ?? ''];
+        const { matched, strength } = computeSearchStrength(
+          sub,
+          keywords,
+          network,
+        );
+        if (matched) {
+          const localSub = localAggregateTokenListMap?.[
+            token.$key
+          ]?.tokens?.find((t) => t.networkId === sub.networkId);
+          matchedSubs.push({ token: localSub ?? sub, strength });
+        }
+      }
+
+      if (matchedSubs.length > 0) {
+        const networkQualifiedMatches = matchedSubs.filter(
+          (s) => s.strength !== ESearchStrength.TOKEN_ONLY,
+        );
+        if (networkQualifiedMatches.length > 0) {
+          results.push(...networkQualifiedMatches);
+        } else {
+          results.push({
+            token,
+            strength: ESearchStrength.TOKEN_ONLY,
+          });
+        }
+      } else {
+        const { matched, strength } = computeSearchStrength(
+          token,
+          keywords,
+          undefined,
+        );
+        if (matched) {
+          results.push({ token, strength });
+        }
+      }
+    } else {
+      const network = networksMap?.[token.networkId ?? ''];
+      const { matched, strength } = computeSearchStrength(
+        token,
+        keywords,
+        network,
+      );
+      if (matched) {
+        results.push({ token, strength });
+      }
+    }
+  }
+
+  if (tokenFiatMap) {
+    results.sort((a, b) => {
+      if (a.strength !== b.strength) return a.strength - b.strength;
+      const fa = new BigNumber(tokenFiatMap[a.token.$key]?.fiatValue ?? -1);
+      const fb = new BigNumber(tokenFiatMap[b.token.$key]?.fiatValue ?? -1);
+      return (fb.isNaN() ? new BigNumber(-1) : fb).comparedTo(
+        fa.isNaN() ? new BigNumber(-1) : fa,
+      );
+    });
+  }
+
+  return results.map((r) => r.token);
 }
 
 export function sortTokensByFiatValue({
@@ -172,7 +351,7 @@ export function sortTokensByFiatValue({
   };
   sortDirection?: 'desc' | 'asc';
 }) {
-  return tokens?.sort((a, b) => {
+  return tokens.toSorted((a, b) => {
     const aFiat = new BigNumber(map[a.$key]?.fiatValue ?? -1);
     const bFiat = new BigNumber(map[b.$key]?.fiatValue ?? -1);
 
@@ -199,7 +378,7 @@ export function sortTokensByPrice({
   };
   sortDirection?: 'desc' | 'asc';
 }) {
-  return [...tokens].sort((a, b) => {
+  return tokens.toSorted((a, b) => {
     const aPrice = new BigNumber(map[a.$key]?.price ?? 0);
     const bPrice = new BigNumber(map[b.$key]?.price ?? 0);
 
@@ -222,7 +401,7 @@ export function sortTokensByName({
   tokens: IAccountToken[];
   sortDirection?: 'desc' | 'asc';
 }): IAccountToken[] {
-  return [...tokens].sort((a, b) => {
+  return tokens.toSorted((a, b) => {
     const aName = a.name?.toLowerCase() ?? '';
     const bName = b.name?.toLowerCase() ?? '';
 
@@ -235,7 +414,7 @@ export function sortTokensByName({
 }
 
 export function sortTokensByOrder({ tokens }: { tokens: IAccountToken[] }) {
-  return [...tokens].sort((a, b) => {
+  return tokens.toSorted((a, b) => {
     if (!isNil(a.order) && !isNil(b.order)) {
       return new BigNumber(a.order).comparedTo(b.order);
     }
@@ -302,9 +481,19 @@ export function mergeDeriveTokenListMap({
           .plus(value.totalBalanceParsed ?? 0)
           .toFixed();
 
-        mergedToken.fiatValue = new BigNumber(mergedToken.fiatValue)
-          .plus(value.fiatValue)
-          .toFixed();
+        // Only write a partial sum when at least one participant has a valid
+        // fiatValue. If every participant is unavailable, keep the merged
+        // token's existing unavailable marker so TokenValueView still renders
+        // '--' instead of a misleading $0.
+        const mergedFiatValid = isValidNumberValue(mergedToken.fiatValue);
+        const incomingFiatValid = isValidNumberValue(value.fiatValue);
+        if (mergedFiatValid || incomingFiatValid) {
+          mergedToken.fiatValue = new BigNumber(
+            mergedFiatValid ? mergedToken.fiatValue : 0,
+          )
+            .plus(incomingFiatValid ? value.fiatValue : 0)
+            .toFixed();
+        }
 
         mergedToken.frozenBalanceFiatValue = new BigNumber(
           mergedToken.frozenBalanceFiatValue ?? 0,
@@ -335,60 +524,27 @@ export function mergeDeriveTokenListMap({
   };
 }
 
-export function mergeAggregateTokenMap({
+export function mergeNestedAggregateTokenMap({
   sourceMap,
   targetMap,
 }: {
   sourceMap: {
-    [key: string]: ITokenFiat;
+    [key: string]: Record<string, ITokenFiat>;
   };
   targetMap: {
-    [key: string]: ITokenFiat;
+    [key: string]: Record<string, ITokenFiat>;
   };
 }) {
   const newTargetMap = { ...targetMap };
 
-  forEach(sourceMap, (value, key) => {
-    const mergedToken = newTargetMap[key];
-    if (mergedToken) {
-      mergedToken.balance = new BigNumber(mergedToken.balance)
-        .plus(value.balance)
-        .toFixed();
-      mergedToken.balanceParsed = new BigNumber(mergedToken.balanceParsed ?? 0)
-        .plus(value.balanceParsed ?? 0)
-        .toFixed();
-      mergedToken.frozenBalance = new BigNumber(mergedToken.frozenBalance ?? 0)
-        .plus(value.frozenBalance ?? 0)
-        .toFixed();
-      mergedToken.frozenBalanceParsed = new BigNumber(
-        mergedToken.frozenBalanceParsed ?? 0,
-      )
-        .plus(value.frozenBalanceParsed ?? 0)
-        .toFixed();
-      mergedToken.totalBalance = new BigNumber(mergedToken.totalBalance ?? 0)
-        .plus(value.totalBalance ?? 0)
-        .toFixed();
-      mergedToken.totalBalanceParsed = new BigNumber(
-        mergedToken.totalBalanceParsed ?? 0,
-      )
-        .plus(value.totalBalanceParsed ?? 0)
-        .toFixed();
-      mergedToken.fiatValue = new BigNumber(mergedToken.fiatValue)
-        .plus(value.fiatValue)
-        .toFixed();
-      mergedToken.frozenBalanceFiatValue = new BigNumber(
-        mergedToken.frozenBalanceFiatValue ?? 0,
-      )
-        .plus(value.frozenBalanceFiatValue ?? 0)
-        .toFixed();
-      mergedToken.totalBalanceFiatValue = new BigNumber(
-        mergedToken.totalBalanceFiatValue ?? 0,
-      )
-        .plus(value.totalBalanceFiatValue ?? 0)
-        .toFixed();
-      newTargetMap[key] = mergedToken;
+  forEach(sourceMap, (networkMap, aggregateKey) => {
+    if (newTargetMap[aggregateKey]) {
+      newTargetMap[aggregateKey] = {
+        ...newTargetMap[aggregateKey],
+        ...networkMap,
+      };
     } else {
-      newTargetMap[key] = value;
+      newTargetMap[aggregateKey] = { ...networkMap };
     }
   });
 
@@ -532,13 +688,115 @@ export const checkWrappedTokenPair = ({
   return !!fromTokenIsWrapped && !!toTokenIsWrapped;
 };
 
+export function nestAggregateTokensMap({
+  aggregateTokenMap,
+  networkId,
+}: {
+  aggregateTokenMap: Record<string, ITokenFiat>;
+  networkId: string;
+}): Record<string, Record<string, ITokenFiat>> {
+  const result: Record<string, Record<string, ITokenFiat>> = {};
+
+  Object.entries(aggregateTokenMap).forEach(([aggregateKey, tokenFiat]) => {
+    result[aggregateKey] = {
+      [networkId]: tokenFiat,
+    };
+  });
+
+  return result;
+}
+
+export function flattenAggregateTokensMap(aggregateTokensMap: {
+  [key: string]: {
+    [key: string]: ITokenFiat;
+  };
+}): { [key: string]: ITokenFiat } {
+  const result: { [key: string]: ITokenFiat } = {};
+
+  Object.entries(aggregateTokensMap).forEach(([aggregateKey, networkMap]) => {
+    const networkEntries = Object.values(networkMap);
+    if (networkEntries.length === 0) return;
+
+    const firstEntry = networkEntries[0];
+    const aggregated: ITokenFiat = {
+      balance: '0',
+      balanceParsed: '0',
+      fiatValue: '0',
+      price: firstEntry.price,
+      price24h: firstEntry.price24h,
+      // Inherit the currency basis from the source entries (all network
+      // entries are normalized to the same basis, 'usd', before aggregation).
+      // Without it the flattened entry has `currency: undefined`, so
+      // <Currency sourceCurrency> falls back to the display currency and skips
+      // the USD -> display conversion — leaving aggregated tokens (ETH, USDT,
+      // USDC) showing raw USD numbers under a non-USD symbol.
+      currency: firstEntry.currency,
+    };
+
+    networkEntries.forEach((tokenFiat) => {
+      aggregated.balance = new BigNumber(aggregated.balance)
+        .plus(tokenFiat.balance)
+        .toFixed();
+      aggregated.balanceParsed = new BigNumber(aggregated.balanceParsed)
+        .plus(tokenFiat.balanceParsed)
+        .toFixed();
+      aggregated.fiatValue = new BigNumber(aggregated.fiatValue)
+        .plus(tokenFiat.fiatValue)
+        .toFixed();
+
+      if (tokenFiat.frozenBalance) {
+        aggregated.frozenBalance = new BigNumber(aggregated.frozenBalance ?? 0)
+          .plus(tokenFiat.frozenBalance)
+          .toFixed();
+      }
+      if (tokenFiat.frozenBalanceParsed) {
+        aggregated.frozenBalanceParsed = new BigNumber(
+          aggregated.frozenBalanceParsed ?? 0,
+        )
+          .plus(tokenFiat.frozenBalanceParsed)
+          .toFixed();
+      }
+      if (tokenFiat.frozenBalanceFiatValue) {
+        aggregated.frozenBalanceFiatValue = new BigNumber(
+          aggregated.frozenBalanceFiatValue ?? 0,
+        )
+          .plus(tokenFiat.frozenBalanceFiatValue)
+          .toFixed();
+      }
+      if (tokenFiat.totalBalance) {
+        aggregated.totalBalance = new BigNumber(aggregated.totalBalance ?? 0)
+          .plus(tokenFiat.totalBalance)
+          .toFixed();
+      }
+      if (tokenFiat.totalBalanceParsed) {
+        aggregated.totalBalanceParsed = new BigNumber(
+          aggregated.totalBalanceParsed ?? 0,
+        )
+          .plus(tokenFiat.totalBalanceParsed)
+          .toFixed();
+      }
+      if (tokenFiat.totalBalanceFiatValue) {
+        aggregated.totalBalanceFiatValue = new BigNumber(
+          aggregated.totalBalanceFiatValue ?? 0,
+        )
+          .plus(tokenFiat.totalBalanceFiatValue)
+          .toFixed();
+      }
+    });
+
+    result[aggregateKey] = aggregated;
+  });
+
+  return result;
+}
+
 export function getMergedDeriveTokenData(params: {
   data: IFetchAccountTokensResp[];
   mergeDeriveAssetsEnabled: boolean;
 }) {
   const { data, mergeDeriveAssetsEnabled } = params;
 
-  let aggregateTokenMap: Record<string, ITokenFiat> = {};
+  let aggregateTokenMap: Record<string, Record<string, ITokenFiat>> = {};
   let aggregateTokenListMap: Record<
     string,
     {
@@ -659,8 +917,12 @@ export function getMergedDeriveTokenData(params: {
     });
 
     if (r.aggregateTokenMap) {
-      aggregateTokenMap = mergeAggregateTokenMap({
-        sourceMap: r.aggregateTokenMap,
+      const nestedAggregateTokenMap = nestAggregateTokensMap({
+        aggregateTokenMap: r.aggregateTokenMap,
+        networkId: r.networkId ?? '',
+      });
+      aggregateTokenMap = mergeNestedAggregateTokenMap({
+        sourceMap: nestedAggregateTokenMap,
         targetMap: aggregateTokenMap,
       });
     }
@@ -690,7 +952,7 @@ export function getMergedDeriveTokenData(params: {
     ...tokenListMap,
     ...smallBalanceTokenListMap,
     ...riskyTokenListMap,
-    ...aggregateTokenMap,
+    ...flattenAggregateTokensMap(aggregateTokenMap),
   };
 
   return {
@@ -1045,31 +1307,220 @@ export function calculateAccountTokensValue({
     updateAll?: boolean;
   };
   mergeDeriveAssetsEnabled: boolean;
+}): string {
+  const sumValues = (values: string[]) =>
+    values
+      .reduce<BigNumber>((acc, cur) => acc.plus(cur), new BigNumber(0))
+      .toFixed();
+
+  if (networkUtils.isAllNetwork({ networkId }) || mergeDeriveAssetsEnabled) {
+    return sumValues(Object.values(tokensWorth.worth));
+  }
+
+  const key = accountUtils.buildAccountValueKey({ accountId, networkId });
+  return tokensWorth.worth[key] ?? Object.values(tokensWorth.worth)[0] ?? '0';
+}
+
+export function validateTokenAmount({
+  token,
+  amount,
+  allowEmpty = false,
+  allowNegative = false,
+  allowZero = true,
+  minAmount,
+  maxAmount,
+  customErrorMessages,
+}: {
+  token: IToken;
+  amount: string;
+  allowEmpty?: boolean;
+  allowNegative?: boolean;
+  allowZero?: boolean;
+  minAmount?: string;
+  maxAmount?: string;
+  customErrorMessages?: {
+    emptyAmount?: string;
+    invalidAmount?: string;
+    negativeAmount?: string;
+    zeroAmount?: string;
+    minAmount?: string;
+    maxAmount?: string;
+    decimalPlaces?: string;
+  };
 }) {
-  if (networkUtils.isAllNetwork({ networkId })) {
-    const allWorth = Object.values(tokensWorth.worth).reduce(
-      (acc: string, cur: string) => new BigNumber(acc).plus(cur).toFixed(),
-      '0',
-    );
-    return allWorth;
+  if (isUndefined(token.decimals)) {
+    throw new OneKeyInternalError('Token decimals is required');
   }
 
-  if (mergeDeriveAssetsEnabled) {
-    const allWorth = Object.values(tokensWorth.worth).reduce(
-      (acc: string, cur: string) => new BigNumber(acc).plus(cur).toFixed(),
-      '0',
-    );
-    return allWorth;
+  if (allowEmpty && isEmpty(amount)) {
+    return {
+      isValid: true,
+      error: undefined,
+    };
   }
 
-  return (
-    tokensWorth.worth[
-      accountUtils.buildAccountValueKey({
-        accountId,
-        networkId,
-      })
-    ] ??
-    Object.values(tokensWorth.worth)[0] ??
-    '0'
+  if (isEmpty(amount)) {
+    return {
+      isValid: false,
+      error: customErrorMessages?.emptyAmount ?? 'Required',
+    };
+  }
+
+  const amountBN = new BigNumber(amount);
+  if (amountBN.isNaN()) {
+    return {
+      isValid: false,
+      error: customErrorMessages?.invalidAmount ?? 'Invalid amount',
+    };
+  }
+
+  if (!allowNegative && amountBN.isNegative()) {
+    return {
+      isValid: false,
+      error: customErrorMessages?.negativeAmount ?? 'Cannot be negative',
+    };
+  }
+
+  if (!allowZero && amountBN.isZero()) {
+    return {
+      isValid: false,
+      error: customErrorMessages?.zeroAmount ?? 'Amount must be greater than 0',
+    };
+  }
+
+  if (minAmount && amountBN.isLessThan(minAmount)) {
+    return {
+      isValid: false,
+      error:
+        customErrorMessages?.minAmount ?? `Must be greater than ${minAmount}`,
+    };
+  }
+
+  if (maxAmount && amountBN.isGreaterThan(maxAmount)) {
+    return {
+      isValid: false,
+      error: customErrorMessages?.maxAmount ?? `Must be less than ${maxAmount}`,
+    };
+  }
+
+  const decimalPlaces = amountBN.decimalPlaces() ?? 0;
+  if (decimalPlaces > token.decimals) {
+    return {
+      isValid: false,
+      error:
+        customErrorMessages?.decimalPlaces ??
+        `Maximum ${token.decimals} decimal places`,
+    };
+  }
+
+  return {
+    isValid: true,
+    error: undefined,
+  };
+}
+
+export function calculateAccountTotalValue(params: {
+  tokensValue: string | Record<string, string> | undefined;
+  deFiNetWorth: string | number | undefined;
+  accountId?: string;
+  networkId?: string;
+  mergeDeriveAssetsEnabled?: boolean;
+  walletId?: string;
+  enabledNetworksCompatibleWithWalletId?: Array<{ id: string }>;
+  networkInfoMap?: Record<
+    string,
+    {
+      deriveType: string;
+      mergeDeriveAssetsEnabled: boolean;
+      suffixToDeriveType?: Record<string, string>;
+    }
+  >;
+}): string | undefined {
+  const {
+    tokensValue,
+    deFiNetWorth,
+    accountId,
+    networkId,
+    mergeDeriveAssetsEnabled,
+    walletId,
+    enabledNetworksCompatibleWithWalletId,
+    networkInfoMap,
+  } = params;
+
+  const hasDeFi = deFiNetWorth !== undefined && deFiNetWorth !== null;
+  const deFi = new BigNumber(deFiNetWorth ?? 0);
+
+  if (typeof tokensValue === 'string') {
+    return new BigNumber(tokensValue || '0').plus(deFi).toFixed();
+  }
+
+  if (!tokensValue || typeof tokensValue !== 'object') {
+    if (!hasDeFi) return undefined;
+    return deFi.toFixed();
+  }
+
+  // Wallet-scoped branch takes priority over the single-network branch
+  // below when all wallet-scope params are provided — callers wanting
+  // single-account semantics must not pass them together.
+  if (walletId && enabledNetworksCompatibleWithWalletId && networkInfoMap) {
+    const SEPARATOR = '--';
+    const compatibleIds = new Set(
+      enabledNetworksCompatibleWithWalletId.map((n) => n.id),
+    );
+    const sum = Object.entries(tokensValue).reduce((acc, [k, v]) => {
+      const keyArray = k.split('_');
+      const netId = keyArray.pop() as string;
+      const restAccountId = keyArray.join('_');
+      const parts = restAccountId.split(SEPARATOR);
+      const keyWalletId = parts[0];
+      const infoEntry = networkInfoMap[netId];
+      const rawSuffix = parts[2] || '';
+      const keyDeriveType = (
+        accountUtils.normalizeDeriveType(rawSuffix) ??
+        infoEntry?.suffixToDeriveType?.[rawSuffix.toLowerCase()] ??
+        'default'
+      ).toLowerCase();
+      if (
+        keyWalletId === walletId &&
+        compatibleIds.has(netId) &&
+        infoEntry &&
+        (infoEntry.mergeDeriveAssetsEnabled ||
+          infoEntry.deriveType.toLowerCase() === keyDeriveType)
+      ) {
+        return acc.plus(new BigNumber(v || '0'));
+      }
+      return acc;
+    }, new BigNumber(0));
+    return sum.plus(deFi).toFixed();
+  }
+
+  // Intentional: merge-derive chains (BTC/LTC/etc.) have no DeFi, so deFi
+  // is excluded from this branch.
+  if (mergeDeriveAssetsEnabled && networkId) {
+    let matched = false;
+    const sum = Object.entries(tokensValue).reduce((acc, [k, v]) => {
+      const keyArray = k.split('_');
+      const keyNetworkId = keyArray[keyArray.length - 1];
+      if (keyNetworkId === networkId) {
+        matched = true;
+        return acc.plus(new BigNumber(v || '0'));
+      }
+      return acc;
+    }, new BigNumber(0));
+    if (!matched) return undefined;
+    return sum.toFixed();
+  }
+
+  if (accountId && networkId) {
+    const key = accountUtils.buildAccountValueKey({ accountId, networkId });
+    const entry = tokensValue[key];
+    if (entry === undefined && !hasDeFi) return undefined;
+    return new BigNumber(entry ?? '0').plus(deFi).toFixed();
+  }
+
+  const sumAll = Object.values(tokensValue).reduce(
+    (acc: BigNumber, v) => acc.plus(new BigNumber(v || '0')),
+    new BigNumber(0),
   );
+  return sumAll.plus(deFi).toFixed();
 }

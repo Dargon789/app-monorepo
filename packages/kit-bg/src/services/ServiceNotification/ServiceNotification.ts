@@ -4,6 +4,7 @@ import {
   backgroundMethod,
   toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import { KEYLESS_SYNC_SIGNATURE_HEADER } from '@onekeyhq/shared/src/consts/keylessCloudSyncConsts';
 import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import {
@@ -23,6 +24,7 @@ import type { INetworkAccount } from '@onekeyhq/shared/types/account';
 import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 import type { IHyperLiquidSignatureRSV } from '@onekeyhq/shared/types/hyperliquid/webview';
+import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type {
   ENotificationPushTopicTypes,
   INotificationClickParams,
@@ -63,6 +65,7 @@ import type {
   IDBDevice,
   IDBIndexedAccount,
   IDBWallet,
+  IDBWalletIdSingleton,
 } from '../../dbs/local/types';
 import type {
   IAccountActivityNotificationSettings,
@@ -176,7 +179,7 @@ export default class ServiceNotification extends ServiceBase {
       // register when webSocket or jpush established
       void this.registerClientWithOverrideAllAccounts();
     } else {
-      void this.updateClientBasicAppInfo();
+      void this.updateClientBasicAppInfoDebounced();
     }
   };
 
@@ -187,6 +190,7 @@ export default class ServiceNotification extends ServiceBase {
       await notificationsDevSettingsPersistAtom.get();
     const msgId =
       messageInfo.extras?.params?.msgId || messageInfo.extras?.msgId;
+
     defaultLogger.notification.common.notificationReceived({
       messageInfo,
       notificationId: msgId,
@@ -211,13 +215,20 @@ export default class ServiceNotification extends ServiceBase {
         const prefix = showMessagePushSource ? '[wss:] ' : '';
         // jpush will show notification automatically
         // websocket should show notification by ourselves
-        await this.showNotification({
+        const notificationParams = {
           notificationId: msgId,
           title: prefix + messageInfo.title,
           description: messageInfo.content,
           icon: messageInfo.extras?.image,
           remotePushMessageInfo: messageInfo,
-        });
+        };
+        await this.showNotification(notificationParams);
+        if (!platformEnv.isNativeIOS) {
+          appEventBus.emit(
+            EAppEventBusNames.ShowInAppPushNotification,
+            notificationParams,
+          );
+        }
       }
     }
 
@@ -417,9 +428,12 @@ export default class ServiceNotification extends ServiceBase {
         result.desktopNotification;
       delete result?.desktopNotification;
       clearTimeout(this.clearDesktopNotificationCacheTimer);
-      this.clearDesktopNotificationCacheTimer = setTimeout(() => {
-        this.desktopNotificationCache = {};
-      }, timerUtils.getTimeDurationMs({ minute: 3 }));
+      this.clearDesktopNotificationCacheTimer = setTimeout(
+        () => {
+          this.desktopNotificationCache = {};
+        },
+        timerUtils.getTimeDurationMs({ minute: 3 }),
+      );
     }
     return result;
   }
@@ -524,7 +538,12 @@ export default class ServiceNotification extends ServiceBase {
     const notificationSettingsRawData =
       await this.backgroundApi.simpleDb.notificationSettings.getRawData();
 
-    for (const account of dbAccounts) {
+    // Bot wallets must not occupy notification quota.
+    const filteredDbAccounts = dbAccounts.filter(
+      (account) => !accountUtils.isBotAccount({ accountId: account.id }),
+    );
+
+    for (const account of filteredDbAccounts) {
       const walletId = accountUtils.getWalletIdFromAccountId({
         accountId: account.id,
       });
@@ -553,7 +572,7 @@ export default class ServiceNotification extends ServiceBase {
                 dbAccount: account,
               },
             );
-          } catch (error) {
+          } catch (_error) {
             //
           }
           if (networkAccount?.addressDetail?.displayAddress) {
@@ -668,6 +687,22 @@ export default class ServiceNotification extends ServiceBase {
     });
   }
 
+  @backgroundMethod()
+  async updateClientBasicAppInfoDebounced() {
+    return this._updateClientBasicAppInfoDebounced();
+  }
+
+  _updateClientBasicAppInfoDebounced = debounce(
+    async () => {
+      await this.updateClientBasicAppInfo();
+    },
+    3000,
+    {
+      leading: false,
+      trailing: true,
+    },
+  );
+
   private async _registerClientWithOverrideAllAccountsCore() {
     console.log('registerClientWithOverrideAllAccountsCore');
     await timerUtils.setTimeoutPromised(async () => {
@@ -698,10 +733,12 @@ export default class ServiceNotification extends ServiceBase {
     allIndexedAccounts,
     allWallets,
     allDevices,
+    resolveOthersWalletAccountsAddress,
   }: {
     allIndexedAccounts?: IDBIndexedAccount[] | undefined;
     allWallets?: IDBWallet[] | undefined;
     allDevices?: IDBDevice[] | undefined;
+    resolveOthersWalletAccountsAddress?: boolean;
   } = {}) {
     const result = await this.backgroundApi.serviceAccount.getWallets({
       nestedHiddenWallets: true,
@@ -711,7 +748,32 @@ export default class ServiceNotification extends ServiceBase {
       allWallets,
       allDevices,
     });
-    return result.wallets;
+    // Bot wallets must not occupy notification quota.
+    const wallets = result.wallets.filter(
+      (wallet) => !accountUtils.isBotWallet({ walletId: wallet.id }),
+    );
+    if (resolveOthersWalletAccountsAddress) {
+      // Variant-address accounts (cosmos/dot/cfx/fil) keep db `address` empty,
+      // resolve network address by the same path as the account selector,
+      // so that UI consumers can render address-based avatars
+      await Promise.all(
+        wallets.map(async (wallet) => {
+          if (
+            accountUtils.isOthersWallet({ walletId: wallet.id }) &&
+            wallet.dbAccounts?.length
+          ) {
+            const { accounts } =
+              await this.backgroundApi.serviceAccount.getSingletonAccountsOfWallet(
+                {
+                  walletId: wallet.id as IDBWalletIdSingleton,
+                },
+              );
+            wallet.dbAccounts = accounts;
+          }
+        }),
+      );
+    }
+    return wallets;
   }
 
   getNotificationWalletName({
@@ -1059,6 +1121,25 @@ export default class ServiceNotification extends ServiceBase {
     });
   }
 
+  async buildKeylessSignatureHeaderForRegister({
+    params,
+  }: {
+    params: INotificationPushRegisterParams;
+  }): Promise<string | undefined> {
+    if (
+      (await this.backgroundApi.servicePrimeCloudSync.getActiveSyncMode()) !==
+      ECloudSyncMode.Keyless
+    ) {
+      return undefined;
+    }
+
+    const auth =
+      await this.backgroundApi.servicePrimeCloudSync.getKeylessSyncAuth({
+        postData: params,
+      });
+    return auth?.signatureHeader;
+  }
+
   @backgroundMethod()
   async registerClient(params: INotificationPushRegisterParams) {
     try {
@@ -1069,13 +1150,22 @@ export default class ServiceNotification extends ServiceBase {
         settings.instanceId,
       );
       const client = await this.getClient(EServiceEndpointEnum.Notification);
+      const signatureHeader = await this.buildKeylessSignatureHeaderForRegister(
+        { params },
+      );
       const result = await client.post<
         IApiClientResponse<{
           badges: number;
           created: number;
           removed: number;
         }>
-      >('/notification/v1/account/register', params);
+      >('/notification/v1/account/register', params, {
+        headers: signatureHeader
+          ? {
+              [KEYLESS_SYNC_SIGNATURE_HEADER]: signatureHeader,
+            }
+          : undefined,
+      });
       defaultLogger.notification.common.registerClient(
         params,
         result.data,
@@ -1238,13 +1328,14 @@ export default class ServiceNotification extends ServiceBase {
   @backgroundMethod()
   @toastIfError()
   async fetchMessageList(
-    topicTypes?: ENotificationPushTopicTypes[] | undefined,
+    topicTypes?: ENotificationPushTopicTypes[],
   ): Promise<INotificationPushMessageListItem[]> {
     const client = await this.getClient(EServiceEndpointEnum.Notification);
     const result = await client.post<
       IApiClientResponse<INotificationPushMessageListItem[]>
     >('/notification/v1/message/list', topicTypes ? { topicTypes } : undefined);
-    return result?.data?.data || [];
+    const data = result?.data?.data || [];
+    return data;
   }
 
   @backgroundMethod()
@@ -1297,6 +1388,12 @@ export default class ServiceNotification extends ServiceBase {
     return result?.data?.data;
   }
 
+  @backgroundMethod()
+  async fetchServerNotificationSettingsWithCache(): Promise<INotificationPushSettings> {
+    const { serverSettings } = await this.getServerSettingsWithCache();
+    return serverSettings;
+  }
+
   updateNotificationSettingsAbortController: AbortController | undefined;
 
   @backgroundMethod()
@@ -1314,6 +1411,7 @@ export default class ServiceNotification extends ServiceBase {
     if (result?.data?.data?.pushEnabled) {
       void this.registerClientWithOverrideAllAccounts();
     }
+    await this.clearServerSettingsCache();
     await notificationsAtom.set((v) =>
       perfUtils.buildNewValueIfChanged(v, {
         ...v,
@@ -1386,6 +1484,7 @@ export default class ServiceNotification extends ServiceBase {
   async pingWebSocket(params: any) {
     const notificationProvider = await this.getNotificationProvider();
     if (notificationProvider?.webSocketProvider) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return notificationProvider.webSocketProvider.ping(params);
     }
     throw new OneKeyLocalError('WebSocket provider not found');

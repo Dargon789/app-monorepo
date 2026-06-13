@@ -35,14 +35,17 @@ import AddressTypeSelector from '@onekeyhq/kit/src/components/AddressTypeSelecto
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { NetworkAvatarBase } from '@onekeyhq/kit/src/components/NetworkAvatar';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
 import { useCopyAccountAddress } from '@onekeyhq/kit/src/hooks/useCopyAccountAddress';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { showBotWalletDisabledToast } from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
 import { openExplorerAddressUrl } from '@onekeyhq/kit/src/utils/explorerUtils';
 import { useFuseSearch } from '@onekeyhq/kit/src/views/ChainSelector/hooks/useFuseSearch';
 import type { IAllNetworksDBStruct } from '@onekeyhq/kit-bg/src/dbs/simple/entity/SimpleDbEntityAllNetworks';
 import type { IAllNetworkAccountInfo } from '@onekeyhq/kit-bg/src/services/ServiceAllNetwork/ServiceAllNetwork';
 import { useAllNetworksPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { getNetworkIdsMap } from '@onekeyhq/shared/src/config/networkIds';
+import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
 import {
   EAppEventBusNames,
   appEventBus,
@@ -68,6 +71,8 @@ import {
   type IServerNetwork,
 } from '@onekeyhq/shared/types';
 import { EWalletAddressActionType } from '@onekeyhq/shared/types/address';
+
+import { WalletAddressTestIDs } from '../../testIDs';
 
 import { WalletAddressContext } from './WalletAddressContext';
 
@@ -115,6 +120,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
     setIsAllNetworksEnabled,
     setAccountsCreated,
     actionType,
+    othersWalletAddress,
   } = useContext(WalletAddressContext);
 
   const isEnabledNetwork = isAllNetworksEnabled[network.id];
@@ -129,6 +135,20 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
     [networkAccountMap, network.id],
   );
 
+  const isOthersWallet = accountUtils.isOthersWallet({
+    walletId: walletId ?? '',
+  });
+
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId,
+    },
+  );
+  const isBotWalletAddressBlocked =
+    isBotWallet &&
+    isBotWalletDeactivated &&
+    actionType !== EWalletAddressActionType.ViewInExplorer;
+
   const subtitle = useMemo(() => {
     if (account) {
       if (networkUtils.isLightningNetworkByNetworkId(network.id)) {
@@ -138,12 +158,47 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
       return accountUtils.shortenAddress({ address: account.apiAddress });
     }
 
+    // For EVM Others Wallets with ViewInExplorer, show the shared address
+    if (
+      isOthersWallet &&
+      othersWalletAddress &&
+      actionType === EWalletAddressActionType.ViewInExplorer
+    ) {
+      return accountUtils.shortenAddress({ address: othersWalletAddress });
+    }
+
     return intl.formatMessage({
       id: ETranslations.copy_address_modal_item_create_address_instruction,
     });
-  }, [account, intl, network.id]);
+  }, [
+    account,
+    intl,
+    network.id,
+    isOthersWallet,
+    othersWalletAddress,
+    actionType,
+  ]);
 
   const onPress = useCallback(async () => {
+    // For EVM Others Wallets with ViewInExplorer, use the shared address directly
+    // without trying to create a new account
+    if (
+      actionType === EWalletAddressActionType.ViewInExplorer &&
+      isOthersWallet &&
+      othersWalletAddress
+    ) {
+      await openExplorerAddressUrl({
+        networkId: network.id,
+        address: othersWalletAddress,
+      });
+      return;
+    }
+
+    if (isBotWalletAddressBlocked) {
+      showBotWalletDisabledToast(account ? 'copyAddress' : 'receive');
+      return;
+    }
+
     if (!account) {
       try {
         setLoading(true);
@@ -179,7 +234,10 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
               id: ETranslations.network_also_enabled,
             }),
           });
-          refreshLocalData();
+          await refreshLocalData({
+            alwaysSetState: true,
+            skipAccountsCache: true,
+          });
         }
       } finally {
         setLoading(false);
@@ -189,7 +247,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
     if (actionType === EWalletAddressActionType.ViewInExplorer) {
       await openExplorerAddressUrl({
         networkId: network.id,
-        address: account.apiAddress,
+        address: account?.apiAddress,
       });
       return;
     }
@@ -208,7 +266,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
         networkId: network.id,
         deriveInfo: account.deriveInfo,
         onDeriveTypeChange: () => {
-          refreshLocalData({ alwaysSetState: true });
+          void refreshLocalData({ alwaysSetState: true });
         },
       });
     }
@@ -225,6 +283,9 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
     refreshLocalData,
     appNavigation,
     copyAccountAddress,
+    isOthersWallet,
+    othersWalletAddress,
+    isBotWalletAddressBlocked,
   ]);
 
   const avatar = useMemo(
@@ -254,7 +315,8 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
             primary={
               <XStack alignItems="center" gap="$2">
                 <SizableText size="$bodyLgMedium">{network.name}</SizableText>
-                {networkUtils
+                {!isBotWalletAddressBlocked &&
+                networkUtils
                   .getDefaultDeriveTypeVisibleNetworks()
                   .includes(network.id) ? (
                   <AddressTypeSelector
@@ -265,7 +327,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
                     activeDeriveInfo={account?.deriveInfo}
                     indexedAccountId={indexedAccountId ?? ''}
                     onSelect={async () => {
-                      refreshLocalData();
+                      await refreshLocalData();
                     }}
                     onCreate={async ({ deriveType }) => {
                       const defaultDeriveType =
@@ -275,7 +337,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
                           },
                         );
                       if (deriveType === defaultDeriveType) {
-                        refreshLocalData();
+                        await refreshLocalData();
                       }
                     }}
                   />
@@ -295,6 +357,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
         renderAvatar={avatar}
         onPress={onPress}
         disabled={loading}
+        opacity={isBotWalletAddressBlocked ? 0.5 : 1}
       >
         {loading ? (
           <Stack p="$0.5">
@@ -317,6 +380,7 @@ function SingleWalletAddressListItem({ network }: { network: IServerNetwork }) {
       refreshLocalData,
       subtitle,
       walletId,
+      isBotWalletAddressBlocked,
     ],
   );
 }
@@ -411,7 +475,7 @@ function WalletAddressContent({
     );
     const sectionList = Object.entries(data)
       .map(([key, value]) => ({ title: key, data: value }))
-      .sort((a, b) => a.title.charCodeAt(0) - b.title.charCodeAt(0));
+      .toSorted((a, b) => a.title.charCodeAt(0) - b.title.charCodeAt(0));
     const _sections: ISectionItem[] = [
       { data: frequentlyUsedNetworks },
       ...sectionList,
@@ -462,7 +526,7 @@ function WalletAddressContent({
         renderItem={renderItem}
         ListEmptyComponent={
           <Empty
-            icon="SearchOutline"
+            illustration="SearchDocument"
             title={intl.formatMessage({ id: ETranslations.global_no_results })}
           />
         }
@@ -476,6 +540,7 @@ function WalletAddressContent({
     <Stack flex={1}>
       <Stack px="$5">
         <SearchBar
+          testID={WalletAddressTestIDs.searchBar}
           placeholder={intl.formatMessage({
             id: ETranslations.form_search_network_placeholder,
           })}
@@ -635,10 +700,11 @@ function WalletAddressPageMainView({
       disabledNetworks: {},
       enabledNetworks: {},
     });
+  const skipAccountsCacheForNextRefreshRef = useRef(false);
 
   const {
     result,
-    run: refreshLocalData,
+    run: runRefreshLocalData,
     isLoading,
   } = usePromiseResult(
     async () => {
@@ -647,10 +713,73 @@ function WalletAddressPageMainView({
       });
 
       perf.markStart('getChainSelectorNetworksCompatibleWithAccountId');
-      const networks =
-        await backgroundApiProxy.serviceNetwork.getChainSelectorNetworksCompatibleWithAccountId(
-          { accountId, walletId, excludeTestNetwork },
+
+      // For EVM Others Wallets with ViewInExplorer action, fetch all EVM networks
+      // instead of just the networks compatible with the account
+      let networks: {
+        mainnetItems: IServerNetwork[];
+        testnetItems: IServerNetwork[];
+        unavailableItems: IServerNetwork[];
+        frequentlyUsedItems: IServerNetwork[];
+      };
+
+      const isOthersWallet = accountUtils.isOthersWallet({
+        walletId: walletId ?? '',
+      });
+
+      let accountImpl: string | undefined;
+      let othersWalletAddress: string | undefined;
+      if (isOthersWallet && accountId) {
+        try {
+          const account =
+            await backgroundApiProxy.serviceAccount.getDBAccountSafe({
+              accountId,
+            });
+          accountImpl = account?.impl;
+          othersWalletAddress = account?.address;
+        } catch {
+          // ignore error
+        }
+      }
+
+      const shouldShowAllEvmNetworks =
+        isOthersWallet &&
+        accountImpl === IMPL_EVM &&
+        actionType === EWalletAddressActionType.ViewInExplorer;
+
+      if (shouldShowAllEvmNetworks) {
+        // Fetch all EVM networks for EVM Others Wallets
+        const { networks: evmNetworks } =
+          await backgroundApiProxy.serviceNetwork.getNetworksByImpls({
+            impls: [IMPL_EVM],
+          });
+
+        const mainnetItems = evmNetworks.filter((n) => !n.isTestnet);
+        const testnetItems = excludeTestNetwork
+          ? []
+          : evmNetworks.filter((n) => n.isTestnet);
+
+        // Get frequently used networks that are EVM
+        const frequentlyUsed =
+          await backgroundApiProxy.serviceNetwork.getNetworkSelectorPinnedNetworks(
+            { useDefaultPinnedNetworks: true },
+          );
+        const frequentlyUsedItems = frequentlyUsed.filter((n) =>
+          networkUtils.isEvmNetwork({ networkId: n.id }),
         );
+
+        networks = {
+          mainnetItems,
+          testnetItems,
+          unavailableItems: [],
+          frequentlyUsedItems,
+        };
+      } else {
+        networks =
+          await backgroundApiProxy.serviceNetwork.getChainSelectorNetworksCompatibleWithAccountId(
+            { accountId, walletId, excludeTestNetwork },
+          );
+      }
       perf.markEnd('getChainSelectorNetworksCompatibleWithAccountId');
 
       // perf.markStart('buildNetworkIds');
@@ -684,6 +813,7 @@ function WalletAddressPageMainView({
               includingNotEqualGlobalDeriveTypeAccount ?? false,
             includingDeriveTypeMismatchInDefaultVisibleNetworks:
               includingDeriveTypeMismatchInDefaultVisibleNetworks ?? false,
+            skipCache: skipAccountsCacheForNextRefreshRef.current,
           });
         networksAccount = accountsInfo;
       }
@@ -708,6 +838,7 @@ function WalletAddressPageMainView({
         networksAccount,
         networks,
         allNetworksState,
+        othersWalletAddress,
       };
     },
     [
@@ -716,6 +847,7 @@ function WalletAddressPageMainView({
       excludeTestNetwork,
       includingNotEqualGlobalDeriveTypeAccount,
       includingDeriveTypeMismatchInDefaultVisibleNetworks,
+      actionType,
     ],
     {
       watchLoading: true,
@@ -731,8 +863,35 @@ function WalletAddressPageMainView({
           unavailableItems: [],
           frequentlyUsedItems: [],
         },
+        othersWalletAddress: undefined,
       },
     },
+  );
+
+  // `skipAccountsCacheForNextRefreshRef` is a one-shot side channel: run()
+  // can't forward args into the usePromiseResult callback, so the callback
+  // reads the flag from this ref. Safe because this wrapper is single-flight —
+  // it awaits runRefreshLocalData before the finally clears the flag, so no
+  // concurrent run observes a flag it didn't set.
+  const refreshLocalData = useCallback(
+    async (config?: {
+      alwaysSetState?: boolean;
+      skipAccountsCache?: boolean;
+    }) => {
+      if (config?.skipAccountsCache) {
+        skipAccountsCacheForNextRefreshRef.current = true;
+      }
+      try {
+        await runRefreshLocalData({
+          alwaysSetState: config?.alwaysSetState,
+        });
+      } finally {
+        if (config?.skipAccountsCache) {
+          skipAccountsCacheForNextRefreshRef.current = false;
+        }
+      }
+    },
+    [runRefreshLocalData],
   );
 
   useEffect(() => {
@@ -829,6 +988,7 @@ function WalletAddressPageMainView({
       allNetworksStateInit,
       originalAllNetworksStateInit,
       actionType,
+      othersWalletAddress: result.othersWalletAddress,
     };
     return contextData;
   }, [
@@ -842,6 +1002,7 @@ function WalletAddressPageMainView({
     accountsCreated,
     isAllNetworksEnabled,
     result.networksAccount,
+    result.othersWalletAddress,
   ]);
 
   return (

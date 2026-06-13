@@ -21,8 +21,6 @@ interface IEmptyHistoryProps {
   showViewInExplorer?: boolean;
   isSingleAccount?: boolean;
   tokenMap?: Record<string, ITokenFiat>;
-  emptyTitle?: string;
-  emptyDescription?: string;
 }
 
 function EmptyHistory({
@@ -33,8 +31,6 @@ function EmptyHistory({
   isSingleAccount,
   tokenMap,
   showViewInExplorer,
-  emptyTitle,
-  emptyDescription,
 }: IEmptyHistoryProps) {
   const intl = useIntl();
   const { account, network, vaultSettings } = useAccountData({
@@ -78,7 +74,13 @@ function EmptyHistory({
         networkId={networkId ?? ''}
         indexedAccountId={indexedAccountId ?? account?.indexedAccountId ?? ''}
         renderSelectorTrigger={
-          <Button size="medium" variant="secondary" onPress={() => {}} mt="$6">
+          <Button
+            size="medium"
+            variant="secondary"
+            onPress={() => {}}
+            mt="$6"
+            testID="empty-render-view-in-explorer-button-btn"
+          >
             {intl.formatMessage({
               id: ETranslations.global_block_explorer,
             })}
@@ -95,6 +97,7 @@ function EmptyHistory({
       />
     ) : (
       <Button
+        testID="empty-btn"
         size="medium"
         variant="secondary"
         onPress={handleOnPress}
@@ -125,7 +128,7 @@ function EmptyHistory({
     <Empty
       h={platformEnv.isNativeAndroid ? 300 : undefined}
       testID="Wallet-No-History-Empty"
-      icon="ClockTimeHistoryOutline"
+      illustration="BookPencil"
       title={intl.formatMessage({
         id: ETranslations.wallet_transaction_history_empty_message,
       })}

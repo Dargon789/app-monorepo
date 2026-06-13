@@ -18,6 +18,10 @@ import {
   YStack,
   useClipboard,
 } from '@onekeyhq/components';
+import {
+  ANIMATE_ONLY_OPACITY,
+  ANIMATE_ONLY_TRANSFORM,
+} from '@onekeyhq/components/src/utils/animationConstants';
 import type { IUnsignedTxPro } from '@onekeyhq/core/src/types';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
@@ -35,6 +39,7 @@ import { Token } from '../../../components/Token';
 import { usePromiseResult } from '../../../hooks/usePromiseResult';
 import { useReceiveToken } from '../../../hooks/useReceiveToken';
 import { openTransactionDetailsUrl } from '../../../utils/explorerUtils';
+import { ApprovalManagementTestIDs } from '../testIDs';
 
 import type { IntlShape } from 'react-intl';
 
@@ -209,6 +214,7 @@ function BulkRevokeItem(props: IProps) {
               })}
               renderTrigger={
                 <IconButton
+                  testID={ApprovalManagementTestIDs.bulkRevokeInfoBtn}
                   size="small"
                   color="$iconSubdued"
                   icon="InfoCircleOutline"
@@ -222,6 +228,7 @@ function BulkRevokeItem(props: IProps) {
                   </SizableText>
                   {status.isInsufficientFunds && nativeToken ? (
                     <Button
+                      testID={ApprovalManagementTestIDs.bulkRevokeFillUpBtn}
                       variant="tertiary"
                       size="large"
                       color="$textInfo"
@@ -262,6 +269,7 @@ function BulkRevokeItem(props: IProps) {
           <XStack alignItems="center" gap="$3" flex={1}>
             <View
               animation="quick"
+              animateOnly={ANIMATE_ONLY_TRANSFORM}
               rotate={open ? '180deg' : '0deg'}
               transformOrigin="center"
             >
@@ -314,6 +322,7 @@ function BulkRevokeItem(props: IProps) {
       <Accordion.HeightAnimator animation="quick">
         <Accordion.Content
           animation="quick"
+          animateOnly={ANIMATE_ONLY_OPACITY}
           exitStyle={{ opacity: 0 }}
           backgroundColor="$bgSubdued"
           padding="$0"
@@ -345,6 +354,7 @@ function BulkRevokeItem(props: IProps) {
                   </SizableText>
                 </YStack>
                 <IconButton
+                  testID={ApprovalManagementTestIDs.bulkRevokeCopyContractBtn}
                   title={intl.formatMessage({
                     id: ETranslations.global_copy,
                   })}
@@ -372,6 +382,7 @@ function BulkRevokeItem(props: IProps) {
                     })}
                   </SizableText>
                   <IconButton
+                    testID={ApprovalManagementTestIDs.bulkRevokeViewTxBtn}
                     title={intl.formatMessage({
                       id: ETranslations.global_view_in_blockchain_explorer,
                     })}
@@ -388,6 +399,7 @@ function BulkRevokeItem(props: IProps) {
                     }
                   />
                   <IconButton
+                    testID={ApprovalManagementTestIDs.bulkRevokeCopyTxBtn}
                     title={intl.formatMessage({
                       id: ETranslations.global_copy,
                     })}

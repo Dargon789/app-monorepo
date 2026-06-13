@@ -1,11 +1,15 @@
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import type { ITradingViewKLineMockEmptyInterval } from '@onekeyhq/kit-bg/src/states/jotai/atoms/devSettings';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import {
   formatBalance,
   formatDisplayNumber,
 } from '@onekeyhq/shared/src/utils/numberUtils';
-import type { IMarketAccountTokenTransaction } from '@onekeyhq/shared/types/marketV2';
+import type {
+  IMarketAccountTokenTransaction,
+  IMarketTokenKLineResponse,
+} from '@onekeyhq/shared/types/marketV2';
 
 import { MESSAGE_TYPES } from '../../TradingViewPerpsV2/constants/messageTypes';
 import { fetchTradingViewV2DataWithSlicing } from '../hooks';
@@ -13,35 +17,97 @@ import { fetchTradingViewV2DataWithSlicing } from '../hooks';
 import type { IMessageHandlerContext, IMessageHandlerParams } from './types';
 
 const MAX_MARKS_COUNT = 60;
+export const DEFAULT_TRADING_VIEW_KLINE_RESOLUTION = '1m';
+
+export function normalizeTradingViewKLineInterval(
+  interval: string,
+): ITradingViewKLineMockEmptyInterval | string {
+  switch (interval) {
+    case '1':
+    case '1m':
+      return '1m';
+    case '5':
+    case '5m':
+      return '5m';
+    case '15':
+    case '15m':
+      return '15m';
+    case '30':
+    case '30m':
+      return '30m';
+    case '60':
+    case '1h':
+    case '1H':
+      return '1H';
+    case '240':
+    case '4h':
+    case '4H':
+      return '4H';
+    case '1d':
+    case '1D':
+      return '1D';
+    case '1w':
+    case '1W':
+      return '1W';
+    default:
+      return interval;
+  }
+}
+
+export async function shouldMockEmptyKLineData(resolution?: string) {
+  if (!resolution) {
+    return false;
+  }
+
+  const devSettings =
+    await backgroundApiProxy.serviceDevSetting.getDevSetting();
+
+  if (
+    !devSettings.enabled ||
+    !devSettings.settings?.mockTradingViewKLineEmptyEnabled
+  ) {
+    return false;
+  }
+
+  const selectedInterval =
+    devSettings.settings.mockTradingViewKLineEmptyIntervals ?? [];
+
+  return selectedInterval.some(
+    (interval) =>
+      normalizeTradingViewKLineInterval(resolution) ===
+      normalizeTradingViewKLineInterval(interval),
+  );
+}
+
+function buildEmptyKLineData(): IMarketTokenKLineResponse {
+  return {
+    points: [],
+    total: 0,
+  };
+}
 
 function formatAmount(amount: string) {
   const result = formatDisplayNumber(formatBalance(amount));
   return typeof result === 'string' ? result : amount;
 }
 
-function buildTransactionMarks({
+export function buildTransactionMarks({
   transactions,
-  accountAddress,
-  tokenSymbol,
 }: {
   transactions: IMarketAccountTokenTransaction[];
-  accountAddress?: string;
-  tokenSymbol?: string;
 }) {
-  const account = accountAddress?.toLowerCase();
   const limitedList = transactions
     .slice()
-    .sort((a, b) => a.timestamp - b.timestamp)
+    .filter((tx) => tx.to?.amount && tx.to?.symbol)
+    .toSorted((a, b) => a.timestamp - b.timestamp)
     .slice(-MAX_MARKS_COUNT);
 
   return limitedList.map((tx, index) => {
-    // Determine if user is buying or selling based on their address position
-    // If user is in 'to' field, they are receiving tokens (buying)
-    // If user is in 'from' field, they are sending tokens (selling)
-    const userIsReceiver = tx.to?.address?.toLowerCase() === account;
-    const isBuy = userIsReceiver;
+    const isBuy = tx.type === 'buy';
     const label = isBuy ? 'B' : 'S';
-    const displaySymbol = tokenSymbol || '';
+    const displayAmount = tx.to.amount;
+    const displaySymbol = tx.to.symbol;
+    // eslint-disable-next-line onekey/no-app-locale-main-thread
     const text = appLocale.intl.formatMessage(
       {
         id: isBuy
@@ -49,7 +115,7 @@ function buildTransactionMarks({
           : ETranslations.dexmarket_point_sell,
       },
       {
-        Amount: formatAmount(tx.amount),
+        Amount: formatAmount(displayAmount),
         From_Token: displaySymbol,
         to_Token: displaySymbol,
       },
@@ -64,6 +130,39 @@ function buildTransactionMarks({
   });
 }
 
+export async function fetchAccountTransactionMarks({
+  accountAddress,
+  tokenAddress,
+  networkId,
+  from,
+  to,
+}: {
+  accountAddress?: string;
+  tokenAddress: string;
+  networkId: string;
+  from: number;
+  to: number;
+}) {
+  if (!accountAddress) {
+    return [];
+  }
+
+  const accountTransactions =
+    await backgroundApiProxy.serviceMarketV2.fetchMarketAccountTokenTransactions(
+      {
+        accountAddress,
+        tokenAddress,
+        networkId,
+        timeFrom: from,
+        timeTo: to,
+      },
+    );
+
+  return buildTransactionMarks({
+    transactions: accountTransactions.list ?? [],
+  });
+}
+
 export async function fetchAndSendAccountMarks({
   accountAddress,
   tokenAddress,
@@ -71,7 +170,7 @@ export async function fetchAndSendAccountMarks({
   from,
   to,
   symbol,
-  tokenSymbol,
+  resolution,
   webRef,
 }: {
   accountAddress?: string;
@@ -80,28 +179,28 @@ export async function fetchAndSendAccountMarks({
   from: number;
   to: number;
   symbol?: string;
-  tokenSymbol?: string;
+  resolution?: string;
   webRef: IMessageHandlerContext['webRef'];
 }) {
+  if (await shouldMockEmptyKLineData(resolution)) {
+    sendClearAccountMarks({
+      tokenAddress,
+      symbol,
+      webRef,
+    });
+    return;
+  }
+
   if (!accountAddress) {
     return;
   }
   try {
-    const accountTransactions =
-      await backgroundApiProxy.serviceMarketV2.fetchMarketAccountTokenTransactions(
-        {
-          accountAddress,
-          tokenAddress,
-          networkId,
-          timeFrom: from,
-          timeTo: to,
-        },
-      );
-
-    const marks = buildTransactionMarks({
-      transactions: accountTransactions.list ?? [],
+    const marks = await fetchAccountTransactionMarks({
       accountAddress,
-      tokenSymbol,
+      tokenAddress,
+      networkId,
+      from,
+      to,
     });
 
     if (webRef.current && marks.length > 0) {
@@ -119,6 +218,31 @@ export async function fetchAndSendAccountMarks({
   }
 }
 
+export function sendClearAccountMarks({
+  tokenAddress,
+  symbol,
+  webRef,
+}: {
+  tokenAddress: string;
+  symbol?: string;
+  webRef: IMessageHandlerContext['webRef'];
+}) {
+  const marksSymbol = symbol || tokenAddress;
+
+  if (!webRef.current || !marksSymbol) {
+    return;
+  }
+
+  webRef.current.sendMessageViaInjectedScript({
+    type: MESSAGE_TYPES.MARKS_UPDATE,
+    payload: {
+      marks: [],
+      symbol: marksSymbol,
+      operation: 'clear',
+    },
+  });
+}
+
 export async function handleKLineDataRequest({
   data,
   context,
@@ -128,7 +252,7 @@ export async function handleKLineDataRequest({
     networkId = '',
     webRef,
     accountAddress,
-    tokenSymbol,
+    marksTimeRange,
   } = context;
 
   // Safely extract history data with proper type checking
@@ -148,15 +272,49 @@ export async function handleKLineDataRequest({
     const from = safeData.from as number;
     const to = safeData.to as number;
 
+    if (context.onCurrentKLineResolutionChange) {
+      context.onCurrentKLineResolutionChange(resolution);
+    } else if (context.currentKLineResolution) {
+      context.currentKLineResolution.current = resolution;
+    }
+
+    // Track the time range that user has browsed
+    if (marksTimeRange) {
+      const current = marksTimeRange.current;
+      if (current) {
+        current.min = Math.min(current.min, from);
+        current.max = Math.max(current.max, to);
+      } else {
+        marksTimeRange.current = { min: from, max: to };
+      }
+    }
+
     // Use combined function to get sliced data
     try {
-      const kLineData = await fetchTradingViewV2DataWithSlicing({
-        tokenAddress,
-        networkId,
-        interval: resolution,
-        timeFrom: from,
-        timeTo: to,
-      });
+      const shouldForceEmptyKLineData =
+        context.forceEmptyKLineData ||
+        (await shouldMockEmptyKLineData(resolution));
+      const shouldSuppressKLineError = Boolean(context.emptyKLineDataOnError);
+      const fetchedKLineData = shouldForceEmptyKLineData
+        ? buildEmptyKLineData()
+        : await fetchTradingViewV2DataWithSlicing({
+            tokenAddress,
+            networkId,
+            interval: resolution,
+            timeFrom: from,
+            timeTo: to,
+            autoHandleError: shouldSuppressKLineError ? false : undefined,
+            kLineDataFallback: context.kLineDataFallback,
+            primaryKLineDataUnavailable: context.primaryKLineDataUnavailable,
+            onPrimaryKLineDataUnavailable:
+              context.onPrimaryKLineDataUnavailable,
+          });
+      const shouldUseEmptyKLineData =
+        shouldForceEmptyKLineData ||
+        (shouldSuppressKLineError && !fetchedKLineData);
+      const kLineData = shouldUseEmptyKLineData
+        ? buildEmptyKLineData()
+        : fetchedKLineData;
 
       if (webRef.current && kLineData) {
         webRef.current.sendMessageViaInjectedScript({
@@ -169,7 +327,20 @@ export async function handleKLineDataRequest({
         });
       }
 
-      if (accountAddress && tokenAddress && networkId) {
+      if (shouldUseEmptyKLineData) {
+        sendClearAccountMarks({
+          tokenAddress,
+          symbol: (safeData.symbol as string) || tokenAddress,
+          webRef,
+        });
+      }
+
+      if (
+        !shouldUseEmptyKLineData &&
+        accountAddress &&
+        tokenAddress &&
+        networkId
+      ) {
         void fetchAndSendAccountMarks({
           accountAddress,
           tokenAddress,
@@ -177,7 +348,7 @@ export async function handleKLineDataRequest({
           from,
           to,
           symbol: (safeData.symbol as string) || tokenAddress,
-          tokenSymbol,
+          resolution,
           webRef,
         });
       }

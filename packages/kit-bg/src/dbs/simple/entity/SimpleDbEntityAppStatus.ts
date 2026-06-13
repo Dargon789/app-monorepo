@@ -11,6 +11,7 @@ export interface ISimpleDBAppStatus {
   allHdDuplicateWalletsMerged?: boolean;
 
   launchTimes?: number;
+  // Launch count since last update reset; used by launch-threshold prompts (e.g. floating icon guide).
   launchTimesLastReset?: number;
   hdWalletsBackupMigrated?: boolean; // is mnemonic backuped by user
   falconDepositDoNotShowAgain?: boolean;
@@ -19,6 +20,9 @@ export interface ISimpleDBAppStatus {
   fixHardwareLtcXPubMigrated?: boolean;
   btcFreshAddressSettingMigrated?: boolean;
   removeDeviceHomeScreenMigrated?: boolean;
+  // OneKey IDs (onekeyUserId) that have already seen the KYT intro dialog.
+  // Scoped per Prime user so each account is prompted once.
+  kytIntroShownUserIds?: string[];
 }
 
 export class SimpleDbEntityAppStatus extends SimpleDbEntityBase<ISimpleDBAppStatus> {

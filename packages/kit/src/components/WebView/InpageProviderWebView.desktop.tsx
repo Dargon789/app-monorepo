@@ -27,6 +27,8 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
       allowpopups,
       isSpinnerLoading,
       displayProgressBar,
+      disableBridge,
+      partition,
       onDidStartLoading,
       onDidStartNavigation,
       onDidFinishLoad,
@@ -36,6 +38,8 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
       onPageFaviconUpdated,
       onLoadEnd,
       onDomReady,
+      onOpenWindow,
+      onShouldStartLoadWithRequest,
     }: IInpageProviderWebViewProps,
     ref: any,
   ) => {
@@ -119,6 +123,15 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
       return null;
     }, [displayProgressBar, isSpinnerLoading, progress, showProgress]);
 
+    const handleNewWindow = useCallback(
+      (e: { url?: string }) => {
+        if (onOpenWindow && e.url) {
+          onOpenWindow({ nativeEvent: { targetUrl: e.url } });
+        }
+      },
+      [onOpenWindow],
+    );
+
     return (
       <Stack flex={1}>
         {progressLoading}
@@ -128,6 +141,8 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
           src={src}
           onSrcChange={onSrcChange}
           receiveHandler={receiveHandler}
+          disableBridge={disableBridge}
+          partition={partition}
           // Warning: any string work, any bool not work
           // @ts-expect-error
           allowpopups={allowpopups.toString()}
@@ -135,7 +150,7 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
             // we can resize desktop to vertical only in DEV env currently
             undefined
           }
-          onDidStartLoading={() => innerOnDidStartLoading}
+          onDidStartLoading={innerOnDidStartLoading}
           onDidStartNavigation={onDidStartNavigation}
           onDidFinishLoad={onDidFinishLoad}
           onLoadEnd={onLoadEnd}
@@ -144,6 +159,8 @@ const InpageProviderWebView: FC<IInpageProviderWebViewProps> = forwardRef(
           onPageTitleUpdated={onPageTitleUpdated}
           onPageFaviconUpdated={onPageFaviconUpdated}
           onDomReady={onDomReady}
+          onNewWindow={onOpenWindow ? handleNewWindow : undefined}
+          onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
         />
       </Stack>
     );

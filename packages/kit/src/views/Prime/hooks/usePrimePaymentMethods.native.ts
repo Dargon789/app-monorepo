@@ -2,16 +2,21 @@ import { useCallback, useEffect, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
-import PurchasesReactNative, { LOG_LEVEL } from 'react-native-purchases';
+import PurchasesReactNative, {
+  INTRO_ELIGIBILITY_STATUS,
+  LOG_LEVEL,
+} from 'react-native-purchases';
 
 import { Dialog, Toast } from '@onekeyhq/components';
 import { useOneKeyAuth } from '@onekeyhq/kit/src/components/OneKeyAuth/useOneKeyAuth';
-import { usePrimePersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  usePrimePersistAtom,
+  useSettingsPersistAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import errorToastUtils from '@onekeyhq/shared/src/errors/utils/errorToastUtils';
 import googlePlayService from '@onekeyhq/shared/src/googlePlayService/googlePlayService';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import type { EPrimeFeatures } from '@onekeyhq/shared/src/routes/prime';
 import perfUtils from '@onekeyhq/shared/src/utils/debug/perfUtils';
@@ -27,7 +32,10 @@ import type {
   ISubscriptionPeriod,
   IUsePrimePayment,
 } from './usePrimePaymentTypes';
-import type { CustomerInfo } from '@revenuecat/purchases-typescript-internal';
+import type {
+  CustomerInfo,
+  PurchasesPackage,
+} from '@revenuecat/purchases-typescript-internal';
 
 void (async () => {
   if (process.env.NODE_ENV !== 'production') {
@@ -37,11 +45,44 @@ void (async () => {
   }
 })();
 
+async function getIOSIntroEligibleProductIds(
+  nativePackages: PurchasesPackage[],
+): Promise<ReadonlySet<string> | undefined> {
+  if (!platformEnv.isNativeIOS) {
+    return undefined;
+  }
+
+  const productIds = nativePackages.map(({ product }) => product.identifier);
+  if (!productIds.length) {
+    return new Set();
+  }
+
+  try {
+    const eligibilityByProductId =
+      await PurchasesReactNative.checkTrialOrIntroductoryPriceEligibility(
+        productIds,
+      );
+
+    return new Set(
+      productIds.filter(
+        (productId) =>
+          eligibilityByProductId[productId]?.status ===
+          INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_ELIGIBLE,
+      ),
+    );
+  } catch {
+    // RevenueCat recommends showing non-intro pricing when eligibility is
+    // unknown to avoid misleading users.
+    return new Set();
+  }
+}
+
 export function usePrimePaymentMethods(): IUsePrimePayment {
   const [isPaymentReady, setIsPaymentReady] = useState(false);
   const { isReady: isAuthReady, user } = useOneKeyAuth();
 
   const [, setPrimePersistAtom] = usePrimePersistAtom();
+  const [{ instanceId }] = useSettingsPersistAtom();
   const intl = useIntl();
 
   // TODO move to jotai context
@@ -58,11 +99,16 @@ export function usePrimePaymentMethods(): IUsePrimePayment {
       const { apiKey } = await getPrimePaymentApiKey({
         apiKeyType: 'native',
       });
-      PurchasesReactNative.configure({
-        apiKey,
-        // useAmazon: true
+      // Defer RevenueCat configure to avoid blocking main thread during startup.
+      // The native setupPurchases runs synchronously on main thread via TurboModule,
+      // and performs heavy JSON decoding of cached CustomerInfo causing 5s+ AppHang.
+      requestIdleCallback(() => {
+        PurchasesReactNative.configure({
+          apiKey,
+          // useAmazon: true
+        });
+        setIsPaymentReady(true);
       });
-      setIsPaymentReady(true);
     })();
   }, []);
 
@@ -86,7 +132,16 @@ export function usePrimePaymentMethods(): IUsePrimePayment {
     if (appUserId !== user?.onekeyUserId) {
       throw new OneKeyLocalError('AppUserId not match');
     }
-  }, [user?.onekeyUserId]);
+    // Sync instanceId to RevenueCat so server-side events (renewal, cancellation, etc.)
+    // are sent to Mixpanel with the same distinct_id as client-side analytics.
+    if (instanceId) {
+      try {
+        await PurchasesReactNative.setMixpanelDistinctID(instanceId);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, [instanceId, user?.onekeyUserId]);
 
   const restorePurchases = useCallback(async () => {
     try {
@@ -153,53 +208,48 @@ export function usePrimePaymentMethods(): IUsePrimePayment {
     }
     const offerings = await PurchasesReactNative.getOfferings();
     const packages: IPackage[] = [];
+    const availablePackages = offerings.current?.availablePackages || [];
+    const iosIntroEligibleProductIds =
+      await getIOSIntroEligibleProductIds(availablePackages);
 
-    offerings.current?.availablePackages.forEach((p) => {
-      let {
-        subscriptionPeriod,
-        pricePerYear,
-        pricePerYearString,
-        pricePerMonth,
-        pricePerMonthString,
-        priceString,
-      } = p.product;
+    availablePackages.forEach((p) => {
+      const { subscriptionPeriod } = p.product;
+      const pricePerYear = primePaymentUtils.normalizeNativePrice(
+        p.product.pricePerYear || 0,
+      );
+      const pricePerMonth = primePaymentUtils.normalizeNativePrice(
+        p.product.pricePerMonth || 0,
+      );
 
-      if (platformEnv.isNativeAndroid) {
-        pricePerYear = new BigNumber(pricePerYear || 0)
-          .div(1_000_000)
-          .toNumber();
-        pricePerMonth = new BigNumber(pricePerMonth || 0)
-          .div(1_000_000)
-          .toNumber();
-      }
+      const currencyCode = p.product.currencyCode || '';
 
-      const currency =
-        primePaymentUtils.extractCurrencySymbol(priceString, {
-          useShortUSSymbol: true,
-        }) ||
-        primePaymentUtils.extractCurrencySymbol(pricePerYearString || '', {
-          useShortUSSymbol: true,
-        }) ||
-        primePaymentUtils.extractCurrencySymbol(pricePerMonthString || '', {
-          useShortUSSymbol: true,
-        });
+      const canShowFreeTrial = iosIntroEligibleProductIds
+        ? iosIntroEligibleProductIds.has(p.product.identifier)
+        : true;
+      const freeTrial = canShowFreeTrial
+        ? primePaymentUtils.extractNativeFreeTrial(p.product)
+        : undefined;
 
       packages.push({
         subscriptionPeriod: subscriptionPeriod as ISubscriptionPeriod,
+        currencyCode,
         pricePerYear: pricePerYear || 0,
-        pricePerYearString: `${currency}${new BigNumber(
+        pricePerYearString: primePaymentUtils.formatPriceString(
           pricePerYear || 0,
-        ).toFixed(2)}`,
+          currencyCode,
+        ),
         pricePerMonth: pricePerMonth || 0,
-        pricePerMonthString: `${currency}${new BigNumber(
+        pricePerMonthString: primePaymentUtils.formatPriceString(
           pricePerMonth || 0,
-        ).toFixed(2)}`,
-        priceTotalPerYearString:
+          currencyCode,
+        ),
+        priceTotalPerYearString: primePaymentUtils.formatPriceString(
           subscriptionPeriod === 'P1M'
-            ? `${currency}${new BigNumber(pricePerMonth || 0)
-                .times(12)
-                .toFixed(2)}`
-            : `${currency}${new BigNumber(pricePerYear || 0).toFixed(2)}`,
+            ? new BigNumber(pricePerMonth || 0).times(12).toNumber()
+            : pricePerYear || 0,
+          currencyCode,
+        ),
+        freeTrial,
       });
     });
 
@@ -242,48 +292,37 @@ export function usePrimePaymentMethods(): IUsePrimePayment {
           throw new OneKeyLocalError('Offering not found');
         }
 
-        const makePurchaseResult = await PurchasesReactNative.purchasePackage(
-          offering,
-        );
+        const makePurchaseResult =
+          await PurchasesReactNative.purchasePackage(offering);
 
         if (
           makePurchaseResult?.customerInfo?.entitlements?.active?.Prime
             ?.isActive
         ) {
+          // Set subscriptionManageUrl immediately from purchase result,
+          // because the server may not yet have it (RevenueCat webhook delay).
+          setPrimePersistAtom(
+            (prev): IPrimeUserInfo =>
+              perfUtils.buildNewValueIfChanged(prev, {
+                ...prev,
+                subscriptionManageUrl:
+                  makePurchaseResult.customerInfo.managementURL ||
+                  prev.subscriptionManageUrl ||
+                  '',
+              }),
+          );
           await backgroundApiProxy.servicePrime.apiFetchPrimeUserInfo();
 
-          // Track successful subscription
-          const planType = subscriptionPeriod === 'P1Y' ? 'yearly' : 'monthly';
+          const rawPrice =
+            subscriptionPeriod === 'P1Y'
+              ? offering.product.pricePerYear
+              : offering.product.pricePerMonth;
+          const amount = primePaymentUtils.normalizeNativePrice(rawPrice || 0);
 
-          // Get actual price based on subscription period
-          let amount = 0;
-          if (subscriptionPeriod === 'P1Y') {
-            amount = platformEnv.isNativeAndroid
-              ? new BigNumber(offering.product.pricePerYear || 0)
-                  .div(1_000_000)
-                  .toNumber()
-              : offering.product.pricePerYear || 0;
-          } else {
-            amount = platformEnv.isNativeAndroid
-              ? new BigNumber(offering.product.pricePerMonth || 0)
-                  .div(1_000_000)
-                  .toNumber()
-              : offering.product.pricePerMonth || 0;
-          }
-
-          // Extract currency from price string
-          const currency =
-            primePaymentUtils.extractCurrencySymbol(
-              offering.product.priceString ||
-                offering.product.pricePerYearString ||
-                '',
-              { useShortUSSymbol: true },
-            ) || 'USD';
-
-          defaultLogger.prime.subscription.primeSubscribeSuccess({
-            planType,
+          primePaymentUtils.trackPrimeSubscriptionSuccess({
             amount,
-            currency,
+            currency: offering.product.currencyCode,
+            subscriptionPeriod,
             featureName,
           });
 
@@ -313,7 +352,7 @@ export function usePrimePaymentMethods(): IUsePrimePayment {
         await backgroundApiProxy.serviceApp.hideDialogLoading();
       }
     },
-    [isReady, intl, loginPurchasesSdk],
+    [isReady, intl, loginPurchasesSdk, setPrimePersistAtom],
   );
 
   return {

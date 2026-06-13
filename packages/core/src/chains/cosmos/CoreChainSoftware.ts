@@ -61,7 +61,12 @@ export default class CoreChainSoftware extends CoreChainApiBase {
     }
     if (keyType === ECoreApiExportedSecretKeyType.privateKey) {
       return `0x${(
-        await decryptAsync({ password, data: privateKeyRaw })
+        await decryptAsync({
+          password,
+          data: privateKeyRaw,
+          kdfBackend: query.kdfBackend,
+          enablePbkdf2Cache: query.enablePbkdf2Cache,
+        })
       ).toString('hex')}`;
     }
     throw new OneKeyLocalError(`SecretKey type not support: ${keyType}`);
@@ -116,7 +121,10 @@ export default class CoreChainSoftware extends CoreChainApiBase {
     const { data, signer } = JSON.parse(payload.unsignedMsg.message);
     const messageData = Buffer.from(data).toString('base64');
     const unSignDoc = getADR36SignDoc(signer, messageData);
-    const encodedTx = TransactionWrapper.fromAminoSignDoc(unSignDoc, undefined);
+    const encodedTx = TransactionWrapper.fromAminoSignDoc({
+      signDoc: unSignDoc,
+      msg: undefined,
+    });
 
     const { rawTx } = await this.signTransaction({
       ...payload,

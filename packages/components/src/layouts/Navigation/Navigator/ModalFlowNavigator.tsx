@@ -6,10 +6,11 @@ import type { ETranslations } from '@onekeyhq/shared/src/locale';
 
 import { EPageType } from '../../../hocs';
 import { PageTypeContext } from '../../../hocs/PageType/context';
-import { useThemeValue } from '../../../hooks';
+import { useTheme } from '../../../hooks';
 import { makeModalStackNavigatorOptions } from '../GlobalScreenOptions';
 import createOnBoardingNavigator from '../Modal/createOnBoardingNavigator';
 import createWebModalNavigator from '../Modal/createWebModalNavigator';
+import createWebViewNavigator from '../Modal/createWebViewNavigator';
 import { createStackNavigator } from '../StackNavigator';
 
 import { hasStackNavigatorModal } from './CommonConfig';
@@ -21,10 +22,25 @@ import type { ParamListBase } from '@react-navigation/routers';
 export interface IModalFlowNavigatorConfig<
   RouteName extends string,
   P extends ParamListBase,
-> extends ICommonNavigatorConfig<RouteName, P> {
+> extends Omit<ICommonNavigatorConfig<RouteName, P>, 'options'> {
+  options?:
+    | IModalNavigationOptions
+    | ((props: IScreenOptionsInfo<RouteName>) => IModalNavigationOptions);
   translationId?: ETranslations | string;
   shouldPopOnClickBackdrop?: boolean;
   dismissOnOverlayPress?: boolean;
+  modalContentMaxHeight?: number;
+  modalContentMaxWidth?: number;
+  /**
+   * Web-only. Skip the modal `scale(0.95) -> scale(1)` transform on
+   * **both enter and exit** for this screen and keep only the opacity
+   * fade. Setting it on any screen of an inner stack causes the whole
+   * navigator instance to opt out (so navigating deeper inside the
+   * modal does not re-enable scale for a later modal-on-modal push).
+   * Use for popover-like modals where the bouncy easing makes row
+   * content visibly jump outward. Ignored on native.
+   */
+  disableEnterScaleAnimation?: boolean;
 }
 
 interface IModalFlowNavigatorProps<
@@ -45,6 +61,10 @@ const OnBoardingStack = hasStackNavigatorModal
   ? createStackNavigator()
   : createOnBoardingNavigator();
 
+const WebViewStack = hasStackNavigatorModal
+  ? createStackNavigator()
+  : createWebViewNavigator();
+
 /**
  * Renders a modal stack navigator with configurable screens and lifecycle hooks.
  *
@@ -62,7 +82,9 @@ function ModalFlowNavigator<RouteName extends string, P extends ParamListBase>({
 }: IModalFlowNavigatorProps<RouteName, P> & {
   pageType?: EPageType;
 }) {
-  const [bgColor, titleColor] = useThemeValue(['bgApp', 'text']);
+  const theme = useTheme();
+  const bgColor = theme.bgApp.val;
+  const titleColor = theme.text.val;
   const intl = useIntl();
 
   useEffect(() => {
@@ -79,8 +101,13 @@ function ModalFlowNavigator<RouteName extends string, P extends ParamListBase>({
     [pageTypeFromProps],
   );
   const ModalStackComponent = useMemo(() => {
+    if (contextValue.pageType === EPageType.webView) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return WebViewStack;
+    }
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return contextValue.pageType === EPageType.onboarding
+    return contextValue.pageType === EPageType.onboarding ||
+      contextValue.pageType === EPageType.fullScreenPush
       ? OnBoardingStack
       : ModalStack;
   }, [contextValue.pageType]);
@@ -107,21 +134,27 @@ function ModalFlowNavigator<RouteName extends string, P extends ParamListBase>({
             translationId,
             shouldPopOnClickBackdrop,
             dismissOnOverlayPress,
+            modalContentMaxHeight,
+            modalContentMaxWidth,
+            disableEnterScaleAnimation,
           }) => {
+            // eslint-disable-next-line react-perf/jsx-no-new-object-as-prop
             const customOptions: IModalNavigationOptions = {
-              ...options,
+              ...(typeof options === 'function' ? {} : options),
               shouldPopOnClickBackdrop,
               dismissOnOverlayPress,
+              modalContentMaxHeight,
+              modalContentMaxWidth,
+              disableEnterScaleAnimation,
               title: translationId
                 ? intl.formatMessage({
                     id: translationId as ETranslations,
                   })
                 : '',
             };
-            const key = `Modal-Flow-${name as string}`;
             return (
               <ModalStack.Screen
-                key={key}
+                key={`Modal-Flow-${name as string}`}
                 name={name}
                 component={component}
                 options={customOptions}

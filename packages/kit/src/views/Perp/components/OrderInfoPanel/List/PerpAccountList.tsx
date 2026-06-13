@@ -1,6 +1,6 @@
+import type { ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { noop } from 'lodash';
 import { useIntl } from 'react-intl';
 
 import type { IDebugRenderTrackerProps } from '@onekeyhq/components';
@@ -22,18 +22,22 @@ import { AccountRow } from '../Components/AccountRow';
 import { CommonTableListView, type IColumnConfig } from './CommonTableListView';
 
 interface IPerpAccountListProps {
+  isActive?: boolean;
   isMobile?: boolean;
   useTabsList?: boolean;
   disableListScroll?: boolean;
+  ListHeaderComponent?: ReactElement | null;
 }
 
 function PerpAccountList({
+  isActive = true,
   isMobile,
   useTabsList,
   disableListScroll,
+  ListHeaderComponent,
 }: IPerpAccountListProps) {
   const intl = useIntl();
-  const [{ updates, isSubscribed }] = usePerpsLedgerUpdatesAtom();
+  const [{ updates, isLoaded }] = usePerpsLedgerUpdatesAtom();
   const [currentUser] = usePerpsActiveAccountAtom();
   const actions = useHyperliquidActions();
   const [currentListPage, setCurrentListPage] = useState(1);
@@ -42,9 +46,13 @@ function PerpAccountList({
     indexedAccountId: currentUser?.indexedAccountId,
   });
   useEffect(() => {
-    noop(currentUser?.accountAddress);
     setCurrentListPage(1);
   }, [currentUser?.accountAddress]);
+  useEffect(() => {
+    if (isActive && currentUser?.accountAddress) {
+      void actions.current.loadLedgerUpdatesByRest();
+    }
+  }, [actions, currentUser?.accountAddress, isActive]);
 
   const columnsConfig: IColumnConfig[] = useMemo(
     () => [
@@ -112,7 +120,7 @@ function PerpAccountList({
       .filter((update) => update.delta.status === ESwapTxHistoryStatus.PENDING);
 
     const allUpdates = [...updates, ...depositUpdates];
-    const sortedUpdates = allUpdates.sort((a, b) => b.time - a.time);
+    const sortedUpdates = allUpdates.toSorted((a, b) => b.time - a.time);
 
     const seenHashes = new Set<string>();
     return sortedUpdates.filter((update) => {
@@ -146,6 +154,7 @@ function PerpAccountList({
     <CommonTableListView
       onPullToRefresh={async () => {
         await actions.current.refreshAllPerpsData();
+        await actions.current.loadLedgerUpdatesByRest({ force: true });
       }}
       listViewDebugRenderTrackerProps={useMemo(
         (): IDebugRenderTrackerProps => ({
@@ -167,13 +176,14 @@ function PerpAccountList({
       renderRow={renderAccountRow}
       // If account has no Perp address (unsupported or not created),
       // show empty state instead of skeleton loading.
-      listLoading={currentUser?.accountAddress ? !isSubscribed : false}
+      listLoading={currentUser?.accountAddress ? !isLoaded : false}
       emptyMessage={intl.formatMessage({
         id: ETranslations.perp_trade_history_empty,
       })}
       emptySubMessage={intl.formatMessage({
         id: ETranslations.perp_trade_history_empty_desc,
       })}
+      ListHeaderComponent={mergedData.length > 0 ? ListHeaderComponent : null}
     />
   );
 }

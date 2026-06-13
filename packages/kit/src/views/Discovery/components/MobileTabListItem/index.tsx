@@ -7,12 +7,13 @@ import {
   IconButton,
   Image,
   SizableText,
-  Skeleton,
   Stack,
   XStack,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 
 import { useWebTabDataById } from '../../hooks/useWebTabs';
+import { DiscoveryTestIDs } from '../../testIDs';
 
 import type { IWebTab } from '../../types';
 
@@ -41,10 +42,11 @@ function MobileTabListItem({
       }}
       p="$1"
       animation="quick"
+      animateOnly={ANIMATE_ONLY_TRANSFORM}
       pressStyle={{
         scale: 0.95,
       }}
-      testID={`tab-modal-list-item-${id}`}
+      testID={DiscoveryTestIDs.browserTabItem(id)}
     >
       <Stack
         borderRadius="$4"

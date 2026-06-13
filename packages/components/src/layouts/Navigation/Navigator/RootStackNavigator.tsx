@@ -1,14 +1,14 @@
 import { useCallback, useMemo } from 'react';
 
-import { useMedia } from '@onekeyhq/components/src/hooks/useStyle';
+import { useMedia, useTheme } from '@onekeyhq/components/src/hooks/useStyle';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
-import { useThemeValue } from '../../../hooks';
 import {
   clearStackNavigatorOptions,
   makeFullScreenOptions,
   makeModalScreenOptions,
   makeOnboardingScreenOptions,
+  makeWebviewScreenOptions,
 } from '../GlobalScreenOptions';
 import { createStackNavigator } from '../StackNavigator';
 
@@ -20,7 +20,9 @@ type IRootStackType =
   | 'modal'
   | 'fullScreen'
   | 'iOSFullScreen'
-  | 'onboarding';
+  | 'fullScreenPush'
+  | 'onboarding'
+  | 'webView';
 
 export interface IRootStackNavigatorConfig<
   RouteName extends string,
@@ -59,7 +61,8 @@ export function RootStackNavigator<
     [config],
   );
 
-  const bgColor = useThemeValue('bg');
+  const theme = useTheme();
+  const bgColor = theme.bg.val;
   const isVerticalLayout = useMedia().md;
   const presetScreenOptions = clearStackNavigatorOptions({
     bgColor,
@@ -79,8 +82,11 @@ export function RootStackNavigator<
           return platformEnv.isNative
             ? makeFullScreenOptions()
             : makeModalScreenOptions({ isVerticalLayout, optionsInfo });
+        case 'fullScreenPush':
         case 'onboarding':
           return makeOnboardingScreenOptions({ isVerticalLayout, optionsInfo });
+        case 'webView':
+          return makeWebviewScreenOptions({ isVerticalLayout, optionsInfo });
         default:
           return {};
       }
@@ -92,32 +98,45 @@ export function RootStackNavigator<
     () =>
       config
         .filter(({ disable }) => !disable)
-        .map(({ name, component, type, options }) => (
-          <RootStack.Screen
-            key={name}
-            name={name}
-            component={component}
-            options={(optionsInfo) => ({
-              ...options,
-              ...getOptionsWithType(type, optionsInfo),
-            })}
-          />
-        )),
+        .map(({ name, component, type, options }) => {
+          // eslint-disable-next-line react-perf/jsx-no-new-function-as-prop
+          const routeScreenOptions = (
+            optionsInfo: IScreenOptionsInfo<any>,
+          ) => ({
+            ...(typeof options === 'function'
+              ? options(optionsInfo as any)
+              : options),
+            ...getOptionsWithType(type, optionsInfo),
+          });
+          return (
+            <RootStack.Screen
+              key={name}
+              name={name}
+              component={component}
+              options={routeScreenOptions}
+            />
+          );
+        }),
     [config, getOptionsWithType],
+  );
+
+  const mergedScreenOptions = useMemo(
+    () => ({
+      ...presetScreenOptions,
+      ...screenOptions,
+    }),
+    [presetScreenOptions, screenOptions],
   );
 
   return useMemo(
     () => (
       <RootStack.Navigator
         initialRouteName={initialRouteName}
-        screenOptions={{
-          ...presetScreenOptions,
-          ...screenOptions,
-        }}
+        screenOptions={mergedScreenOptions}
       >
         {renderedScreens}
       </RootStack.Navigator>
     ),
-    [initialRouteName, presetScreenOptions, renderedScreens, screenOptions],
+    [initialRouteName, mergedScreenOptions, renderedScreens],
   );
 }

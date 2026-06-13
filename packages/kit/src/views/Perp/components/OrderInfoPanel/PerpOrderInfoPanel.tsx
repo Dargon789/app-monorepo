@@ -1,5 +1,6 @@
-import { useMemo, useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
+import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
 
 import type { ITabContainerRef } from '@onekeyhq/components';
@@ -10,22 +11,41 @@ import {
   XStack,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
 import {
-  usePerpsActiveOpenOrdersLengthAtom,
-  usePerpsActivePositionLengthAtom,
+  usePerpsActiveOpenOrdersAtom,
+  usePerpsActivePositionAtom,
+  usePerpsActiveTwapOrdersAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid/atoms';
+import {
+  usePerpsAbstractionModeAtom,
+  usePerpsActiveAccountAtom,
+  usePerpsActiveAccountSummaryAtom,
+  useSpotActiveOpenOrdersAtom,
+  useSpotBalancesAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
+import { isSpotInstrument } from '@onekeyhq/shared/src/utils/perpsUtils';
+
+import { usePerpsAccountScopedCacheAddress } from '../../hooks/usePerpsAccountScopedCacheAddress';
+import { isHyperLiquidUnifiedAccountMode } from '../../utils';
+import { getPerpsAccountScopedListData } from '../../utils/accountScopedData';
 
 import { PerpAccountList } from './List/PerpAccountList';
 import { PerpOpenOrdersList } from './List/PerpOpenOrdersList';
 import { PerpPositionsList } from './List/PerpPositionsList';
 import { PerpTradesHistoryList } from './List/PerpTradesHistoryList';
+import { PerpTwapList } from './List/PerpTwapList';
+import { SpotBalanceList } from './List/SpotBalanceList';
 
-const tabNameToTranslationKey: Record<string, string> = {
+const tabNameToTranslationKey: Partial<Record<string, ETranslations>> = {
   'Positions': ETranslations.perp_position_title,
   'Open Orders': ETranslations.perp_open_orders_title,
+  'TWAP': ETranslations.perp_twap_order__title,
   'Trades History': ETranslations.perp_trades_history_title,
   'Account': ETranslations.perp_account_history,
+  'Balances': ETranslations.perp_holdings_tokens,
 };
 
 function TabBarItem({
@@ -39,10 +59,62 @@ function TabBarItem({
 }) {
   const intl = useIntl();
 
-  const [openOrdersLength] = usePerpsActiveOpenOrdersLengthAtom();
-  const [positionsLength] = usePerpsActivePositionLengthAtom();
+  const [perpOpenOrdersState] = usePerpsActiveOpenOrdersAtom();
+  const [spotOpenOrdersState] = useSpotActiveOpenOrdersAtom();
+  const [positionsState] = usePerpsActivePositionAtom();
+  const [twapOrdersState] = usePerpsActiveTwapOrdersAtom();
+  const [{ balances }] = useSpotBalancesAtom();
+  const [accountSummary] = usePerpsActiveAccountSummaryAtom();
+  const [currentUser] = usePerpsActiveAccountAtom();
+  const accountScopedAddress = usePerpsAccountScopedCacheAddress();
+  const [abstractionMode] = usePerpsAbstractionModeAtom();
+  const isUnifiedAccountMode = isHyperLiquidUnifiedAccountMode(
+    abstractionMode,
+    currentUser?.accountAddress,
+  );
+  const currentAccountAddress = accountScopedAddress;
+  const positionsLength = getPerpsAccountScopedListData({
+    activeAccountAddress: currentAccountAddress,
+    dataAccountAddress: positionsState.accountAddress,
+    data: positionsState.activePositions,
+  }).length;
+  const openOrdersLength =
+    getPerpsAccountScopedListData({
+      activeAccountAddress: currentAccountAddress,
+      dataAccountAddress: perpOpenOrdersState.accountAddress,
+      data: perpOpenOrdersState.openOrders.filter(
+        (order) => !isSpotInstrument(order.coin),
+      ),
+    }).length +
+    getPerpsAccountScopedListData({
+      activeAccountAddress: currentAccountAddress,
+      dataAccountAddress: spotOpenOrdersState.accountAddress,
+      data: spotOpenOrdersState.openOrders,
+    }).length;
+  const twapOrdersLength = getPerpsAccountScopedListData({
+    activeAccountAddress: currentAccountAddress,
+    dataAccountAddress: twapOrdersState.accountAddress,
+    data: twapOrdersState.twapOrders,
+  }).length;
+
+  const holdingsCount = useMemo(() => {
+    const nonUsdcSpotCount = balances.filter(
+      (item) => item.coin !== 'USDC' && !new BigNumber(item.total).isZero(),
+    ).length;
+    const hasSpotUsdc = balances.some(
+      (item) => item.coin === 'USDC' && !new BigNumber(item.total).isZero(),
+    );
+    const hasPerpsUsdc =
+      !isUnifiedAccountMode &&
+      !!accountSummary?.totalRawUsd &&
+      new BigNumber(accountSummary.totalRawUsd).gt(0);
+    return nonUsdcSpotCount + (hasSpotUsdc || hasPerpsUsdc ? 1 : 0);
+  }, [accountSummary?.totalRawUsd, balances, isUnifiedAccountMode]);
 
   const tabCount = useMemo(() => {
+    if (name === 'Balances') {
+      return holdingsCount > 0 ? `(${holdingsCount})` : '';
+    }
     if (name === 'Trades History') {
       return '';
     }
@@ -52,16 +124,27 @@ function TabBarItem({
     if (name === 'Open Orders' && openOrdersLength > 0) {
       return `(${openOrdersLength})`;
     }
+    if (name === 'TWAP' && twapOrdersLength > 0) {
+      return `(${twapOrdersLength})`;
+    }
     return '';
-  }, [positionsLength, openOrdersLength, name]);
+  }, [
+    holdingsCount,
+    name,
+    openOrdersLength,
+    positionsLength,
+    twapOrdersLength,
+  ]);
 
   const translationKey = tabNameToTranslationKey[name];
-  let tabTitle = translationKey;
-  if (translationKey.startsWith('perp.')) {
-    tabTitle = intl.formatMessage({
-      id: translationKey as ETranslations,
-    });
-  }
+  const tabTitle = translationKey
+    ? intl.formatMessage({
+        id: translationKey,
+      })
+    : name;
+
+  const displayTitle =
+    name === 'Balances' ? `${tabTitle}${tabCount}` : `${tabTitle} ${tabCount}`;
 
   return (
     <DebugRenderTracker
@@ -77,7 +160,7 @@ function TabBarItem({
         onPress={() => onPress(name)}
         cursor="pointer"
       >
-        <SizableText size="$headingXs">{`${tabTitle} ${tabCount}`}</SizableText>
+        <SizableText size="$bodyMdMedium">{displayTitle.trim()}</SizableText>
       </XStack>
     </DebugRenderTracker>
   );
@@ -85,6 +168,8 @@ function TabBarItem({
 
 function PerpOrderInfoPanel() {
   const tabsRef = useRef<ITabContainerRef | null>(null);
+  const actions = useHyperliquidActions();
+  const [activeTab, setActiveTab] = useState('Positions');
 
   const handleViewTpslOrders = () => {
     tabsRef.current?.jumpToTab('Open Orders');
@@ -95,7 +180,10 @@ function PerpOrderInfoPanel() {
       ref={tabsRef as any}
       headerHeight={80}
       initialTabName="Positions"
+      disableScroll={!platformEnv.isNative}
       onTabChange={async (tab) => {
+        setActiveTab(tab.tabName);
+        actions.current.setTradeRouteViewState({ infoPanelTab: tab.tabName });
         if (tab.tabName === 'Account') {
           void backgroundApiProxy.serviceHyperliquidSubscription.enableLedgerUpdatesSubscription();
         }
@@ -104,7 +192,12 @@ function PerpOrderInfoPanel() {
         <Tabs.TabBar
           {...props}
           renderItem={({ name, isFocused, onPress }) => (
-            <TabBarItem name={name} isFocused={isFocused} onPress={onPress} />
+            <TabBarItem
+              key={name}
+              name={name}
+              isFocused={isFocused}
+              onPress={onPress}
+            />
           )}
           containerStyle={{
             borderRadius: 0,
@@ -115,17 +208,23 @@ function PerpOrderInfoPanel() {
         />
       )}
     >
+      <Tabs.Tab name="Balances">
+        <SpotBalanceList />
+      </Tabs.Tab>
       <Tabs.Tab name="Positions">
         <PerpPositionsList handleViewTpslOrders={handleViewTpslOrders} />
       </Tabs.Tab>
       <Tabs.Tab name="Open Orders">
         <PerpOpenOrdersList />
       </Tabs.Tab>
+      <Tabs.Tab name="TWAP">
+        <PerpTwapList />
+      </Tabs.Tab>
       <Tabs.Tab name="Trades History">
         <PerpTradesHistoryList useTabsList />
       </Tabs.Tab>
       <Tabs.Tab name="Account">
-        <PerpAccountList useTabsList />
+        <PerpAccountList useTabsList isActive={activeTab === 'Account'} />
       </Tabs.Tab>
     </Tabs.Container>
   );

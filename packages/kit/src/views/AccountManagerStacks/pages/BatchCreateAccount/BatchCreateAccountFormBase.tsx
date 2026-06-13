@@ -34,7 +34,8 @@ export const BATCH_CREATE_ACCONT_MAX_FROM =
 
 function AdvancedSettingsFormField({
   form,
-  isAllNetwork,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  isAllNetwork: _isAllNetwork,
   alwaysShowAdvancedSettings,
 }: {
   form: UseFormReturn<IBatchCreateAccountFormValues, any, undefined>;
@@ -70,7 +71,7 @@ function AdvancedSettingsFormField({
         to,
       },
     );
-    return `${text}`;
+    return text;
   }, [countValue, fromValue, intl]);
 
   return (
@@ -85,6 +86,7 @@ function AdvancedSettingsFormField({
             </SizableText>
           </Stack>
           <IconButton
+            testID="account-manager-text-icon-btn"
             icon={
               collapse ? 'ChevronDownSmallOutline' : 'ChevronTopSmallOutline'
             }
@@ -145,6 +147,7 @@ function AdvancedSettingsFormField({
             }}
           >
             <Input
+              testID="account-manager-value-num-input"
               secureTextEntry={false}
               placeholder={intl.formatMessage({
                 id: ETranslations.global_serial_number_start,
@@ -165,7 +168,8 @@ function AdvancedSettingsFormField({
 
 export function BatchCreateAccountFormBase({
   alwaysShowAdvancedSettings,
-  networkReadyOnly,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  networkReadyOnly: _networkReadyOnly,
   defaultCount,
   defaultDeriveType,
   defaultFrom,

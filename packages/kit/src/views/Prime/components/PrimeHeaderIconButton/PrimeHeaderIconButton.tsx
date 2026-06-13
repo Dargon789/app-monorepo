@@ -1,34 +1,23 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 
-import { HeaderIconButton, Stack, Toast } from '@onekeyhq/components';
-import { useOneKeyAuth } from '@onekeyhq/kit/src/components/OneKeyAuth/useOneKeyAuth';
+import { HeaderIconButton, Stack } from '@onekeyhq/components';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
-import { useThemeVariant } from '@onekeyhq/kit/src/hooks/useThemeVariant';
 import { EModalRoutes } from '@onekeyhq/shared/src/routes';
 import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
 
-export function PrimeHeaderIconButton({
+import { PrimeTestIDs } from '../../testIDs';
+import { usePrimeIconName } from '../PrimeUserBadge';
+
+export function useOnPrimeButtonPressed({
   onPress,
   networkId,
 }: {
   onPress?: () => void | Promise<void>;
   networkId?: string;
 }) {
-  const { isReady, user } = useOneKeyAuth();
-  const isPrime = user?.primeSubscription?.isActive;
-
   const navigation = useAppNavigation();
   const [isHover, setIsHover] = useState(false);
-  const themeVariant = useThemeVariant();
-
-  const icon = useMemo(() => {
-    if (isPrime && user?.onekeyUserId) {
-      return themeVariant === 'light'
-        ? 'OnekeyPrimeLightColored'
-        : 'OnekeyPrimeDarkColored';
-    }
-    return 'PrimeOutline';
-  }, [isPrime, themeVariant, user?.onekeyUserId]);
+  const icon = usePrimeIconName();
 
   const onPrimeButtonPressed = useCallback(async () => {
     if (onPress) {
@@ -45,11 +34,42 @@ export function PrimeHeaderIconButton({
     setIsHover(false);
   }, [onPress, navigation, networkId]);
 
+  const onPointerEnter = useCallback(() => {
+    setIsHover(true);
+  }, []);
+
+  const onPointerLeave = useCallback(() => {
+    setIsHover(false);
+  }, []);
+
+  return {
+    isHover,
+    onPointerEnter,
+    onPointerLeave,
+    onPrimeButtonPressed,
+    icon,
+  };
+}
+
+export function PrimeHeaderIconButton({
+  onPress,
+  networkId,
+}: {
+  onPress?: () => void | Promise<void>;
+  networkId?: string;
+}) {
+  const {
+    isHover,
+    onPointerEnter,
+    onPointerLeave,
+    onPrimeButtonPressed,
+    icon,
+  } = useOnPrimeButtonPressed({ onPress, networkId });
   return (
-    <Stack testID="headerRightPrimeButton">
+    <Stack testID={PrimeTestIDs.primeHeaderBtn}>
       <HeaderIconButton
-        onPointerEnter={() => setIsHover(true)}
-        onPointerLeave={() => setIsHover(false)}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
         title="Prime"
         icon={icon}
         tooltipProps={{

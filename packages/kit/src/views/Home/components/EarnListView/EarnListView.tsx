@@ -6,26 +6,59 @@ import { Button } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { ETabEarnRoutes } from '@onekeyhq/shared/src/routes';
 
 import { Recommended } from '../../../Earn/components/Recommended';
 import { safePushToEarnRoute } from '../../../Earn/earnUtils';
 import { RichBlock } from '../RichBlock';
 
-function EarnListView() {
+const HOME_EARN_FETCH_IDLE_TIMEOUT_MS = 1200;
+
+function EarnListView({ isActive = true }: { isActive?: boolean }) {
   const navigation = useAppNavigation();
+  const [enableRecommendedFetch, setEnableRecommendedFetch] = useState(false);
+
+  useEffect(() => {
+    if (!isActive) {
+      setEnableRecommendedFetch(false);
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(
+      () => setEnableRecommendedFetch(true),
+      HOME_EARN_FETCH_IDLE_TIMEOUT_MS,
+    );
+    const idleId =
+      typeof requestIdleCallback === 'function'
+        ? requestIdleCallback(() => setEnableRecommendedFetch(true), {
+            timeout: HOME_EARN_FETCH_IDLE_TIMEOUT_MS,
+          })
+        : undefined;
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (idleId !== undefined && typeof cancelIdleCallback === 'function') {
+        cancelIdleCallback(idleId);
+      }
+    };
+  }, [isActive]);
+
   const renderContent = useCallback(() => {
     return (
       <Recommended
         withHeader={false}
+        disableHorizontalBleed
+        enableFetch={enableRecommendedFetch}
+        isActive={isActive}
         recommendedItemContainerProps={{
           bg: '$bgSubdued',
           borderColor: '$neutral3',
+          hoverStyle: { bg: '$bgHover' },
+          pressStyle: { bg: '$bgActive' },
         }}
       />
     );
-  }, []);
+  }, [enableRecommendedFetch, isActive]);
 
   const handleViewMore = useCallback(() => {
     void safePushToEarnRoute(navigation, ETabEarnRoutes.EarnHome);
@@ -49,8 +82,10 @@ function EarnListView() {
   return (
     <RichBlock
       title={intl.formatMessage({ id: ETranslations.earn_title })}
+      headerContainerProps={{ px: '$pagePadding' }}
       headerActions={
         <Button
+          testID="home-block-data-btn"
           size="small"
           variant="tertiary"
           iconAfter="ChevronRightSmallOutline"
@@ -62,13 +97,6 @@ function EarnListView() {
             id: ETranslations.global_view_more,
           })}
         </Button>
-      }
-      contentContainerProps={
-        platformEnv.isNative
-          ? {
-              mx: '$-5',
-            }
-          : undefined
       }
       content={renderContent()}
       plainContentContainer

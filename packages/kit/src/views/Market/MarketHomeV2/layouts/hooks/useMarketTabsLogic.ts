@@ -1,96 +1,157 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { useIntl } from 'react-intl';
-import { useSharedValue } from 'react-native-reanimated';
-import { useDebouncedCallback } from 'use-debounce';
 
-import type { ICarouselInstance } from '@onekeyhq/components';
+import { usePerpTabConfig } from '@onekeyhq/kit/src/hooks/usePerpTabConfig';
 import { useMarketSelectedTabAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
-import type { IMarketHomeTabValue } from '../../types';
-import type { SharedValue } from 'react-native-reanimated';
+import type { IMarketCategoryItem, IMarketHomeTabValue } from '../../types';
+
+export interface IMarketSpotTabItem {
+  categoryId: string;
+  tabName: string;
+}
 
 export interface IMarketTabsLogicReturn {
-  // Tab related data
-  tabNames: string[];
   watchlistTabName: string;
-  trendingTabName: string;
-
-  // Tab control
-  focusedTab: SharedValue<string>;
-  carouselRef: React.RefObject<ICarouselInstance | null>;
+  spotTabItems: IMarketSpotTabItem[];
+  perpsTabName: string;
+  showPerpsTab: boolean;
   handleTabChange: (tabName: string) => void;
-  handlePageChanged: (index: number) => void;
-  defaultIndex: number;
-
-  // State
+  isSpotTabName: (tabName: string) => boolean;
+  getSpotCategoryIdByTabName: (tabName: string) => string | undefined;
   selectedTab: string;
+  selectedTabName: string;
+}
+
+interface IUseMarketTabsLogicOptions {
+  spotCategories?: IMarketCategoryItem[];
+  selectedSpotCategory?: string;
+  onSpotCategoryChange?: (categoryId: string) => void;
 }
 
 export function useMarketTabsLogic(
   onTabChange: (tabId: IMarketHomeTabValue) => void,
+  options?: IUseMarketTabsLogicOptions,
 ): IMarketTabsLogicReturn {
   const intl = useIntl();
   const [{ tab: selectedTab }, setSelectedTabAtom] = useMarketSelectedTabAtom();
+  const { perpDisabled } = usePerpTabConfig();
+  const showPerpsTab = !perpDisabled;
+  const { spotCategories, selectedSpotCategory, onSpotCategoryChange } =
+    options ?? {};
 
   const watchlistTabName = intl.formatMessage({
     id: ETranslations.global_favorites,
   });
-  const trendingTabName = intl.formatMessage({
-    id: ETranslations.market_trending,
+  const spotTabName = intl.formatMessage({
+    id: ETranslations.dexmarket_spot,
+  });
+  const perpsTabName = intl.formatMessage({
+    id: ETranslations.global_perp,
   });
 
-  const carouselRef = useRef<ICarouselInstance>(null);
-  const tabNames = useMemo(() => {
-    return [watchlistTabName, trendingTabName];
-  }, [watchlistTabName, trendingTabName]);
+  const spotTabItems = useMemo<IMarketSpotTabItem[]>(() => {
+    const categories = spotCategories?.length
+      ? spotCategories
+      : [{ id: 'trending', name: spotTabName }];
 
-  // Use the selected tab from global state, default to trending if not set
-  const initialTabName = useMemo(() => {
-    if (selectedTab === 'watchlist') return watchlistTabName;
-    return trendingTabName; // default to trending
-  }, [selectedTab, watchlistTabName, trendingTabName]);
+    return categories.map((category) => ({
+      categoryId: category.id,
+      tabName: category.name || category.id,
+    }));
+  }, [spotCategories, spotTabName]);
 
-  // Create a SharedValue that always syncs with the atom state
-  const focusedTab = useSharedValue(initialTabName);
-
-  // Update focusedTab when selectedTab changes
-  focusedTab.value = initialTabName;
-
-  const defaultIndex = useMemo(() => {
-    return selectedTab === 'watchlist' ? 0 : 1;
-  }, [selectedTab]);
-
-  const handlePageChanged = useCallback(
-    (index: number) => {
-      // Convert display name to enum value
-      const tabValue = index === 0 ? 'watchlist' : 'trending';
-
-      // Primary state update - this is the source of truth
-      setSelectedTabAtom({ tab: tabValue });
-      onTabChange(tabValue);
-
-      // Secondary update - sync SharedValue for TabBar component
-      focusedTab.value = tabNames[index];
-    },
-    [focusedTab, onTabChange, setSelectedTabAtom, tabNames],
+  const spotTabNameToCategoryIdMap = useMemo(
+    () =>
+      spotTabItems.reduce<Record<string, string>>((acc, item) => {
+        acc[item.tabName] = item.categoryId;
+        return acc;
+      }, {}),
+    [spotTabItems],
   );
 
-  const handleTabChange = useDebouncedCallback((tabName: string) => {
-    handlePageChanged(tabNames.indexOf(tabName));
-    carouselRef.current?.scrollTo({ index: tabNames.indexOf(tabName) });
-  }, 50);
+  const selectedSpotTabName = useMemo(() => {
+    const selectedSpotTab = spotTabItems.find(
+      (item) => item.categoryId === selectedSpotCategory,
+    );
+    return selectedSpotTab?.tabName ?? spotTabItems[0]?.tabName ?? spotTabName;
+  }, [selectedSpotCategory, spotTabItems, spotTabName]);
+
+  const isSpotTabName = useCallback(
+    (tabName: string) => !!spotTabNameToCategoryIdMap[tabName],
+    [spotTabNameToCategoryIdMap],
+  );
+
+  const getSpotCategoryIdByTabName = useCallback(
+    (tabName: string) => spotTabNameToCategoryIdMap[tabName],
+    [spotTabNameToCategoryIdMap],
+  );
+
+  const handleTabChange = useCallback(
+    (tabName: string) => {
+      let tabValue: IMarketHomeTabValue = 'trending';
+      const categoryId = spotTabNameToCategoryIdMap[tabName];
+
+      if (tabName === watchlistTabName) {
+        tabValue = 'watchlist';
+      } else if (tabName === perpsTabName) {
+        tabValue = 'perps';
+      }
+
+      const isSelectionUnchanged =
+        tabValue === selectedTab &&
+        (!categoryId || categoryId === selectedSpotCategory);
+
+      if (isSelectionUnchanged) {
+        return;
+      }
+
+      if (categoryId) {
+        onSpotCategoryChange?.(categoryId);
+      }
+
+      setSelectedTabAtom((prev) => ({
+        ...prev,
+        tab: tabValue,
+        spotCategoryToSelect: undefined,
+      }));
+      onTabChange(tabValue);
+    },
+    [
+      onSpotCategoryChange,
+      onTabChange,
+      perpsTabName,
+      selectedSpotCategory,
+      selectedTab,
+      setSelectedTabAtom,
+      spotTabNameToCategoryIdMap,
+      watchlistTabName,
+    ],
+  );
+
+  const selectedTabName = useMemo(() => {
+    if (selectedTab === 'watchlist') return watchlistTabName;
+    if (selectedTab === 'perps' && showPerpsTab) return perpsTabName;
+    return selectedSpotTabName;
+  }, [
+    selectedTab,
+    watchlistTabName,
+    selectedSpotTabName,
+    perpsTabName,
+    showPerpsTab,
+  ]);
 
   return {
-    tabNames,
     watchlistTabName,
-    trendingTabName,
-    focusedTab,
-    carouselRef,
-    handlePageChanged,
+    spotTabItems,
+    perpsTabName,
+    showPerpsTab,
     handleTabChange,
-    defaultIndex,
+    isSpotTabName,
+    getSpotCategoryIdByTabName,
     selectedTab,
+    selectedTabName,
   };
 }

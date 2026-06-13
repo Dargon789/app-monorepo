@@ -9,9 +9,11 @@ import {
 } from '@onekeyhq/core/src/chains/evm/sdkEvm/ethers';
 import { verifyPersonalSignMessage } from '@onekeyhq/core/src/chains/evm/sdkEvm/signMessage';
 import type { IEncodedTxEvm } from '@onekeyhq/core/src/chains/evm/types';
+import { ON_CHAIN_SERVICE_BUSY_ERROR_CODE } from '@onekeyhq/core/src/chains/sol/constants';
 import coreChainApi from '@onekeyhq/core/src/instance/coreChainApi';
 import type { ISignedTxPro, IUnsignedTxPro } from '@onekeyhq/core/src/types';
 import { getNetworkIdsMap } from '@onekeyhq/shared/src/config/networkIds';
+import { getBulkSendContractAddress } from '@onekeyhq/shared/src/consts/bulkSendContractAddress';
 import {
   OneKeyError,
   OneKeyInternalError,
@@ -23,7 +25,9 @@ import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import numberUtils, {
   toBigIntHex,
 } from '@onekeyhq/shared/src/utils/numberUtils';
+import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import { mergeAssetTransferActions } from '@onekeyhq/shared/src/utils/txActionUtils';
+import type { IServerNetwork } from '@onekeyhq/shared/types';
 import type {
   IAddressValidation,
   IFetchServerAccountDetailsParams,
@@ -63,6 +67,7 @@ import type {
   IDecodedTxTransferInfo,
 } from '@onekeyhq/shared/types/tx';
 import {
+  EApproveType,
   EDecodedTxActionType,
   EDecodedTxStatus,
   EReplaceTxType,
@@ -72,6 +77,7 @@ import { VaultBase } from '../../base/VaultBase';
 
 import { EVMContractDecoder } from './decoder';
 import {
+  ABI,
   EErc1155MethodSelectors,
   EErc1155TxDescriptionName,
   EErc20MethodSelectors,
@@ -88,6 +94,7 @@ import {
 } from './decoder/utils';
 import { KeyringExternal } from './KeyringExternal';
 import { KeyringHardware } from './KeyringHardware';
+import { KeyringHardwareLedger } from './KeyringHardwareLedger';
 import { KeyringHd } from './KeyringHd';
 import { KeyringImported } from './KeyringImported';
 import { KeyringQr } from './KeyringQr';
@@ -95,8 +102,7 @@ import { KeyringWatching } from './KeyringWatching';
 import { ClientEvm } from './sdkEvm/ClientEvm';
 import { EvmApiProvider } from './sdkEvm/EvmApiProvider';
 
-import type { IDBWalletType } from '../../../dbs/local/types';
-import type { KeyringBase } from '../../base/KeyringBase';
+import type { IKeyringMap } from '../../base/VaultBase';
 import type {
   IApproveInfo,
   IBroadcastTransactionByCustomRpcParams,
@@ -115,8 +121,23 @@ import type {
   IWrappedInfo,
 } from '../../types';
 import type { IJsonRpcRequest } from '@onekeyfe/cross-inpage-provider-types';
+import type { FailedAttemptError } from 'p-retry';
 
 const enabledNFTNetworkIds = networkUtils.getEnabledNFTNetworkIds();
+
+const APPROVE_TYPE_BY_DESC_NAME: Partial<
+  Record<EErc20TxDescriptionName, EApproveType>
+> = {
+  [EErc20TxDescriptionName.Approve]: EApproveType.Approve,
+  [EErc20TxDescriptionName.IncreaseAllowance]: EApproveType.IncreaseAllowance,
+  [EErc20TxDescriptionName.IncreaseApproval]: EApproveType.IncreaseApproval,
+};
+
+const SELECTOR_BY_APPROVE_TYPE: Record<EApproveType, EErc20MethodSelectors> = {
+  [EApproveType.Approve]: EErc20MethodSelectors.tokenApprove,
+  [EApproveType.IncreaseAllowance]: EErc20MethodSelectors.increaseAllowance,
+  [EApproveType.IncreaseApproval]: EErc20MethodSelectors.increaseApproval,
+};
 
 // evm vault
 export default class Vault extends VaultBase {
@@ -128,10 +149,11 @@ export default class Vault extends VaultBase {
     return this.baseValidatePrivateKey(privateKey);
   }
 
-  override keyringMap: Record<IDBWalletType, typeof KeyringBase | undefined> = {
+  override keyringMap: IKeyringMap = {
     hd: KeyringHd,
     qr: KeyringQr,
     hw: KeyringHardware,
+    hwLedger: KeyringHardwareLedger,
     imported: KeyringImported,
     watching: KeyringWatching,
     external: KeyringExternal,
@@ -663,14 +685,208 @@ export default class Vault extends VaultBase {
     return data;
   }
 
-  async _buildEncodedTxFromBatchTransfer(transfersInfo: ITransferInfo[]) {
-    console.log(transfersInfo);
-    // TODO EVM batch transfer through contract
+  async _buildEncodedTxFromBatchTransfer(
+    transfersInfo: ITransferInfo[],
+  ): Promise<IEncodedTxEvm> {
+    if (transfersInfo.length === 0) {
+      throw new OneKeyLocalError(
+        'buildEncodedTx ERROR: transfersInfo is empty',
+      );
+    }
+
+    const bulkSendContractAddresses = getBulkSendContractAddress();
+    const contractAddress = bulkSendContractAddresses[this.networkId];
+
+    if (!contractAddress) {
+      throw new OneKeyLocalError(
+        `BulkSend contract not deployed on network: ${this.networkId}`,
+      );
+    }
+
+    const network = await this.getNetwork();
+    const firstTransfer = transfersInfo[0];
+    const { from, tokenInfo } = firstTransfer;
+
+    if (!tokenInfo) {
+      throw new OneKeyLocalError(
+        'buildEncodedTx ERROR: transferInfo.tokenInfo is missing',
+      );
+    }
+
+    const bulkSendInterface = new ethers.utils.Interface(ABI.BULK_SEND);
+
+    // Check if all amounts are the same
+    const firstAmount = firstTransfer.amount;
+    const isSameAmount = transfersInfo.every((t) => t.amount === firstAmount);
+
+    if (tokenInfo.isNative) {
+      return this._buildNativeBatchTransfer({
+        transfersInfo,
+        from,
+        contractAddress,
+        network,
+        bulkSendInterface,
+        isSameAmount,
+      });
+    }
+
+    return this._buildTokenBatchTransfer({
+      transfersInfo,
+      from,
+      contractAddress,
+      tokenInfo,
+      bulkSendInterface,
+      isSameAmount,
+    });
+  }
+
+  private _buildNativeBatchTransfer(params: {
+    transfersInfo: ITransferInfo[];
+    from: string;
+    contractAddress: string;
+    network: IServerNetwork;
+    bulkSendInterface: ethers.utils.Interface;
+    isSameAmount: boolean;
+  }): IEncodedTxEvm {
+    const {
+      transfersInfo,
+      from,
+      contractAddress,
+      network,
+      bulkSendInterface,
+      isSameAmount,
+    } = params;
+
+    const recipients = transfersInfo.map((t) => t.to);
+
+    if (isSameAmount) {
+      // Use sendNativeSameAmount for better gas efficiency
+      const amountOnChain = chainValueUtils.convertAmountToChainValue({
+        network,
+        value: transfersInfo[0].amount,
+      });
+      const totalValue = new BigNumber(amountOnChain).times(
+        transfersInfo.length,
+      );
+
+      const data = bulkSendInterface.encodeFunctionData(
+        'sendNativeSameAmount',
+        [recipients, amountOnChain],
+      );
+
+      return {
+        from,
+        to: contractAddress,
+        value: numberUtils.numberToHex(totalValue.toFixed()),
+        data,
+      };
+    }
+
+    // Use sendNative for different amounts
+    const transfers = transfersInfo.map((t) => ({
+      recipient: t.to,
+      amount: chainValueUtils.convertAmountToChainValue({
+        network,
+        value: t.amount,
+      }),
+    }));
+
+    const totalValue = transfers.reduce(
+      (sum, t) => sum.plus(t.amount),
+      new BigNumber(0),
+    );
+
+    const data = bulkSendInterface.encodeFunctionData('sendNative', [
+      transfers,
+    ]);
+
     return {
-      from: '',
-      to: '',
-      value: '0',
-      data: '0x',
+      from,
+      to: contractAddress,
+      value: numberUtils.numberToHex(totalValue.toFixed()),
+      data,
+    };
+  }
+
+  private _buildTokenBatchTransfer(params: {
+    transfersInfo: ITransferInfo[];
+    from: string;
+    contractAddress: string;
+    tokenInfo: IToken;
+    bulkSendInterface: ethers.utils.Interface;
+    isSameAmount: boolean;
+  }): IEncodedTxEvm {
+    const {
+      transfersInfo,
+      from,
+      contractAddress,
+      tokenInfo,
+      bulkSendInterface,
+      isSameAmount,
+    } = params;
+
+    if (!tokenInfo.address) {
+      throw new OneKeyLocalError(
+        'buildEncodedTx ERROR: transferInfo.tokenInfo.address is missing',
+      );
+    }
+
+    if (isNil(tokenInfo.decimals)) {
+      throw new OneKeyLocalError(
+        'buildEncodedTx ERROR: transferInfo.tokenInfo.decimals is missing',
+      );
+    }
+
+    const recipients = transfersInfo.map((t) => t.to);
+
+    // Use ViaContract by default (fewer notifications for sender).
+    // Fall back to direct transferFrom for fee-on-transfer tokens.
+    const isFeeOnTransfer = transfersInfo[0].isFeeOnTransferToken ?? false;
+
+    if (isSameAmount) {
+      const amountOnChain = chainValueUtils.convertTokenAmountToChainValue({
+        token: tokenInfo,
+        value: transfersInfo[0].amount,
+      });
+
+      const methodName = isFeeOnTransfer
+        ? 'sendTokenSameAmount'
+        : 'sendTokenSameAmountViaContract';
+
+      const data = bulkSendInterface.encodeFunctionData(methodName, [
+        tokenInfo.address,
+        recipients,
+        amountOnChain,
+      ]);
+
+      return {
+        from,
+        to: contractAddress,
+        value: '0x0',
+        data,
+      };
+    }
+
+    const transfers = transfersInfo.map((t) => ({
+      recipient: t.to,
+      amount: chainValueUtils.convertTokenAmountToChainValue({
+        token: tokenInfo,
+        value: t.amount,
+      }),
+    }));
+
+    const methodName = isFeeOnTransfer ? 'sendToken' : 'sendTokenViaContract';
+
+    const data = bulkSendInterface.encodeFunctionData(methodName, [
+      tokenInfo.address,
+      transfers,
+    ]);
+
+    return {
+      from,
+      to: contractAddress,
+      value: '0x0',
+      data,
     };
   }
 
@@ -782,14 +998,28 @@ export default class Vault extends VaultBase {
     ) {
       const { allowance, isUnlimited } = tokenApproveInfo;
       const { spender, decimals } = action.tokenApprove;
+      const approveType =
+        tokenApproveInfo.approveType ??
+        action.tokenApprove.approveType ??
+        EApproveType.Approve;
 
+      const selector = SELECTOR_BY_APPROVE_TYPE[approveType];
+      // The decoder surfaces unlimited allowance as InfiniteAmountText, and the
+      // editor/reset path can feed it back here verbatim. Treat any non-finite
+      // allowance — and the absolute-approve unlimited flag — as MaxUint256 so
+      // increase variants don't shift `Infinite` and produce 0xNaN.
+      const allowanceBn = new BigNumber(allowance);
+      const isMaxUint256 =
+        allowance === InfiniteAmountText ||
+        !allowanceBn.isFinite() ||
+        (approveType === EApproveType.Approve && isUnlimited);
       const amountHex = toBigIntHex(
-        isUnlimited
+        isMaxUint256
           ? new BigNumber(2).pow(256).minus(1)
-          : new BigNumber(allowance).shiftedBy(decimals),
+          : allowanceBn.shiftedBy(decimals),
       );
 
-      const data = `${EErc20MethodSelectors.tokenApprove}${defaultAbiCoder
+      const data = `${selector}${defaultAbiCoder
         .encode(['address', 'uint256'], [spender, amountHex])
         .slice(2)}`;
 
@@ -870,7 +1100,11 @@ export default class Vault extends VaultBase {
       });
     }
 
-    if (txDesc.name === EErc20TxDescriptionName.Approve) {
+    if (
+      txDesc.name === EErc20TxDescriptionName.Approve ||
+      txDesc.name === EErc20TxDescriptionName.IncreaseAllowance ||
+      txDesc.name === EErc20TxDescriptionName.IncreaseApproval
+    ) {
       return this._buildTxApproveTokenAction({
         encodedTx,
         txDesc,
@@ -949,6 +1183,10 @@ export default class Vault extends VaultBase {
     const amount = formatValue(value, token.decimals);
     const accountAddress = await this.getAccountAddress();
 
+    const approveType =
+      APPROVE_TYPE_BY_DESC_NAME[txDesc.name as EErc20TxDescriptionName] ??
+      EApproveType.Approve;
+
     const action: IDecodedTxAction = {
       type: EDecodedTxActionType.TOKEN_APPROVE,
       tokenApprove: {
@@ -961,7 +1199,9 @@ export default class Vault extends VaultBase {
         symbol: token.symbol,
         decimals: token.decimals,
         tokenIdOnNetwork: token.address,
-        isInfiniteAmount: amount === InfiniteAmountText,
+        isInfiniteAmount:
+          approveType === EApproveType.Approve && amount === InfiniteAmountText,
+        approveType,
       },
     };
 
@@ -1350,5 +1590,18 @@ export default class Vault extends VaultBase {
   override async proxyJsonRPCCall<T>(request: IJsonRpcRequest): Promise<T> {
     const provider = await this.getRpcClient();
     return provider.client.call(request.method, request.params as any);
+  }
+
+  override async checkShouldRetryBroadcastTx(
+    error: FailedAttemptError,
+  ): Promise<boolean> {
+    if (
+      (error as unknown as OneKeyError)?.code ===
+      ON_CHAIN_SERVICE_BUSY_ERROR_CODE
+    ) {
+      await timerUtils.wait((error?.attemptNumber || 1) * 1000);
+      return true;
+    }
+    return false;
   }
 }

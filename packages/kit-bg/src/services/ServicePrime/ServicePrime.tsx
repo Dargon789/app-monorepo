@@ -1,5 +1,5 @@
 import { Semaphore } from 'async-mutex';
-import { cloneDeep, isString } from 'lodash';
+import { chunk, cloneDeep, isString } from 'lodash';
 
 import { ensureSensitiveTextEncoded } from '@onekeyhq/core/src/secret';
 import {
@@ -11,6 +11,7 @@ import { RESET_CLOUD_SYNC_MASTER_PASSWORD_UUID } from '@onekeyhq/shared/src/cons
 import type { OneKeyError } from '@onekeyhq/shared/src/errors';
 import {
   OneKeyLocalError,
+  OneKeyServerApiError,
   PrimeLoginDialogCancelError,
 } from '@onekeyhq/shared/src/errors';
 import {
@@ -22,6 +23,7 @@ import { ETranslations } from '@onekeyhq/shared/src/locale/enum/translations';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import stringUtils from '@onekeyhq/shared/src/utils/stringUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
+import { ETranslateEngine } from '@onekeyhq/shared/types/discovery';
 import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 import type {
@@ -29,6 +31,7 @@ import type {
   IPrimeServerUserInfo,
   IPrimeSubscriptionInfo,
   IPrimeUserInfo,
+  IShopifyOrder,
 } from '@onekeyhq/shared/types/prime/primeTypes';
 
 import {
@@ -52,6 +55,78 @@ class ServicePrime extends ServiceBase {
 
   async getPrimeClient() {
     return this.getOneKeyIdClient(EServiceEndpointEnum.Prime);
+  }
+
+  @backgroundMethod()
+  async apiTranslate({
+    texts,
+    sourceLang,
+    targetLang,
+    engine = ETranslateEngine.standard,
+    testFlag,
+  }: {
+    texts: string[];
+    sourceLang: string;
+    targetLang: string;
+    engine?: ETranslateEngine;
+    testFlag?: string;
+  }): Promise<{ translations: Array<string | null> }> {
+    const client = await this.getPrimeClient();
+    // API limit: max 4 texts per translate request
+    const batches = chunk(texts, 4);
+    const requestConfig: Parameters<typeof client.post>[2] & {
+      autoHandleError?: boolean;
+    } = {
+      autoHandleError: false,
+    };
+    const results: Array<Array<string | null>> = await Promise.all(
+      batches.map(async (batch): Promise<Array<string | null>> => {
+        try {
+          const res = await client.post<{
+            code: number;
+            message: string;
+            data?: {
+              translations?: Array<string | null>;
+            };
+          }>(
+            '/prime/v1/translate/dapp',
+            {
+              texts: batch,
+              source_lang: sourceLang,
+              target_lang: targetLang,
+              engine,
+              test_flag: testFlag,
+              category: 'dapp_browser',
+            },
+            requestConfig,
+          );
+
+          if (res.data.code !== 0) {
+            throw new OneKeyServerApiError({
+              autoToast: false,
+              disableFallbackMessage: true,
+              message: res.data.message || 'OneKeyServer Unknown Error',
+              code: res.data.code,
+              httpStatusCode: res.status,
+              data: res.data,
+            });
+          }
+
+          const translations = res?.data?.data?.translations;
+
+          return Array.isArray(translations) ? translations : batch;
+        } catch (error) {
+          const errorCode = Number((error as OneKeyError | undefined)?.code);
+          if ([90_104, 90_105].includes(errorCode)) {
+            throw error;
+          }
+
+          console.error('[Prime Translate] batch error:', error);
+          return batch;
+        }
+      }),
+    );
+    return { translations: results.flat() };
   }
 
   @backgroundMethod()
@@ -92,7 +167,7 @@ class ServicePrime extends ServiceBase {
           {},
           {
             headers: {
-              'X-Onekey-Request-Token': `${accessToken}`,
+              'X-Onekey-Request-Token': accessToken,
             },
           },
         );
@@ -111,6 +186,11 @@ class ServicePrime extends ServiceBase {
 
   @backgroundMethod()
   async apiLogout() {
+    const currentAtomValue = await primePersistAtom.get();
+    defaultLogger.prime.subscription.onekeyIdLogout({
+      reason: `ServicePrime.apiLogout: starting logout for user ${currentAtomValue.onekeyUserId}`,
+    });
+
     const authToken = await this.backgroundApi.simpleDb.prime.getAuthToken();
     if (!authToken) {
       defaultLogger.prime.subscription.onekeyIdAtomNotLoggedIn({
@@ -122,15 +202,32 @@ class ServicePrime extends ServiceBase {
     const client = await this.getPrimeClient();
     try {
       await client.post('/prime/v1/user/logout');
+      defaultLogger.prime.subscription.onekeyIdLogout({
+        reason: 'ServicePrime.apiLogout: server logout success',
+      });
     } catch (e) {
       console.error(e);
+      defaultLogger.prime.subscription.onekeyIdLogout({
+        reason: `ServicePrime.apiLogout: server logout failed: ${String(e)}`,
+      });
       const error = e as OneKeyError | undefined;
       if (error && error?.key === 'id.login_expired_description') {
         error.autoToast = false;
       }
       throw e;
+    } finally {
+      // Server logout is best-effort; local state must always clear so
+      // the UI cannot keep rendering the previously-logged-in account.
+      defaultLogger.prime.subscription.onekeyIdLogout({
+        reason: 'ServicePrime.apiLogout: clearing local token and atom',
+      });
+      await this.backgroundApi.simpleDb.prime.saveAuthToken('');
+      await this.setPrimePersistAtomNotLoggedIn();
+      const clearedAtomValue = await primePersistAtom.get();
+      defaultLogger.prime.subscription.onekeyIdLogout({
+        reason: `ServicePrime.apiLogout: atom cleared, isLoggedIn=${clearedAtomValue.isLoggedIn}, onekeyUserId=${clearedAtomValue.onekeyUserId}`,
+      });
     }
-    await this.setPrimePersistAtomNotLoggedIn();
   }
 
   @backgroundMethod()
@@ -151,12 +248,23 @@ class ServicePrime extends ServiceBase {
       {},
       {
         headers: {
-          'X-Onekey-Request-Token': `${accessToken}`,
+          'X-Onekey-Request-Token': accessToken,
         },
       },
     );
     if (instanceId) {
       await this.apiLogin({ accessToken });
+      // Refresh from /user/info for accurate isPrimeDeviceLimitExceeded,
+      // as the login endpoint may return stale device limit data after removal
+      try {
+        const serverUserInfo = await this.callApiFetchPrimeUserInfo();
+        if (serverUserInfo) {
+          await this.updatePrimeAtomByServerUserInfo({ serverUserInfo });
+        }
+      } catch (e) {
+        // Log but don't fail — apiLogin already updated the atom with best-effort data
+        console.error(e);
+      }
     }
   }
 
@@ -170,7 +278,7 @@ class ServicePrime extends ServiceBase {
       '/prime/v1/user/devices',
       {
         headers: {
-          'X-Onekey-Request-Token': `${accessToken}`,
+          'X-Onekey-Request-Token': accessToken,
         },
       },
     );
@@ -217,6 +325,11 @@ class ServicePrime extends ServiceBase {
   }: {
     serverUserInfo: IPrimeServerUserInfo;
   }) {
+    const beforeValue = await primePersistAtom.get();
+    defaultLogger.prime.subscription.onekeyIdLogout({
+      reason: `updatePrimeAtomByServerUserInfo: before update, atom isPrime=${beforeValue.primeSubscription?.isActive}, atom userId=${beforeValue.onekeyUserId}, server isPrime=${serverUserInfo?.isPrime}, server userId=${serverUserInfo?.userId}`,
+    });
+
     let primeSubscription: IPrimeSubscriptionInfo | undefined;
     if (serverUserInfo.isPrime) {
       primeSubscription = {
@@ -229,10 +342,23 @@ class ServicePrime extends ServiceBase {
       primeSubscription = undefined;
     }
 
+    const serverManagementUrl =
+      serverUserInfo.subscriptions?.[0]?.managementUrl;
+
+    // Sync the server KYT state into the settings cache before exposing
+    // onekeyUserId, so the settings switch and intro dialog gate (both keyed by
+    // onekeyUserId) read the latest interface value once the user becomes active.
+    await this.backgroundApi.serviceSetting.syncKytEnabledFromServer({
+      onekeyUserId: serverUserInfo?.userId,
+      kytEnabled: serverUserInfo?.kytEnabled,
+    });
+
     await primePersistAtom.set((v): IPrimePersistAtomData => {
       const userEmail = serverUserInfo?.emails?.[0] || undefined;
       return {
         ...v,
+        avatar: serverUserInfo?.avatar,
+        nickname: serverUserInfo?.nickname,
         email: userEmail, // TODO update from PrimeGlobalEffect
         displayEmail: userEmail,
         keylessWalletId: serverUserInfo?.keylessWalletId,
@@ -243,9 +369,16 @@ class ServicePrime extends ServiceBase {
         isLoggedIn: true,
         isLoggedInOnServer: true,
         primeSubscription,
+        // Fallback: use server managementUrl when local SDK hasn't set it yet
+        subscriptionManageUrl: v.subscriptionManageUrl || serverManagementUrl,
         // salt: serverUserInfo.salt,
         // pwdHash: serverUserInfo.pwdHash,
       };
+    });
+
+    const afterValue = await primePersistAtom.get();
+    defaultLogger.prime.subscription.onekeyIdLogout({
+      reason: `updatePrimeAtomByServerUserInfo: after update, atom isPrime=${afterValue.primeSubscription?.isActive}, atom userId=${afterValue.onekeyUserId}`,
     });
 
     if (serverUserInfo?.inviteCode) {
@@ -292,6 +425,28 @@ class ServicePrime extends ServiceBase {
       };
     }
     const serverUserInfo = await this.callApiFetchPrimeUserInfo();
+
+    // Re-check auth token after the network request returns. If the user
+    // logged out while this request was in flight, the simpleDb token will
+    // have been cleared. Discarding the response prevents an in-flight
+    // request from writing the previous account's data back into the atom
+    // after logout.
+    const authTokenAfterFetch =
+      await this.backgroundApi.simpleDb.prime.getAuthToken();
+    if (!authTokenAfterFetch) {
+      defaultLogger.prime.subscription.onekeyIdLogout({
+        reason:
+          'ServicePrime.apiFetchPrimeUserInfo: auth token cleared during request, discarding response',
+      });
+      await this.setPrimePersistAtomNotLoggedIn();
+      const localUserInfo = await primePersistAtom.get();
+      return {
+        userInfo: localUserInfo,
+        serverUserInfo: undefined,
+        primeSubscription: undefined,
+      };
+    }
+
     void this.backgroundApi.servicePrimeCloudSync.showAlertDialogIfServerPasswordNotSet(
       {
         serverUserInfo,
@@ -312,7 +467,7 @@ class ServicePrime extends ServiceBase {
     const serverPasswordUUID = serverUserInfo?.pwdHash;
     const isServerMasterPasswordSet = Boolean(
       serverPasswordUUID &&
-        serverPasswordUUID !== RESET_CLOUD_SYNC_MASTER_PASSWORD_UUID,
+      serverPasswordUUID !== RESET_CLOUD_SYNC_MASTER_PASSWORD_UUID,
     );
     await primeServerMasterPasswordStatusAtom.set((v) => ({
       ...v,
@@ -328,10 +483,20 @@ class ServicePrime extends ServiceBase {
 
   @backgroundMethod()
   async setPrimePersistAtomNotLoggedIn() {
-    console.log('servicePrime.setPrimePersistAtomNotLoggedIn');
+    const beforeValue = await primePersistAtom.get();
+    defaultLogger.prime.subscription.onekeyIdLogout({
+      reason: `setPrimePersistAtomNotLoggedIn: before clear, isLoggedIn=${beforeValue.isLoggedIn}, onekeyUserId=${beforeValue.onekeyUserId}, isPrime=${beforeValue.primeSubscription?.isActive}`,
+    });
+
     await primePersistAtom.set(
       (): IPrimePersistAtomData => cloneDeep(primePersistAtomInitialValue),
     );
+
+    const afterValue = await primePersistAtom.get();
+    defaultLogger.prime.subscription.onekeyIdLogout({
+      reason: `setPrimePersistAtomNotLoggedIn: after clear, isLoggedIn=${afterValue.isLoggedIn}, onekeyUserId=${afterValue.onekeyUserId}, isPrime=${afterValue.primeSubscription?.isActive}`,
+    });
+
     await this.backgroundApi.serviceMasterPassword.clearLocalMasterPassword();
     await primeServerMasterPasswordStatusAtom.set((v) => ({
       ...v,
@@ -789,6 +954,37 @@ class ServicePrime extends ServiceBase {
   @backgroundMethod()
   async getLocalUserInfo() {
     return primePersistAtom.get();
+  }
+
+  @backgroundMethod()
+  async apiFetchShopifyOrders(): Promise<IShopifyOrder[]> {
+    const client = await this.getPrimeClient();
+    const result = await client.get<IApiClientResponse<IShopifyOrder[]>>(
+      '/prime/v1/user/shopify-orders',
+    );
+    return result?.data?.data ?? [];
+  }
+
+  @backgroundMethod()
+  async updatePrimeUserProfile({
+    avatar,
+    nickname,
+  }: {
+    avatar: string;
+    nickname: string;
+  }) {
+    const client = await this.getPrimeClient();
+    const result = await client.put<IApiClientResponse<{ success: boolean }>>(
+      `/prime/v1/user/info`,
+      {
+        avatar,
+        nickname,
+      },
+    );
+    setTimeout(() => {
+      void this.apiFetchPrimeUserInfo();
+    });
+    return result.data.code === 0;
   }
 }
 

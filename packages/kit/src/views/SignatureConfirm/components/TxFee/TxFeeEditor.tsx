@@ -49,6 +49,8 @@ import type {
 } from '@onekeyhq/shared/types/fee';
 import { EFeeType } from '@onekeyhq/shared/types/fee';
 
+import { SignatureConfirmTestIDs } from '../../testIDs';
+
 type IFeeInfoItem = {
   label: string;
   nativeValue?: string;
@@ -86,7 +88,7 @@ type IProps = {
 };
 
 const DEFAULT_GAS_LIMIT_MIN = 21_000;
-const DEFAULT_GAS_LIMIT_MAX = 15_000_000;
+const _DEFAULT_GAS_LIMIT_MAX = 15_000_000;
 const DEFAULT_FEER_ATE_MIN = 0;
 const DEFAULT_FEE_RATE_MAX = 1_000_000; // shared cross multi-networks
 
@@ -210,21 +212,24 @@ function TxFeeEditor(props: IProps) {
   const { feeSymbol, feeDecimals, nativeSymbol, nativeTokenPrice } =
     customFee?.common ?? {};
 
-  const { vaultSettings, network, defaultCustomFeeInfo } =
-    usePromiseResult(async () => {
-      const [v, n, d] = await Promise.all([
-        backgroundApiProxy.serviceNetwork.getVaultSettings({ networkId }),
-        backgroundApiProxy.serviceNetwork.getNetwork({ networkId }),
-        backgroundApiProxy.serviceGas.getCustomFeeInfo({ networkId }),
-      ]);
-      setDefaultCustomFeeInfoEnabled(d?.enabled ?? false);
+  const {
+    vaultSettings,
+    network,
+    defaultCustomFeeInfo: _defaultCustomFeeInfo,
+  } = usePromiseResult(async () => {
+    const [v, n, d] = await Promise.all([
+      backgroundApiProxy.serviceNetwork.getVaultSettings({ networkId }),
+      backgroundApiProxy.serviceNetwork.getNetwork({ networkId }),
+      backgroundApiProxy.serviceGas.getCustomFeeInfo({ networkId }),
+    ]);
+    setDefaultCustomFeeInfoEnabled(d?.enabled ?? false);
 
-      return {
-        vaultSettings: v,
-        network: n,
-        defaultCustomFeeInfo: d,
-      };
-    }, [networkId]).result ?? {};
+    return {
+      vaultSettings: v,
+      network: n,
+      defaultCustomFeeInfo: d,
+    };
+  }, [networkId]).result ?? {};
 
   const originalMaxBaseFee = new BigNumber(
     customFee?.gasEIP1559?.maxFeePerGas ?? '0',
@@ -248,7 +253,7 @@ function TxFeeEditor(props: IProps) {
       ).toFixed(),
       maxBaseFee: originalMaxBaseFee.isGreaterThan(0)
         ? originalMaxBaseFee.toFixed()
-        : customFee?.gasEIP1559?.baseFeePerGas ?? '0',
+        : (customFee?.gasEIP1559?.baseFeePerGas ?? '0'),
       // fee utxo
       feeRate: new BigNumber(customFee?.feeUTXO?.feeRate ?? '0').toFixed(),
       // fee sol
@@ -340,13 +345,13 @@ function TxFeeEditor(props: IProps) {
 
       feeNeoN3: customFee?.feeNeoN3 && {
         systemFee: new BigNumber(watchAllFields.neoN3SystemFee || 0)
-          .shiftedBy(customFee?.common?.feeDecimals)
+          .shiftedBy(feeDecimals)
           .toFixed(0),
         networkFee: new BigNumber(watchAllFields.neoN3NetworkFee || 0)
-          .shiftedBy(customFee?.common?.feeDecimals)
+          .shiftedBy(feeDecimals)
           .toFixed(0),
         priorityFee: new BigNumber(watchAllFields.neoN3PriorityFee || 0)
-          .shiftedBy(customFee?.common?.feeDecimals)
+          .shiftedBy(feeDecimals)
           .toFixed(0),
       },
     }),
@@ -380,6 +385,7 @@ function TxFeeEditor(props: IProps) {
       watchAllFields.neoN3NetworkFee,
       watchAllFields.neoN3PriorityFee,
       algoMinFee,
+      feeDecimals,
     ],
   );
 
@@ -426,7 +432,7 @@ function TxFeeEditor(props: IProps) {
     const gasLimit = new BigNumber(
       feeInfo.gasEIP1559?.gasLimit ?? feeInfo.gas?.gasLimit ?? '0',
     );
-    const gasLimitForDisplay = new BigNumber(
+    const _gasLimitForDisplay = new BigNumber(
       feeInfo.gasEIP1559?.gasLimitForDisplay ??
         feeInfo.gas?.gasLimitForDisplay ??
         '0',
@@ -435,7 +441,7 @@ function TxFeeEditor(props: IProps) {
     return {
       gasLimit: gasLimit.toFixed(),
       // description: `Estimate gas limit is ${gasLimit.toFixed()}, recommend ${
-      //   gasLimitForDisplay.isEqualTo(gasLimit) ? '1.0x' : '1.2x'
+      //   _gasLimitForDisplay.isEqualTo(gasLimit) ? '1.0x' : '1.2x'
       // }`,
     };
   }, [feeSelectorItems]);
@@ -902,14 +908,14 @@ function TxFeeEditor(props: IProps) {
     if (replaceTxMode) return null;
     if (!vaultSettings?.editFeeEnabled) return null;
 
-    let feeTitle = '';
+    let _feeTitle = '';
 
     if (customFee?.feeUTXO) {
-      feeTitle = `${intl.formatMessage({
+      _feeTitle = `${intl.formatMessage({
         id: ETranslations.fee_fee_rate,
       })} (sat/vB)`;
     } else {
-      feeTitle = intl.formatMessage(
+      _feeTitle = intl.formatMessage(
         { id: ETranslations.content__gas_price },
         { 'network': feeSymbol },
       );
@@ -918,7 +924,7 @@ function TxFeeEditor(props: IProps) {
     return (
       <>
         {/* <SizableText mb={6} size="$bodyMdMedium">
-          {feeTitle}
+          {_feeTitle}
         </SizableText> */}
         <SegmentControl
           fullWidth
@@ -937,9 +943,7 @@ function TxFeeEditor(props: IProps) {
                 </SizableText> */}
                 <SizableText
                   color={
-                    currentFeeIndex === index
-                      ? '$textInteractive'
-                      : '$textSubdued'
+                    currentFeeIndex === index ? '$textInverse' : '$textSubdued'
                   }
                   size="$bodyMdMedium"
                   textAlign="center"
@@ -974,6 +978,8 @@ function TxFeeEditor(props: IProps) {
     vaultSettings?.editFeeEnabled,
   ]);
 
+  const skipFixFeeInfoDecimal = vaultSettings?.skipFixFeeInfoDecimal;
+  type IWatchAllFieldsKeys = keyof typeof watchAllFields;
   const handleFormValueOnChange = useCallback(
     ({
       name,
@@ -984,7 +990,7 @@ function TxFeeEditor(props: IProps) {
       value: string | undefined;
       intRequired?: boolean;
     }) => {
-      const filedName = name as keyof typeof watchAllFields;
+      const filedName = name as IWatchAllFieldsKeys;
       const valueBN = new BigNumber(value ?? 0);
       if (valueBN.isNaN()) {
         const formattedValue = parseFloat(value ?? '');
@@ -999,10 +1005,7 @@ function TxFeeEditor(props: IProps) {
         form.setValue(filedName, valueBN.toFixed(0));
       } else if (!value?.includes('.')) {
         form.setValue(filedName, valueBN.toFixed());
-      } else if (
-        value?.includes('.') &&
-        !vaultSettings?.skipFixFeeInfoDecimal
-      ) {
+      } else if (value?.includes('.') && !skipFixFeeInfoDecimal) {
         const dp = valueBN.decimalPlaces();
         if (dp && dp > feeDecimals) {
           form.setValue(
@@ -1013,7 +1016,7 @@ function TxFeeEditor(props: IProps) {
         }
       }
     },
-    [feeDecimals, form, vaultSettings?.skipFixFeeInfoDecimal],
+    [feeDecimals, form, skipFixFeeInfoDecimal],
   );
 
   const handleValidateDotExtraTip = useCallback(
@@ -1023,9 +1026,7 @@ function TxFeeEditor(props: IProps) {
         return false;
       }
 
-      const minExtraTip = new BigNumber(1).shiftedBy(
-        -customFee.common.feeDecimals,
-      );
+      const minExtraTip = new BigNumber(1).shiftedBy(-feeDecimals);
       if (extraTip.isNaN() || extraTip.isLessThan(minExtraTip)) {
         return intl.formatMessage(
           {
@@ -1033,13 +1034,13 @@ function TxFeeEditor(props: IProps) {
           },
           {
             amount: minExtraTip.toFixed(),
-            token: customFee.common.feeSymbol,
+            token: feeSymbol,
           },
         );
       }
       return true;
     },
-    [customFee.common.feeDecimals, customFee.common.feeSymbol, intl],
+    [feeDecimals, feeSymbol, intl],
   );
 
   const renderFeeEditorForm = useCallback(() => {
@@ -1066,6 +1067,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID="signature-confirm-render-fee-editor-form-input"
                 flex={1}
                 addOns={[
                   {
@@ -1105,6 +1107,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeDotExtraTipInput}
                 flex={1}
                 addOns={[
                   {
@@ -1147,6 +1150,7 @@ function TxFeeEditor(props: IProps) {
                 }}
               >
                 <Input
+                  testID={SignatureConfirmTestIDs.FeeMaxBaseFeeInput}
                   flex={1}
                   addOns={[
                     {
@@ -1164,9 +1168,9 @@ function TxFeeEditor(props: IProps) {
 
             <YStack>
               <Form.Field
-                label={`${intl.formatMessage({
+                label={intl.formatMessage({
                   id: ETranslations.form__priority_fee,
-                })}`}
+                })}
                 name="priorityFee"
                 description={
                   replaceTxMode ? null : recommendPriorityFee.description
@@ -1183,6 +1187,7 @@ function TxFeeEditor(props: IProps) {
                 }}
               >
                 <Input
+                  testID={SignatureConfirmTestIDs.FeePriorityFeeInput}
                   flex={1}
                   addOns={[
                     {
@@ -1216,6 +1221,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeGasEIP1559LimitInput}
                 flex={1}
                 addOns={[
                   {
@@ -1261,7 +1267,10 @@ function TxFeeEditor(props: IProps) {
                   }),
               }}
             >
-              <Input flex={1} />
+              <Input
+                flex={1}
+                testID={SignatureConfirmTestIDs.FeeGasSuiPriceInput}
+              />
             </Form.Field>
             <Form.Field
               label={intl.formatMessage({
@@ -1280,6 +1289,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeGasSuiBudgetInput}
                 flex={1}
                 addOns={[
                   {
@@ -1325,7 +1335,10 @@ function TxFeeEditor(props: IProps) {
                   }),
               }}
             >
-              <Input flex={1} />
+              <Input
+                flex={1}
+                testID={SignatureConfirmTestIDs.FeeGasPriceInput}
+              />
             </Form.Field>
             <Form.Field
               label={intl.formatMessage({
@@ -1345,6 +1358,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeGasLimitLegacyInput}
                 flex={1}
                 addOns={[
                   {
@@ -1382,6 +1396,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeRateUtxoInput}
                 addOns={[
                   {
                     label: 'sat/vB',
@@ -1415,6 +1430,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeComputeUnitPriceInput}
                 flex={1}
                 addOns={[
                   {
@@ -1449,6 +1465,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeRateCkbInput}
                 flex={1}
                 addOns={[
                   {
@@ -1482,6 +1499,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeNeoN3PriorityFeeInput}
                 flex={1}
                 addOns={[
                   {
@@ -1507,6 +1525,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeNeoN3NetworkFeeInput}
                 flex={1}
                 addOns={[
                   {
@@ -1532,6 +1551,7 @@ function TxFeeEditor(props: IProps) {
               }}
             >
               <Input
+                testID={SignatureConfirmTestIDs.FeeNeoN3SystemFeeInput}
                 flex={1}
                 addOns={[
                   {
@@ -2083,6 +2103,10 @@ function TxFeeEditor(props: IProps) {
     };
   }, []);
 
+  if (!customFee?.common) {
+    return null;
+  }
+
   return (
     <>
       <ScrollView mx="$-5" px="$5" pb="$5" maxHeight="$80">
@@ -2102,6 +2126,7 @@ function TxFeeEditor(props: IProps) {
           currentFeeType !== EFeeType.Custom ||
           !customFee ? null : (
             <Checkbox
+              testID="signature-confirm-checkbox"
               value={defaultCustomFeeInfoEnabled}
               onChange={() => {
                 setDefaultCustomFeeInfoEnabled(!defaultCustomFeeInfoEnabled);
@@ -2111,7 +2136,7 @@ function TxFeeEditor(props: IProps) {
                   id: ETranslations.edit_fee_custom_set_as_default_description,
                 },
                 {
-                  network: network?.name,
+                  network: (network as { name?: string } | undefined)?.name,
                 },
               )}
             />
@@ -2127,6 +2152,7 @@ function TxFeeEditor(props: IProps) {
         {isMultiTxs ? null : renderFeeOverview()}
         {vaultSettings?.editFeeEnabled ? (
           <Button
+            testID="signature-confirm-btn"
             mt="$4"
             disabled={isSaveFeeDisabled}
             variant="primary"

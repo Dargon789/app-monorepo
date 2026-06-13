@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-restricted-imports */
 /* eslint-disable @typescript-eslint/unbound-method */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
@@ -47,12 +46,20 @@ axios.interceptors.request.use(async (config) => {
       }
       return config;
     }
-  } catch (e) {
+  } catch (_e) {
     return config;
   }
 
   const headers = await getRequestHeaders();
   forEach(headers, (val, key) => {
+    // Preserve per-request currency header override (e.g. force 'usd' for search)
+    if (
+      key === 'x-onekey-request-currency' &&
+      config.headers[key] !== null &&
+      config.headers[key] !== undefined
+    ) {
+      return;
+    }
     config.headers[key] = val;
   });
 
@@ -69,6 +76,10 @@ axios.interceptors.request.use(async (config) => {
 
 axios.interceptors.response.use(
   async (response) => {
+    // Guard: if request was aborted, convert to CanceledError regardless of response
+    if (response.config?.signal?.aborted) {
+      throw new axios.CanceledError('canceled');
+    }
     const { config } = response;
     const url =
       response?.request?.responseURL || config?.baseURL || config?.url || '';
@@ -93,7 +104,7 @@ axios.interceptors.response.use(
         }
         return response;
       }
-    } catch (e) {
+    } catch (_e) {
       return response;
     }
 
@@ -142,6 +153,10 @@ axios.interceptors.response.use(
     return response;
   },
   async (error) => {
+    // Guard: if request was aborted, convert to CanceledError regardless of error type
+    if (error?.config?.signal?.aborted) {
+      throw new axios.CanceledError('canceled');
+    }
     const { response } = error;
 
     if (response?.status && response?.config) {
@@ -181,7 +196,7 @@ axios.interceptors.response.use(
           id: ETranslations.global_server_error,
         });
         throw new OneKeyServerApiError({
-          autoToast: true,
+          autoToast: false,
           message: title,
           code: Number(response.status),
           httpStatusCode: Number(response.status),

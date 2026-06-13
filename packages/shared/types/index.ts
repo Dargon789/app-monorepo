@@ -2,6 +2,7 @@ import type {
   IInjectedProviderNamesStrings,
   IJsonRpcRequest,
 } from '@onekeyfe/cross-inpage-provider-types';
+import type { Verify } from '@walletconnect/types';
 
 export type IDappSourceInfo = {
   id: string | number; // ServicePromise callback id to reject/resolve
@@ -10,6 +11,10 @@ export type IDappSourceInfo = {
   scope: IInjectedProviderNamesStrings;
   data: IJsonRpcRequest;
   isWalletConnectRequest: boolean;
+  // Reown Verify API attestation for the WalletConnect peer, when the request
+  // came in over WC. Carries validation (VALID/INVALID/UNKNOWN) and isScam so
+  // the modal can downgrade trust UX without re-querying the SDK.
+  walletConnectVerifyContext?: Verify.Context;
 };
 
 export enum ENetworkStatus {
@@ -45,6 +50,8 @@ export interface INetworkExplorerConfig {
   block?: string;
   token?: string;
 }
+
+export type { ICurrencyItem, ICurrencyType } from './currency';
 
 export type IServerNetwork = {
   id: string; // networkId like evm--1
@@ -99,7 +106,7 @@ export enum EHomeTab {
   NFT = 'nft',
   HISTORY = 'history',
   TOOLS = 'tools',
-  APPROVALS = 'approvals',
+  DEFI = 'defi',
 }
 
 export enum EAssetType {

@@ -10,6 +10,7 @@ import type {
 import type { IModalFiatCryptoParamList } from './fiatCrypto';
 import type { IDeriveTypesAddressParams } from './walletAddress';
 import type { IToken } from '../../types/token';
+import type { EExchangeId } from '../consts/exchangeConsts';
 
 export enum EModalReceiveRoutes {
   ReceiveToken = 'ReceiveToken',
@@ -20,9 +21,10 @@ export enum EModalReceiveRoutes {
   ReceiveSelectAggregateToken = 'ReceiveSelectAggregateToken',
   ReceiveSelectDeriveAddress = 'ReceiveSelectDeriveAddress',
   BtcAddresses = 'BtcAddresses',
+  BtcCoins = 'BtcCoins',
   BuyModal = 'Buy',
-  SellModal = 'Sell',
   DeriveTypesAddress = 'DeriveTypesAddress',
+  ExchangeOpenRedirect = 'ExchangeOpenRedirect',
 }
 
 export type IModalReceiveParamList = {
@@ -33,6 +35,7 @@ export type IModalReceiveParamList = {
         walletId: string;
         indexedAccountId: string | undefined;
         token: IToken;
+        onClose?: () => void;
       }
     | undefined;
   [EModalReceiveRoutes.CreateInvoice]: {
@@ -49,6 +52,7 @@ export type IModalReceiveParamList = {
     disableSelector?: boolean;
     btcUsedAddress?: string;
     btcUsedAddressPath?: string;
+    exchangeSource?: EExchangeId;
   };
   [EModalReceiveRoutes.ReceiveInvoice]: {
     networkId: string;
@@ -65,7 +69,16 @@ export type IModalReceiveParamList = {
     deriveInfo: IAccountDeriveInfo | undefined;
     walletId: string;
   };
+  [EModalReceiveRoutes.BtcCoins]: {
+    networkId: string;
+    accountId: string;
+    deriveInfo: IAccountDeriveInfo | undefined;
+    walletId: string;
+  };
   [EModalReceiveRoutes.BuyModal]: IModalFiatCryptoParamList;
-  [EModalReceiveRoutes.SellModal]: IModalFiatCryptoParamList;
   [EModalReceiveRoutes.DeriveTypesAddress]: IDeriveTypesAddressParams;
+  [EModalReceiveRoutes.ExchangeOpenRedirect]: {
+    exchangeSource: EExchangeId;
+    address: string;
+  };
 };

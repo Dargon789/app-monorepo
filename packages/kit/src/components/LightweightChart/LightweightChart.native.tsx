@@ -8,8 +8,18 @@ import { Stack } from '@onekeyhq/components';
 import { useChartConfig } from './hooks/useChartConfig';
 import { generateChartHTML } from './utils/htmlTemplate';
 
-import type { IChartMessage, ILightweightChartProps } from './types';
+import type {
+  IChartMessage,
+  ILightweightChartConfig,
+  ILightweightChartProps,
+} from './types';
 import type { WebViewMessageEvent } from 'react-native-webview';
+
+function buildStaticWebViewSource(config: ILightweightChartConfig) {
+  return {
+    html: generateChartHTML(config),
+  };
+}
 
 export function LightweightChart({
   data,
@@ -17,6 +27,18 @@ export function LightweightChart({
   lineColor,
   topColor,
   bottomColor,
+  secondaryLineData,
+  secondaryLineColor,
+  secondaryLineWidth,
+  lineWidth,
+  showPriceScale,
+  showHorzGridLines,
+  priceScaleMargins,
+  priceFormatter,
+  fontSize,
+  seriesType,
+  baselineOptions,
+  showLastValue,
   onHover,
 }: ILightweightChartProps) {
   const webViewRef = useRef<WebView>(null);
@@ -27,10 +49,24 @@ export function LightweightChart({
     lineColor,
     topColor,
     bottomColor,
+    secondaryLineData,
+    secondaryLineColor,
+    secondaryLineWidth,
+    lineWidth,
+    showPriceScale,
+    showHorzGridLines,
+    priceScaleMargins,
+    priceFormatter,
+    fontSize,
+    seriesType,
+    baselineOptions,
   });
-  const htmlContent = useMemo(
-    () => generateChartHTML(chartConfig),
-    [chartConfig],
+  const nativeConfig = useMemo(
+    () => ({ ...chartConfig, showLastValue: !!showLastValue }),
+    [chartConfig, showLastValue],
+  );
+  const [webViewSource] = useState(() =>
+    buildStaticWebViewSource(nativeConfig),
   );
 
   const handleMessage = useCallback(
@@ -44,6 +80,9 @@ export function LightweightChart({
           onHover({
             time: message.time ? Number(message.time) : undefined,
             price: message.price ? Number(message.price) : undefined,
+            secondaryPrice: message.secondaryPrice
+              ? Number(message.secondaryPrice)
+              : undefined,
             x: message.x,
             y: message.y,
           });
@@ -63,24 +102,26 @@ export function LightweightChart({
     if (webViewReady && webViewRef.current) {
       const updateScript = `
         (function() {
-          const newConfig = ${JSON.stringify(chartConfig)};
-          if (window.series) {
-            window.series.setData(newConfig.data);
-            window.chart.timeScale().fitContent();
+          const newConfig = ${JSON.stringify(nativeConfig)};
+          if (typeof window.applyChartConfig === 'function') {
+            window.applyChartConfig(newConfig);
           }
         })();
         true;
       `;
       webViewRef.current.injectJavaScript(updateScript);
     }
-  }, [chartConfig, webViewReady]);
+  }, [nativeConfig, webViewReady]);
 
   return (
     <Stack position="relative" height={height} width="100%">
       <View style={{ flex: 1 }}>
         <WebView
           ref={webViewRef}
-          source={{ html: htmlContent }}
+          source={webViewSource}
+          onLoadStart={() => {
+            setWebViewReady(false);
+          }}
           onMessage={handleMessage}
           scrollEnabled={false}
           showsVerticalScrollIndicator={false}

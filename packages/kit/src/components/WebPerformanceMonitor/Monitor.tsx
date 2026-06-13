@@ -9,9 +9,18 @@ import Animated, {
   useSharedValue,
 } from 'react-native-reanimated';
 
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
+import type { WorkletFn } from '@onekeyhq/shared/types/worklet';
+
+import SystemResources from './SystemResources';
+
 import type { FrameInfo } from 'react-native-reanimated';
 
-const isLowFps = (fps: number) => fps < 30;
+const isLowFps: WorkletFn<(fps: number) => boolean> = (fps) => {
+  'worklet';
+
+  return fps < 30;
+};
 const styles = StyleSheet.create({
   monitor: {
     userSelect: 'none',
@@ -25,7 +34,7 @@ const styles = StyleSheet.create({
   text: {
     userSelect: 'none',
     cursor: 'pointer',
-    width: 60,
+    width: 88,
     fontSize: 13,
     color: '#000',
     paddingHorizontal: 3,
@@ -238,6 +247,7 @@ export function PerformanceMonitor({
     <View style={styles.monitor}>
       <JsPerformance smoothingFrames={smoothingFrames} />
       <UiPerformance smoothingFrames={smoothingFrames} />
+      {platformEnv.isDesktop ? <SystemResources /> : null}
     </View>
   );
 }

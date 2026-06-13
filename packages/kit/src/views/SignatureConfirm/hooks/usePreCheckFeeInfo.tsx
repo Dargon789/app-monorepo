@@ -23,6 +23,7 @@ function ExtremelyHighFeeDialogContent({
     <>
       <Stack>
         <Checkbox
+          testID="verify-tx-fee-checkbox"
           value={checkState}
           label={intl.formatMessage({
             id: ETranslations.fee_alert_dialog_checkbox_label,
@@ -33,7 +34,11 @@ function ExtremelyHighFeeDialogContent({
       <Dialog.Footer
         tone="destructive"
         confirmButtonProps={{
+          testID: 'verify-tx-fee-confirm-btn',
           disabled: !checkState,
+        }}
+        cancelButtonProps={{
+          testID: 'verify-tx-fee-cancel-btn',
         }}
         onCancel={onCancel}
         onConfirm={onConfirm}
@@ -45,20 +50,18 @@ function ExtremelyHighFeeDialogContent({
   );
 }
 
-function usePreCheckFeeInfo({
-  accountId,
-  networkId,
-}: {
-  accountId: string;
-  networkId: string;
-}) {
+function usePreCheckFeeInfo() {
   const intl = useIntl();
   const checkFeeInfoIsOverflow = useCallback(
     async ({
+      accountId,
+      networkId,
       feeAmount,
       feeSymbol,
       encodedTx,
     }: {
+      accountId: string;
+      networkId: string;
       encodedTx: IEncodedTx;
       feeAmount: string;
       feeSymbol: string;
@@ -78,7 +81,7 @@ function usePreCheckFeeInfo({
 
       return isFeeInfoOverflow;
     },
-    [accountId, networkId],
+    [],
   );
 
   const showFeeInfoOverflowConfirm = useCallback(

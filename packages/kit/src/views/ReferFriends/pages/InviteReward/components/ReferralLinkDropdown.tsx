@@ -34,6 +34,7 @@ export function ReferralLinkDropdown({
   const renderTrigger = useMemo(
     () => (
       <IconButton
+        testID="refer-friends-render-trigger-icon-btn"
         icon="ChevronDownSmallOutline"
         variant="tertiary"
         size="small"
@@ -46,6 +47,9 @@ export function ReferralLinkDropdown({
     <Stack onPress={handleStopPropagation}>
       <Popover
         title={intl.formatMessage({ id: ETranslations.global_more_links })}
+        description={intl.formatMessage({
+          id: ETranslations.referral_morelink_description,
+        })}
         renderTrigger={renderTrigger}
         renderContent={renderContent}
         floatingPanelProps={{

@@ -32,6 +32,9 @@ export const buildBleSettingsDialogProps = (
     onConfirmText: intl.formatMessage({
       id: ETranslations.global_go_to_settings,
     }),
+    confirmButtonProps: {
+      testID: 'hardware-ui-ble-settings-confirm-btn',
+    },
     onConfirm: async ({ close }) => {
       await close?.();
       await openBLESettings();
@@ -42,7 +45,7 @@ export const buildBleSettingsDialogProps = (
           zIndex: undefined,
         }
       : undefined,
-  } as const);
+  }) as const;
 
 function OpenBleSettingDialogContainer(
   props: any,
@@ -75,6 +78,9 @@ export const buildBleNotifyChangeError = (intl: IntlShape): IDialogShowProps =>
     onConfirmText: intl.formatMessage({
       id: ETranslations.global_go_to_settings,
     }),
+    confirmButtonProps: {
+      testID: 'hardware-ui-ble-notify-error-confirm-btn',
+    },
     onConfirm: async ({ close }) => {
       await close?.();
       await openBLESettings();
@@ -85,7 +91,7 @@ export const buildBleNotifyChangeError = (intl: IntlShape): IDialogShowProps =>
           zIndex: undefined,
         }
       : undefined,
-  } as const);
+  }) as const;
 
 function OpenBleNotifyChangeErrorDialogContainer(
   props: any,
@@ -125,6 +131,9 @@ function RequireBlePermissionDialogContainer(
       onConfirmText={intl.formatMessage({
         id: ETranslations.global_go_to_settings,
       })}
+      confirmButtonProps={{
+        testID: 'hardware-ui-ble-permission-confirm-btn',
+      }}
       onConfirm={async ({ close }) => {
         await close?.();
         await openBLEPermissionsSettings();
@@ -189,7 +198,7 @@ function WebDeviceAccessDialogContent({
       <HyperlinkText
         size="$bodyLg"
         translationId={ETranslations.device_reconnect_from_beginning}
-        autoHandleResult={false}
+        autoExecuteParsedAction={false}
         onAction={() => {
           void promptWebUsbDeviceAccess();
         }}
@@ -219,4 +228,4 @@ export const buildWebDeviceAccessDialogProps = ({
       />
     ),
     showFooter: false,
-  } as const);
+  }) as const;

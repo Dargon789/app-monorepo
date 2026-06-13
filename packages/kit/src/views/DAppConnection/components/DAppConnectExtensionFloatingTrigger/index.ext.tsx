@@ -11,6 +11,7 @@ import {
   XStack,
   YStack,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
 import { AccountSelectorTriggerAddressSingle } from '@onekeyhq/kit/src/components/AccountSelector/AccountSelectorTrigger/AccountSelectorTriggerDApp';
@@ -237,6 +238,7 @@ function DAppConnectExtensionFloatingTrigger() {
             <SizableText size="$bodyMdMedium">{switchProcessText}</SizableText>
             <XStack gap="$3">
               <IconButton
+                testID="d-app-connection-icon-btn"
                 icon="CheckLargeOutline"
                 size="small"
                 variant="tertiary"
@@ -244,6 +246,7 @@ function DAppConnectExtensionFloatingTrigger() {
                 loading={isSwitching}
               />
               <IconButton
+                testID="d-app-connection-icon-btn"
                 icon="CrossedLargeOutline"
                 size="small"
                 variant="tertiary"
@@ -264,6 +267,7 @@ function DAppConnectExtensionFloatingTrigger() {
       >
         <Stack
           animation="quick"
+          animateOnly={ANIMATE_ONLY_TRANSFORM}
           $group-hover={{
             scale: 1.1,
           }}
@@ -305,6 +309,7 @@ function DAppConnectExtensionFloatingTrigger() {
           {renderAccountTrigger()}
         </YStack>
         <IconButton
+          testID="d-app-connection-icon-btn"
           icon="BrokenLinkOutline"
           size="medium"
           variant="tertiary"

@@ -8,6 +8,7 @@ import { useReferFriends } from '@onekeyhq/kit/src/hooks/useReferFriends';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { ESpotlightTour } from '@onekeyhq/shared/src/spotlight';
 
+import { ReferFriendsTestIDs } from '../../../testIDs';
 import { EPhaseState } from '../types';
 
 export type IReferAFriendActionPlacement = 'inline' | 'footer';
@@ -21,12 +22,11 @@ interface IReferAFriendPhaseActionsProps {
 export function ReferAFriendPhaseActions({
   phaseState,
   setPhaseState,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   placement = 'inline',
 }: IReferAFriendPhaseActionsProps) {
   const intl = useIntl();
   const { toInviteRewardPage } = useReferFriends();
-  const isFooter = placement === 'footer';
-
   const handleBackToIntro = useCallback(() => {
     setPhaseState(undefined);
     setTimeout(() => {
@@ -57,9 +57,10 @@ export function ReferAFriendPhaseActions({
   if (phaseState === EPhaseState.next) {
     return (
       <Button
+        testID={ReferFriendsTestIDs.nextBtn}
         variant="primary"
         w="100%"
-        size={isFooter ? 'large' : undefined}
+        size="large"
         onPress={handleNext}
       >
         {intl.formatMessage({
@@ -73,9 +74,10 @@ export function ReferAFriendPhaseActions({
     return (
       <XStack gap="$4" w="100%" justifyContent="space-between">
         <Button
+          testID={ReferFriendsTestIDs.previousBtn}
           variant="secondary"
           flex={1}
-          size={isFooter ? 'large' : undefined}
+          size="large"
           onPress={handleBackToIntro}
         >
           {intl.formatMessage({
@@ -83,9 +85,10 @@ export function ReferAFriendPhaseActions({
           })}
         </Button>
         <Button
+          testID={ReferFriendsTestIDs.joinBtn}
           variant="primary"
           flex={1}
-          size={isFooter ? 'large' : undefined}
+          size="large"
           onPress={handleJoin}
         >
           {intl.formatMessage({

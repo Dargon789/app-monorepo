@@ -1,7 +1,9 @@
-const fse = require('fs-extra');
 const fs = require('fs');
 const path = require('path');
+
 const cheerio = require('cheerio');
+const fse = require('fs-extra');
+
 const devUtils = require('./devUtils');
 
 function doTaskInFolder({ folder }) {
@@ -31,10 +33,7 @@ function doTaskInFolder({ folder }) {
     $('html head script').each((idx, ele) => {
       const $ele = $(ele);
       const src = $ele.attr('src');
-      if (
-        !src.includes('preload-html-head.js') &&
-        !src.includes('react-render-tracker')
-      ) {
+      if (!src.includes('preload-html-head.js')) {
         srcList.push(src);
         $ele.remove();
       }
@@ -110,7 +109,7 @@ class HtmlLazyScriptPlugin {
   }
 
   apply(compiler) {
-    compiler.hooks.done.tap('HtmlLazyScriptPlugin', (compilation, callback) => {
+    compiler.hooks.done.tap('HtmlLazyScriptPlugin', (_compilation) => {
       console.log(`\n${this.config.name}: HtmlLazyScriptPlugin >>>>>>>> `);
       doTask();
       console.log(`\n${this.config.name}: HtmlLazyScriptPlugin DONE !!!!! `);

@@ -64,7 +64,12 @@ const ExportCustomNetworkAndToken = () => {
         })}
       </SizableText>
       <Stack h="$2" />
-      <Button onPress={onPress} loading={loading} disabled={empty}>
+      <Button
+        onPress={onPress}
+        loading={loading}
+        disabled={empty}
+        testID="setting-addresses-btn"
+      >
         {!empty
           ? intl.formatMessage({ id: ETranslations.global_export })
           : intl.formatMessage({ id: ETranslations.global_no_data })}
@@ -89,7 +94,7 @@ const ExportCustomRPC = () => {
         .map((o) => {
           let output = '';
           output += `${o.networkName}${CRLF}`;
-          output += `${o.rpcUrls.join(CRLF)}`;
+          output += o.rpcUrls.join(CRLF);
           return output;
         })
         .join(`${CRLF}--${CRLF}`);
@@ -103,7 +108,12 @@ const ExportCustomRPC = () => {
     <Stack>
       <SizableText size="$headingMd">RPC</SizableText>
       <Stack h="$2" />
-      <Button onPress={onPress} loading={loading} disabled={empty}>
+      <Button
+        onPress={onPress}
+        loading={loading}
+        disabled={empty}
+        testID="setting-content-btn"
+      >
         {!empty
           ? intl.formatMessage({ id: ETranslations.global_export })
           : intl.formatMessage({ id: ETranslations.global_no_data })}

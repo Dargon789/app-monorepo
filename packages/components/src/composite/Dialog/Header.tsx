@@ -12,6 +12,8 @@ import type { IDialogHeaderContextType, IDialogHeaderProps } from './type';
 import type { IRichSizeableTextProps } from '../../content/RichSizeableText';
 import type { ColorTokens, ISizableTextProps } from '../../primitives';
 
+const closeButtonIconProps = { color: '$iconSubdued' } as const;
+
 export const DialogHeaderContext = createContext<IDialogHeaderContextType>(
   {} as IDialogHeaderContextType,
 );
@@ -147,6 +149,8 @@ function BasicDialogHeader({
 
       {/* close button */}
       {showExitButton ? (
+        // Internal dialog control; QA should target the dialog body.
+        // oxlint-disable-next-line onekey/require-testid
         <IconButton
           trackID={trackID}
           position="absolute"
@@ -154,10 +158,9 @@ function BasicDialogHeader({
           right="$5"
           top="$5"
           icon="CrossedSmallOutline"
-          iconProps={{
-            color: '$iconSubdued',
-          }}
+          iconProps={closeButtonIconProps}
           size="small"
+          hotKey
           onPress={onClose}
         />
       ) : null}

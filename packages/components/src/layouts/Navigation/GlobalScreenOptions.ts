@@ -105,7 +105,10 @@ export function makeModalStackNavigatorOptions({
       titleColor,
       isModelScreen:
         pageType === EPageType.modal || pageType === EPageType.fullScreen,
-      isOnboardingScreen: pageType === EPageType.onboarding,
+      isOnboardingScreen:
+        pageType === EPageType.onboarding ||
+        pageType === EPageType.fullScreenPush,
+      isWebViewScreen: pageType === EPageType.webView,
     }),
   } as any;
 
@@ -152,7 +155,35 @@ export function makeOnboardingScreenOptions(info: {
   };
 }
 
-export function makeRootModalStackOptions(): StackNavigationOptions {
+// Independent factory so WebView's screen options can diverge from Onboarding's
+// without coupling the two. Today the shape mirrors makeOnboardingScreenOptions;
+// keep them separate so future tweaks (e.g. a different animation curve, or a
+// webView-specific gesture config) only affect this surface.
+export function makeWebviewScreenOptions(info: {
+  isVerticalLayout?: boolean;
+  optionsInfo: IScreenOptionsInfo<any>;
+}): StackNavigationOptions {
+  return {
+    detachPreviousScreen: false,
+    headerShown: false,
+    presentation: 'transparentModal',
+    // `pointerEvents: 'box-none'` lets the screen card itself pass clicks
+    // through to the underlying Main route where the WebView page doesn't
+    // render any opaque content (e.g. the sidebar passthrough column).
+    // RN-Web translates this to a CSS rule on the card View.
+    cardStyle: {
+      backgroundColor: 'transparent',
+      pointerEvents: 'box-none',
+    },
+    // @ts-expect-error
+    animation: 'custom-animation-on-web',
+    ...makeModalOpenAnimationOptions(info),
+  };
+}
+
+export function makeRootModalStackOptions(_params?: {
+  bgColor?: string;
+}): StackNavigationOptions {
   return {
     detachPreviousScreen: false,
     headerShown: false,

@@ -1,32 +1,46 @@
 import type { ReactNode } from 'react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import * as React from 'react';
 
 import { Header } from '@react-navigation/elements';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useDebouncedCallback } from 'use-debounce';
 
 import { useMedia } from '@onekeyhq/components/src/hooks/useStyle';
 import { useTheme } from '@onekeyhq/components/src/shared/tamagui';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
-import { useIsModalPage } from '../../../hocs';
+import { useIsDesktopModeUIInTabPages } from '../../../hooks';
 import { Stack, XStack } from '../../../primitives';
+import { WINDOWS_OVERLAY_BUTTONS_WIDTH } from '../../../utils/sidebar';
 import { DesktopDragZoneBox } from '../../DesktopDragZoneBox';
-import { rootNavigationRef } from '../Navigator/NavigationContainer';
 
 import HeaderBackButton from './HeaderBackButton';
 import HeaderSearchBar from './HeaderSearchBar';
 
 import type { IOnekeyStackHeaderProps } from './HeaderScreenOptions';
-import type { IDesktopDragZoneBoxProps } from '../../DesktopDragZoneBox';
 import type { IStackHeaderProps } from '../ScreenProps';
 import type {
   HeaderBackButtonProps,
   HeaderOptions,
   Layout,
 } from '@react-navigation/elements';
+
+const HEADER_TRANSPARENT_STYLE = {
+  position: 'absolute',
+  right: 0,
+  left: 0,
+} as const;
+const EMPTY_HEADER_STYLE = {} as const;
+const GT_MD_FLEX_1 = { flex: 1 } as const;
+const FLEX_GROW_0_STYLE = { flexGrow: 0 } as const;
+const HEADER_TITLE_BASE_STYLE = {
+  lineHeight: 28,
+  fontWeight: '600',
+} as const;
+const EMPTY_HEADER_RIGHT_CONTAINER_STYLE = {} as const;
+const EMPTY_HEADER_TITLE_CONTAINER_STYLE = {} as const;
+const EMPTY_OPTIONS = {} as const;
+const GT_MD_FLEX_DIRECTION_ROW = { flexDirection: 'row' } as const;
 
 function getHeaderTitle(
   options: { title?: string; headerTitle?: HeaderOptions['headerTitle'] },
@@ -36,51 +50,18 @@ function getHeaderTitle(
   return typeof options?.headerTitle === 'string'
     ? options?.headerTitle
     : options?.title !== undefined
-    ? options?.title
-    : fallback;
+      ? options?.title
+      : fallback;
 }
 
-const DesktopDragZoneBoxView = platformEnv.isDesktop
-  ? ({ disabled, children }: IDesktopDragZoneBoxProps) => {
-      const isModalPage = useIsModalPage();
-
-      const [isFocus, setIsFocus] = useState(false);
-
-      // eslint-disable-next-line @typescript-eslint/unbound-method
-      const { getState } = useNavigation();
-
-      const currentRouteName = useMemo(() => {
-        const state = getState?.();
-        return state?.routes?.at(-1)?.name;
-      }, [getState]);
-
-      const handlePageFocus = useDebouncedCallback(() => {
-        setIsFocus(
-          currentRouteName ===
-            rootNavigationRef.current?.getCurrentRoute()?.name,
-        );
-      }, 100);
-
-      const handlePageBlur = useDebouncedCallback(() => {
-        setIsFocus(false);
-      }, 100);
-
-      const handlePageEffect = useCallback(() => {
-        handlePageFocus();
-        return () => {
-          handlePageBlur();
-        };
-      }, [handlePageBlur, handlePageFocus]);
-
-      useFocusEffect(handlePageEffect);
-
-      return (
-        <DesktopDragZoneBox disabled={disabled || !isFocus || isModalPage}>
-          {children}
-        </DesktopDragZoneBox>
-      );
-    }
-  : DesktopDragZoneBox;
+// Keep the drag region attached to the rendered header at all times. The
+// previous version toggled it via useFocusEffect/useIsOverlayPage, which left
+// a one-frame gap during route/modal transitions where the title bar was no
+// longer draggable — that was the source of the "header sometimes can't be
+// dragged" reports on macOS and Windows. Stacked overlays sit above this
+// header, so their clicks never reach the drag region anyway; the
+// `isModelScreen` prop already disables drag for genuine modal screens.
+const DesktopDragZoneBoxView = DesktopDragZoneBox;
 
 const useHeaderHeight = platformEnv.isNativeIOS
   ? () => 52
@@ -97,6 +78,7 @@ function HeaderView({
   isModelScreen = false,
   isRootScreen = false,
   isOnboardingScreen = false,
+  isWebViewScreen = false,
 }: IStackHeaderProps & IOnekeyStackHeaderProps) {
   const {
     headerLeft,
@@ -107,12 +89,13 @@ function HeaderView({
     headerStyle,
     headerBackground,
     headerShown = true,
-    headerRightContainerStyle = {},
-    headerTitleContainerStyle = {},
+    headerRightContainerStyle = EMPTY_HEADER_RIGHT_CONTAINER_STYLE,
+    headerTitleContainerStyle = EMPTY_HEADER_TITLE_CONTAINER_STYLE,
     // native HeaderSearchBar in packages/components/src/layouts/Page/PageHeader.tsx
     headerSearchBarOptions,
     headerTitleStyle,
-  } = options || {};
+    modalContentMaxWidth,
+  } = options || EMPTY_OPTIONS;
   const theme = useTheme();
   const state = navigation?.getState();
   const canGoBack = headerBack !== undefined;
@@ -139,6 +122,7 @@ function HeaderView({
           isRootScreen={isRootScreen}
           isModelScreen={isModelScreen}
           isOnboardingScreen={isOnboardingScreen}
+          isWebViewScreen={isWebViewScreen}
           renderLeft={headerLeft}
           {...props}
         />
@@ -154,6 +138,7 @@ function HeaderView({
       isRootScreen,
       isModelScreen,
       isOnboardingScreen,
+      isWebViewScreen,
       headerLeft,
     ],
   );
@@ -167,11 +152,110 @@ function HeaderView({
     }
     if (isModelScreen) {
       return isGtMd
-        ? ({ width: 640 } as Layout)
+        ? ({ width: modalContentMaxWidth ?? 640 } as Layout)
         : ({ width: window.innerWidth } as Layout);
     }
     return undefined;
-  }, [isGtMd, isModelScreen]);
+  }, [isGtMd, isModelScreen, modalContentMaxWidth]);
+
+  const isDesktopModeUI = useIsDesktopModeUIInTabPages();
+  const headerBackgroundColor = useMemo(() => {
+    if (headerTransparent) {
+      return 'transparent';
+    }
+    // The WebView overlay's header sits flush against the sidebar at the top
+    // of the window — share `$bgSidebar` so the band reads as a single
+    // continuous color across sidebar + header.
+    if (isWebViewScreen) {
+      return '$bgSidebar';
+    }
+    if (platformEnv.isWebDappMode) {
+      return '$bgApp';
+    }
+    return isDesktopModeUI ? '$bgSubdued' : '$bgApp';
+  }, [headerTransparent, isDesktopModeUI, isWebViewScreen]);
+
+  const routeName = route.name;
+  const title = useMemo(
+    () => getHeaderTitle(options, routeName),
+    [routeName, options],
+  );
+  const headerViewKey = useMemo(
+    () => `${title}-${routeName}`,
+    [title, routeName],
+  );
+  const stackStyle = useMemo(
+    () =>
+      headerTransparent && !platformEnv.isNativeAndroid
+        ? HEADER_TRANSPARENT_STYLE
+        : EMPTY_HEADER_STYLE,
+    [headerTransparent],
+  );
+
+  const innerGtMd = useMemo(
+    () => (platformEnv.isNativeAndroid ? undefined : GT_MD_FLEX_1),
+    [],
+  );
+
+  const headerRightContainerStyleMemo = useMemo(
+    () =>
+      isOnboardingScreen || isWebViewScreen
+        ? FLEX_GROW_0_STYLE
+        : headerRightContainerStyle,
+    [isOnboardingScreen, isWebViewScreen, headerRightContainerStyle],
+  );
+
+  const headerRightView = useCallback(
+    ({ tintColor }: { tintColor?: string }) => {
+      const node =
+        typeof headerRight === 'function'
+          ? headerRight({ tintColor, canGoBack })
+          : (headerRight as React.ReactNode);
+      if (!node) {
+        return node ?? null;
+      }
+      return <XStack className="app-region-no-drag">{node}</XStack>;
+    },
+    [headerRight, canGoBack],
+  );
+
+  const headerTitleView = useCallback(
+    ({ children, tintColor }: { children: string; tintColor?: string }) => {
+      if (typeof headerTitle === 'function') {
+        return headerTitle({ children, tintColor });
+      }
+      return null;
+    },
+    [headerTitle],
+  );
+
+  const headerTitleStyleMemo = useMemo(
+    () =>
+      headerTitleStyle
+        ? {
+            ...HEADER_TITLE_BASE_STYLE,
+            ...(headerTitleStyle as Record<string, unknown>),
+          }
+        : HEADER_TITLE_BASE_STYLE,
+    [headerTitleStyle],
+  );
+
+  const headerTitleContainerStyleMemo = useMemo(
+    () => ({
+      marginHorizontal: 0,
+      ...(headerTitleContainerStyle as Record<string, unknown>),
+      ...(isOnboardingScreen || isWebViewScreen
+        ? { flex: 1, alignItems: 'center' as const }
+        : undefined),
+    }),
+    [headerTitleContainerStyle, isOnboardingScreen, isWebViewScreen],
+  );
+
+  const headerStyleMemo = useMemo(
+    () => [{ height: headerHeight }, headerStyle],
+    [headerHeight, headerStyle],
+  );
+
   if (!headerShown) {
     return null;
   }
@@ -180,79 +264,50 @@ function HeaderView({
     <DesktopDragZoneBoxView disabled={isModelScreen}>
       <Stack
         alignItems="center"
-        bg={headerTransparent ? 'transparent' : '$bgApp'}
+        bg={headerBackgroundColor}
         pt={isOnboardingScreen ? '$10' : undefined}
-        style={
-          headerTransparent && !platformEnv.isNativeAndroid
-            ? { position: 'absolute', right: 0, left: 0 }
-            : {}
-        }
-        // borderBottomWidth={StyleSheet.hairlineWidth}
-        // borderBottomColor="$borderSubdued"
+        style={stackStyle}
         pointerEvents="box-none"
-        {...(!isModelScreen && {
-          $gtMd: platformEnv.isNativeAndroid
-            ? undefined
-            : {
-                flexDirection: 'row',
-              },
-        })}
+        $gtMd={
+          !isModelScreen && !platformEnv.isNativeAndroid
+            ? GT_MD_FLEX_DIRECTION_ROW
+            : undefined
+        }
       >
         <Stack
           alignSelf="stretch"
           px={isOnboardingScreen ? '$16' : '$5'}
-          $gtMd={
-            platformEnv.isNativeAndroid
-              ? undefined
-              : {
-                  flex: 1,
-                }
+          pr={
+            (platformEnv.isDesktopWin || platformEnv.isDesktopLinux) &&
+            !isOnboardingScreen &&
+            !isModelScreen
+              ? WINDOWS_OVERLAY_BUTTONS_WIDTH
+              : undefined
           }
+          $gtMd={innerGtMd}
         >
           <Header
             layout={layout}
-            title={getHeaderTitle(options, route.name)}
+            title={title}
+            key={headerViewKey}
             headerTintColor={theme.text.val}
             headerLeft={headerLeftView as any}
-            headerRightContainerStyle={
-              isOnboardingScreen ? { flexGrow: 0 } : headerRightContainerStyle
-            }
+            headerRightContainerStyle={headerRightContainerStyleMemo}
             headerTitleAllowFontScaling={false}
             headerRight={
               typeof headerRight === 'function'
-                ? ({ tintColor }) => {
-                    const ele = headerRight({ tintColor, canGoBack });
-                    return ele;
-                  }
+                ? headerRightView
                 : (headerRight as any)
             }
             headerTitle={
-              typeof headerTitle === 'function'
-                ? ({ children, tintColor }) =>
-                    headerTitle({ children, tintColor })
-                : headerTitle
+              typeof headerTitle === 'function' ? headerTitleView : headerTitle
             }
             headerTitleAlign={headerTitleAlign}
-            headerTitleStyle={{
-              lineHeight: 28,
-              fontWeight: '600',
-              ...(headerTitleStyle as any),
-            }}
-            headerTitleContainerStyle={{
-              marginHorizontal: 0,
-              ...(headerTitleContainerStyle as any),
-              ...(isOnboardingScreen
-                ? { flex: 1, alignItems: 'center' }
-                : undefined),
-            }}
+            headerTitleStyle={headerTitleStyleMemo}
+            headerTitleContainerStyle={headerTitleContainerStyleMemo}
             headerTransparent
             headerBackground={headerBackground}
-            headerStyle={[
-              {
-                height: headerHeight,
-              },
-              headerStyle,
-            ]}
+            headerStyle={headerStyleMemo}
           />
         </Stack>
         {headerSearchBarOptions ? (

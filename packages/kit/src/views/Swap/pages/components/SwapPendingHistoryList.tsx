@@ -20,11 +20,13 @@ import {
 } from '@onekeyhq/kit/src/states/jotai/contexts/swap';
 import {
   EJotaiContextStoreNames,
+  filterSwapHistoryPendingList,
   useInAppNotificationAtom,
 } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type { IModalSwapParamList } from '@onekeyhq/shared/src/routes';
 import { EModalRoutes, EModalSwapRoutes } from '@onekeyhq/shared/src/routes';
+import { isPrivateSendSwapHistoryItem } from '@onekeyhq/shared/src/utils/swapHistoryUtils';
 import {
   EProtocolOfExchange,
   ESwapTabSwitchType,
@@ -32,7 +34,7 @@ import {
 } from '@onekeyhq/shared/types/swap/types';
 
 import SwapTxHistoryListCell from '../../components/SwapTxHistoryListCell';
-
+import { SwapTestIDs } from '../../testIDs';
 const SwapPendingHistoryListComponent = ({
   pageType,
 }: {
@@ -54,14 +56,20 @@ const SwapPendingHistoryListComponent = ({
     [swapHistoryPendingList],
   );
   const listData = useMemo(() => {
-    const pendingData =
-      swapTxHistoryList?.filter(
-        (item) =>
-          item.status === ESwapTxHistoryStatus.PENDING ||
-          item.status === ESwapTxHistoryStatus.CANCELING,
-      ) ?? [];
+    const pendingData = filterSwapHistoryPendingList(
+      swapHistoryPendingList,
+    ).filter(
+      (item) =>
+        !isPrivateSendSwapHistoryItem(item) &&
+        (item.status === ESwapTxHistoryStatus.PENDING ||
+          item.status === ESwapTxHistoryStatus.CANCELING),
+    );
     return pendingData;
-  }, [swapTxHistoryList]);
+  }, [swapHistoryPendingList]);
+  const txHistoryListForDetail = useMemo(
+    () => (swapTxHistoryList?.length ? swapTxHistoryList : listData),
+    [listData, swapTxHistoryList],
+  );
   const fromTokenAmountBN = new BigNumber(fromTokenAmount.value ?? 0);
   if (
     (!fromTokenAmountBN.isZero() && !fromTokenAmountBN.isNaN()) ||
@@ -71,7 +79,12 @@ const SwapPendingHistoryListComponent = ({
     return null;
   }
   return (
-    <YStack gap="$2" flex={1} overflow="visible">
+    <YStack
+      testID={SwapTestIDs.pendingHistoryList}
+      gap="$2"
+      flex={1}
+      overflow="visible"
+    >
       <XStack justifyContent="space-between" flex={1} alignItems="center">
         <SizableText size="$bodyMd" color="$textSubdued">
           {intl.formatMessage({
@@ -85,7 +98,6 @@ const SwapPendingHistoryListComponent = ({
           gap="$1"
           cursor="pointer"
           borderRadius="$3"
-          mr="$-2"
           onPress={() => {
             navigation.pushModal(EModalRoutes.SwapModal, {
               screen: EModalSwapRoutes.SwapHistoryList,
@@ -117,7 +129,7 @@ const SwapPendingHistoryListComponent = ({
           <Icon name="ChevronRightSolid" size="$3" color="$iconSubdued" />
         </XStack>
       </XStack>
-      <YStack mx="$-6" overflow="visible">
+      <YStack ml="$-6" mr="$-4">
         {listData.map((item) => (
           <SwapTxHistoryListCell
             key={item.swapInfo.orderId}
@@ -127,7 +139,7 @@ const SwapPendingHistoryListComponent = ({
                 screen: EModalSwapRoutes.SwapHistoryDetail,
                 params: {
                   txHistoryOrderId: item.swapInfo.orderId,
-                  txHistoryList: [...(swapTxHistoryList ?? [])],
+                  txHistoryList: [...txHistoryListForDetail],
                 },
               });
             }}

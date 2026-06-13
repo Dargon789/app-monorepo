@@ -54,6 +54,15 @@ export class SimpleDbEntityFeeInfo extends SimpleDbEntityBase<IFeeInfoDb> {
   }
 
   @backgroundMethod()
+  async clearCustomFeeInfo() {
+    await this.setRawData((rawData) => ({
+      ...rawData,
+      presetIndex: rawData?.presetIndex ?? {},
+      customFeeInfo: {},
+    }));
+  }
+
+  @backgroundMethod()
   async updateCustomFeeInfo({
     networkId,
     customFeeInfo,
@@ -68,12 +77,12 @@ export class SimpleDbEntityFeeInfo extends SimpleDbEntityBase<IFeeInfoDb> {
         ...rawData,
         presetIndex: rawData?.presetIndex ?? {},
         customFeeInfo: {
-          ...(rawData?.customFeeInfo ?? {}),
+          ...rawData?.customFeeInfo,
           [networkId]: {
             enabled,
             feeInfo: customFeeInfo
               ? omitBy(customFeeInfo, isNil)
-              : rawData?.customFeeInfo?.[networkId]?.feeInfo ?? {},
+              : (rawData?.customFeeInfo?.[networkId]?.feeInfo ?? {}),
           },
         },
       };

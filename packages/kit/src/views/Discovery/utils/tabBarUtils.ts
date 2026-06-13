@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 
-import { useIsNativeTablet, useOrientation } from '@onekeyhq/components';
 import { useRouteIsFocused as useIsFocused } from '@onekeyhq/kit/src/hooks/useRouteIsFocused';
 import {
   EAppEventBusNames,
@@ -10,8 +9,19 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 const isNative = platformEnv.isNative;
 
+let showTabBarTimer: ReturnType<typeof setTimeout> | null = null;
+
+const cancelPendingShowTabBar = () => {
+  if (showTabBarTimer) {
+    clearTimeout(showTabBarTimer);
+    showTabBarTimer = null;
+  }
+};
+
 export const showTabBar = () => {
-  setTimeout(() => {
+  cancelPendingShowTabBar();
+  showTabBarTimer = setTimeout(() => {
+    showTabBarTimer = null;
     appEventBus.emit(EAppEventBusNames.HideTabBar, false);
   }, 100);
 };
@@ -19,16 +29,14 @@ export const showTabBar = () => {
 export const useNotifyTabBarDisplay = isNative
   ? (isActive: boolean) => {
       const isFocused = useIsFocused({ disableLockScreenCheck: true });
-      const isLandscape = useOrientation();
-      const isTablet = useIsNativeTablet();
 
       const hideTabBar = isActive && isFocused;
 
       useEffect(() => {
-        if (isTablet && isLandscape) {
-          return;
+        if (hideTabBar) {
+          cancelPendingShowTabBar();
         }
         appEventBus.emit(EAppEventBusNames.HideTabBar, hideTabBar);
-      }, [hideTabBar, isLandscape, isTablet]);
+      }, [hideTabBar]);
     }
   : () => {};

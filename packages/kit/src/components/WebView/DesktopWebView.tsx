@@ -25,7 +25,7 @@ import {
 } from '@onekeyhq/shared/src/utils/uriUtils';
 
 import ErrorView from './ErrorView';
-import { createMessageInjectedScript } from './utils';
+import { WEBVIEW_LOAD_TIMEOUT_MS, createMessageInjectedScript } from './utils';
 
 import type {
   IElectronWebView,
@@ -52,14 +52,20 @@ export type {
 };
 
 const isDev = process.env.NODE_ENV !== 'production';
+type IDesktopDidFailLoadEvent = DidFailLoadEvent & {
+  url?: string;
+};
 
 let preloadJsUrl = '';
 
-void globalThis.desktopApiProxy.webview.getPreloadJsContent().then((url) => {
-  preloadJsUrl = url;
-});
+void globalThis.desktopApiProxy.webview
+  .getPreloadJsContent()
+  .then((url: string) => {
+    preloadJsUrl = url;
+  });
 
 // Used for webview type referencing
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const WEBVIEW_TAG = 'webview';
 
 const DesktopWebView = forwardRef(
@@ -69,6 +75,8 @@ const DesktopWebView = forwardRef(
       style,
       receiveHandler,
       allowpopups,
+      disableBridge,
+      partition: partitionProp,
       onDidStartLoading,
       onDidStartNavigation,
       onDidFinishLoad,
@@ -80,6 +88,7 @@ const DesktopWebView = forwardRef(
       // @ts-expect-error
       onNewWindow,
       onDomReady,
+      onShouldStartLoadWithRequest,
       ...props
     }: ComponentProps<typeof WEBVIEW_TAG> &
       IElectronWebViewEvents &
@@ -92,8 +101,36 @@ const DesktopWebView = forwardRef(
     const pendingScriptsRef = useRef<string[]>([]);
     const [devToolsAtLeft, setDevToolsAtLeft] = useState(false);
     const [devSettings] = useDevSettingsPersistAtom();
+    const isUnmountingRef = useRef(false);
 
     const [desktopLoadError, setDesktopLoadError] = useState(false);
+    const [desktopLoadErrorCode, setDesktopLoadErrorCode] = useState<number>();
+    const lastMainFrameLoadErrorRef = useRef<
+      | {
+          url?: string;
+          errorCode?: number;
+          errorDescription?: string;
+        }
+      | undefined
+    >(undefined);
+    const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearLoadTimeout = useCallback(() => {
+      if (loadTimeoutRef.current) {
+        clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = null;
+      }
+    }, []);
+
+    const startLoadTimeout = useCallback(() => {
+      clearLoadTimeout();
+      loadTimeoutRef.current = setTimeout(() => {
+        if (!isUnmountingRef.current) {
+          setDesktopLoadError(true);
+          setDesktopLoadErrorCode(undefined);
+        }
+      }, WEBVIEW_LOAD_TIMEOUT_MS);
+    }, [clearLoadTimeout]);
 
     const flushPendingScripts = useCallback(() => {
       if (!isDomReady || !webviewRef.current) {
@@ -154,12 +191,22 @@ const DesktopWebView = forwardRef(
           }
         };
 
-        const innerHandleDidFailLoad = (event: any) => {
+        const innerHandleDidFailLoad = (event: IDesktopDidFailLoadEvent) => {
+          const failedUrl = event?.validatedURL ?? event?.url;
+          if (event.isMainFrame) {
+            clearLoadTimeout();
+          }
           if (event.errorCode !== -3) {
             // TODO iframe error also show ErrorView
             //      testing www.163.com
             if (event.isMainFrame) {
+              lastMainFrameLoadErrorRef.current = {
+                url: failedUrl,
+                errorCode: event.errorCode,
+                errorDescription: event.errorDescription,
+              };
               setDesktopLoadError(true);
+              setDesktopLoadErrorCode(event.errorCode);
             }
           }
           onDidFailLoad?.(event);
@@ -169,9 +216,22 @@ const DesktopWebView = forwardRef(
           event: DidStartNavigationEvent,
         ) => {
           const { isMainFrame, url } = event ?? {};
+          if (isMainFrame && onShouldStartLoadWithRequest && url) {
+            const shouldLoad = onShouldStartLoadWithRequest({
+              url,
+              isTopFrame: true,
+            });
+            if (!shouldLoad) {
+              webviewRef.current?.stop();
+              return;
+            }
+          }
           if (isMainFrame) {
+            lastMainFrameLoadErrorRef.current = undefined;
             setDesktopLoadError(false);
+            setDesktopLoadErrorCode(undefined);
             setIsDomReady(false);
+            startLoadTimeout();
           }
           checkGoogleOauth(url);
           checkEraseElectronFeature(url);
@@ -179,8 +239,37 @@ const DesktopWebView = forwardRef(
         };
 
         const didFinishLoad = (e: any) => {
+          clearLoadTimeout();
+          if (!lastMainFrameLoadErrorRef.current) {
+            setDesktopLoadError(false);
+            setDesktopLoadErrorCode(undefined);
+          }
           onDidFinishLoad?.();
           onLoadEnd?.(e);
+        };
+
+        const innerHandleDidStopLoading = () => {
+          clearLoadTimeout();
+          onDidStopLoading?.();
+        };
+
+        // Server-side HTTP redirects (302 / 301) reach the new URL through
+        // `did-redirect-navigation`. Without an explicit listener the safety
+        // check in `did-start-navigation` may fire too late to abort the
+        // redirected request, so re-run the URL guard and stop the load if
+        // the target is not allowed.
+        const innerHandleDidRedirectNavigation = (
+          event: DidStartNavigationEvent,
+        ) => {
+          const { isMainFrame, url } = event ?? {};
+          if (
+            isMainFrame &&
+            onShouldStartLoadWithRequest &&
+            url &&
+            !onShouldStartLoadWithRequest({ url, isTopFrame: true })
+          ) {
+            webviewRef.current?.stop();
+          }
         };
 
         webview.addEventListener('did-start-loading', onDidStartLoading);
@@ -188,8 +277,12 @@ const DesktopWebView = forwardRef(
           'did-start-navigation',
           innerHandleDidStartNavigationNavigation,
         );
+        webview.addEventListener(
+          'did-redirect-navigation',
+          innerHandleDidRedirectNavigation,
+        );
         webview.addEventListener('did-finish-load', didFinishLoad);
-        webview.addEventListener('did-stop-loading', onDidStopLoading);
+        webview.addEventListener('did-stop-loading', innerHandleDidStopLoading);
         webview.addEventListener('did-fail-load', innerHandleDidFailLoad);
         webview.addEventListener('page-title-updated', onPageTitleUpdated);
         webview.addEventListener('page-favicon-updated', onPageFaviconUpdated);
@@ -202,13 +295,21 @@ const DesktopWebView = forwardRef(
         webview.addEventListener('dom-ready', handleDomReady);
 
         return () => {
+          clearLoadTimeout();
           webview.removeEventListener('did-start-loading', onDidStartLoading);
           webview.removeEventListener(
             'did-start-navigation',
             innerHandleDidStartNavigationNavigation,
           );
+          webview.removeEventListener(
+            'did-redirect-navigation',
+            innerHandleDidRedirectNavigation,
+          );
           webview.removeEventListener('did-finish-load', didFinishLoad);
-          webview.removeEventListener('did-stop-loading', onDidStopLoading);
+          webview.removeEventListener(
+            'did-stop-loading',
+            innerHandleDidStopLoading,
+          );
           webview.removeEventListener('did-fail-load', innerHandleDidFailLoad);
           webview.removeEventListener('page-title-updated', onPageTitleUpdated);
           webview.removeEventListener(
@@ -222,6 +323,8 @@ const DesktopWebView = forwardRef(
         console.error(error);
       }
     }, [
+      clearLoadTimeout,
+      startLoadTimeout,
       onDidFailLoad,
       onDidFinishLoad,
       onDidStartLoading,
@@ -232,6 +335,7 @@ const DesktopWebView = forwardRef(
       onPageTitleUpdated,
       onDidStartNavigation,
       onLoadEnd,
+      onShouldStartLoadWithRequest,
     ]);
     if (isDev && props.preload) {
       console.warn(
@@ -241,10 +345,12 @@ const DesktopWebView = forwardRef(
 
     useEffect(
       () => () => {
+        isUnmountingRef.current = true;
+        clearLoadTimeout();
         // not working, ref is null after unmount
         webviewRef.current?.closeDevTools();
       },
-      [],
+      [clearLoadTimeout],
     );
 
     // TODO extract to hooks
@@ -312,7 +418,7 @@ const DesktopWebView = forwardRef(
 
     useEffect(() => {
       const webview = webviewRef.current;
-      if (!webview || !isWebviewReady) {
+      if (!webview || !isWebviewReady || disableBridge) {
         return;
       }
 
@@ -363,7 +469,7 @@ const DesktopWebView = forwardRef(
                 return false;
               },
             });
-          } catch (error) {
+          } catch (_error) {
             // noop
           } finally {
             // noop
@@ -383,20 +489,18 @@ const DesktopWebView = forwardRef(
       return () => {
         webview.removeEventListener('ipc-message', handleMessage);
       };
-    }, [jsBridgeHost, isWebviewReady, src]);
+    }, [jsBridgeHost, isWebviewReady, src, disableBridge]);
 
     useEffect(() => {
       flushPendingScripts();
     }, [flushPendingScripts, isWebviewReady]);
 
-    if (!preloadJsUrl) {
+    if (!preloadJsUrl && !disableBridge) {
       return null;
     }
 
-    console.log('preloadJsUrl', preloadJsUrl);
-
     return (
-      <>
+      <Stack flex={1} position="relative" bg="$bgApp">
         {devSettings?.enabled && devSettings?.settings?.showWebviewDevTools ? (
           <button
             data-testid="webview-dev-tools"
@@ -419,19 +523,22 @@ const DesktopWebView = forwardRef(
         ) : null}
         <webview
           ref={initWebviewByRef}
-          preload={preloadJsUrl}
+          {...(disableBridge ? {} : { preload: preloadJsUrl })}
           src={src}
-          partition="persist:onekey"
+          partition={partitionProp ?? 'persist:onekey'}
           style={{
             'width': '100%',
             'height': '100%',
             ...style,
           }}
-          blinkfeatures="false"
+          // Electron interprets blinkFeatures="false" as a feature name to
+          // enable, triggering a security warning (enableBlinkFeatures) without
+          // actually disabling anything. Added in #4874 intending to disable
+          // blink features, but the correct way is to simply omit the attribute.
           // @ts-expect-error
           nodeintegration="false"
           allowpopups={allowpopups}
-          webpreferences="contextIsolation=0, nativeWindowOpen=1, sandbox=1"
+          webpreferences="contextIsolation=1, nativeWindowOpen=1, sandbox=1"
           // https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/platform/runtime_enabled_features.json5
           disableblinkfeatures="Notifications"
           // mobile user-agent
@@ -439,15 +546,26 @@ const DesktopWebView = forwardRef(
           {...props}
         />
         {desktopLoadError ? (
-          <Stack position="absolute" top={0} bottom={0} left={0} right={0}>
+          <Stack
+            position="absolute"
+            top={0}
+            bottom={0}
+            left={0}
+            right={0}
+            zIndex={1}
+            bg="$bgApp"
+          >
             <ErrorView
+              errorCode={desktopLoadErrorCode}
               onRefresh={() => {
+                setDesktopLoadError(false);
+                setDesktopLoadErrorCode(undefined);
                 webviewRef.current?.reload();
               }}
             />
           </Stack>
         ) : null}
-      </>
+      </Stack>
     );
   },
 );

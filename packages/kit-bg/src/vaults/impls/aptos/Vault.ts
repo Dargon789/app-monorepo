@@ -1,5 +1,7 @@
-/* eslint-disable spellcheck/spell-checker, @typescript-eslint/no-unused-vars */
+/* oxlint-disable @cspell/spellchecker, @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import {
+  AccountAddress,
   AptosConfig,
   Aptos as AptosRpcClient,
   Deserializer,
@@ -63,6 +65,7 @@ import {
   EDecodedTxStatus,
   type IDecodedTx,
   type IDecodedTxAction,
+  type IDecodedTxTransferInfo,
 } from '@onekeyhq/shared/types/tx';
 
 import { VaultBase } from '../../base/VaultBase';
@@ -74,6 +77,7 @@ import { KeyringImported } from './KeyringImported';
 import { KeyringWatching } from './KeyringWatching';
 import { AptosClient } from './sdkAptos/AptosClient';
 import {
+  APTOS_NATIVE_BATCH_TRANSFER_FUNC_LEGACY,
   APTOS_NATIVE_COIN,
   APTOS_NATIVE_TRANSFER_FUNC,
   APTOS_NATIVE_TRANSFER_FUNC_LEGACY,
@@ -104,6 +108,61 @@ import type {
   AnyRawTransaction,
   PendingTransactionResponse,
 } from '@aptos-labs/ts-sdk';
+
+function getTransferActionAddress(addresses: string[]) {
+  const uniqueAddresses = Array.from(new Set(addresses.filter(Boolean)));
+  return uniqueAddresses.length === 1 ? uniqueAddresses[0] : '';
+}
+
+function deserializeU64Arg(arg: { bcsToBytes: () => Uint8Array }) {
+  return U64.deserialize(new Deserializer(arg.bcsToBytes())).value.toString();
+}
+
+function deserializeAddressVectorArg(arg: { bcsToBytes: () => Uint8Array }) {
+  return new Deserializer(arg.bcsToBytes())
+    .deserializeVector(AccountAddress)
+    .map((address) => address.toString());
+}
+
+function deserializeU64VectorArg(arg: { bcsToBytes: () => Uint8Array }) {
+  return new Deserializer(arg.bcsToBytes())
+    .deserializeVector(U64)
+    .map((amount) => amount.value.toString());
+}
+
+function parsePayloadAddressArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const addresses: string[] = [];
+  value.forEach((item) => {
+    if (typeof item === 'string') {
+      addresses.push(item);
+    } else if (item instanceof AccountAddress) {
+      addresses.push(item.toString());
+    }
+  });
+  return addresses.filter(Boolean);
+}
+
+function parsePayloadAmountArray(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const amounts: string[] = [];
+  value.forEach((item) => {
+    if (
+      typeof item === 'string' ||
+      typeof item === 'number' ||
+      typeof item === 'bigint'
+    ) {
+      amounts.push(item.toString());
+    } else if (item instanceof U64) {
+      amounts.push(item.value.toString());
+    }
+  });
+  return amounts;
+}
 
 export default class VaultAptos extends VaultBase {
   override coreApi = coreChainApi.aptos.hd;
@@ -233,12 +292,29 @@ export default class VaultAptos extends VaultBase {
     };
   }
 
-  private async _decodeTxByBcsTxn(bcsTxn: string, network: IServerNetwork) {
+  private async _decodeSimpleTxByBcsTxn(
+    bcsTxn: string,
+    network: IServerNetwork,
+  ) {
     const deserializer = new Deserializer(bufferUtils.hexToBytes(bcsTxn));
-    const simpleTxn = SimpleTransaction.deserialize(deserializer);
-    const rawTx = simpleTxn.rawTransaction;
+
+    let rawTx: RawTransaction | undefined;
+    try {
+      const simpleTxn = SimpleTransaction.deserialize(deserializer);
+      rawTx = simpleTxn.rawTransaction;
+    } catch (error) {
+      // non-SimpleTransaction
+    }
 
     let actionType = EDecodedTxActionType.UNKNOWN;
+    if (!rawTx) {
+      return {
+        actionType,
+        actions: [],
+        rawTxn: null,
+      };
+    }
+
     const payload = rawTx.payload;
 
     const { sender } = rawTx;
@@ -271,11 +347,7 @@ export default class VaultAptos extends VaultBase {
           const [toArg, amountValueArg] = payload.entryFunction.args || [];
           const toAddress = toArg.bcsToHex().toString();
 
-          const amountValue = new BigNumber(
-            U64.deserialize(
-              new Deserializer(amountValueArg.bcsToBytes()),
-            ).value.toString(),
-          );
+          const amountValue = new BigNumber(deserializeU64Arg(amountValueArg));
           const coinType = coinTypeTypeArg.toString();
 
           const tokenInfo = await this.backgroundApi.serviceToken.getToken({
@@ -307,6 +379,23 @@ export default class VaultAptos extends VaultBase {
                 ],
               }),
             );
+          }
+        } else if (
+          moveFunctionName === APTOS_NATIVE_BATCH_TRANSFER_FUNC_LEGACY
+        ) {
+          actionType = EDecodedTxActionType.ASSET_TRANSFER;
+
+          const [coinTypeTypeArg] = payload.entryFunction.type_args || [];
+          const [toArg, amountValueArg] = payload.entryFunction.args || [];
+          const action = await this._buildBatchTransferCoinAction({
+            sender: senderAddress,
+            network,
+            coinType: coinTypeTypeArg?.toString() ?? APTOS_NATIVE_COIN,
+            toAddresses: deserializeAddressVectorArg(toArg),
+            amountValues: deserializeU64VectorArg(amountValueArg),
+          });
+          if (action) {
+            actions.push(action);
           }
         } else if (moveFunctionName === APTOS_TRANSFER_FUNGIBLE_FUNC) {
           actionType = EDecodedTxActionType.ASSET_TRANSFER;
@@ -433,6 +522,57 @@ export default class VaultAptos extends VaultBase {
     };
   }
 
+  private async _buildBatchTransferCoinAction(params: {
+    sender: string | undefined;
+    network: IServerNetwork;
+    coinType: string;
+    toAddresses: string[];
+    amountValues: string[];
+  }) {
+    const { sender, network, coinType, toAddresses, amountValues } = params;
+    if (
+      !sender ||
+      toAddresses.length === 0 ||
+      toAddresses.length !== amountValues.length
+    ) {
+      return null;
+    }
+
+    const tokenInfo = await this.backgroundApi.serviceToken.getToken({
+      networkId: network.id,
+      accountId: this.accountId,
+      tokenIdOnNetwork: coinType,
+    });
+    if (!tokenInfo) {
+      return null;
+    }
+
+    const parsedTransfers: IDecodedTxTransferInfo[] = toAddresses.map(
+      (to, index) => ({
+        from: sender,
+        to,
+        amount: new BigNumber(amountValues[index])
+          .shiftedBy(-tokenInfo.decimals)
+          .toFixed(),
+        icon: tokenInfo.logoURI ?? '',
+        name: tokenInfo.symbol,
+        symbol: tokenInfo.symbol,
+        tokenIdOnNetwork: coinType,
+        isNative: !coinType || coinType === APTOS_NATIVE_COIN,
+      }),
+    );
+
+    return this.buildTxTransferAssetAction({
+      from: getTransferActionAddress(
+        parsedTransfers.map((transfer) => transfer.from),
+      ),
+      to: getTransferActionAddress(
+        parsedTransfers.map((transfer) => transfer.to),
+      ),
+      transfers: parsedTransfers,
+    });
+  }
+
   override async buildDecodedTx(
     params: IBuildDecodedTxParams,
   ): Promise<IDecodedTx> {
@@ -467,13 +607,15 @@ export default class VaultAptos extends VaultBase {
         stakingToAddress: toAddress,
       });
     } else if (encodedTx.bcsTxn) {
-      const { actions, rawTxn } = await this._decodeTxByBcsTxn(
+      const { actions, rawTxn } = await this._decodeSimpleTxByBcsTxn(
         encodedTx.bcsTxn,
         network,
       );
-      action = actions[0];
-      gasLimit = rawTxn.max_gas_amount.toString();
-      gasPrice = rawTxn.gas_unit_price.toString();
+      if (rawTxn && actions.length > 0) {
+        action = actions[0];
+        gasLimit = rawTxn.max_gas_amount.toString();
+        gasPrice = rawTxn.gas_unit_price.toString();
+      }
     } else if (payload) {
       const { type } = payload;
       const fun =
@@ -518,6 +660,18 @@ export default class VaultAptos extends VaultBase {
             ],
           });
         }
+      } else if (fun === APTOS_NATIVE_BATCH_TRANSFER_FUNC_LEGACY) {
+        const { sender } = encodedTx;
+        const [coinType] = payload?.type_arguments || [];
+        const [toAddressesArg, amountValuesArg] = payload?.arguments || [];
+
+        action = await this._buildBatchTransferCoinAction({
+          sender,
+          network,
+          coinType: coinType ?? APTOS_NATIVE_COIN,
+          toAddresses: parsePayloadAddressArray(toAddressesArg),
+          amountValues: parsePayloadAmountArray(amountValuesArg),
+        });
       } else if (actionType === EDecodedTxActionType.ASSET_TRANSFER) {
         const { sender } = encodedTx;
         const [coinType] = payload?.type_arguments || [];
@@ -654,11 +808,13 @@ export default class VaultAptos extends VaultBase {
       .shiftedBy(common.feeDecimals)
       .toFixed();
 
+    /* eslint-disable prefer-const */
     let {
       bcsTxn,
       disableEditTx,
       max_gas_amount: maxGasAmount,
     } = params.encodedTx;
+    /* eslint-enable prefer-const */
     // Standard wallet dApp interface not edit fee
     if (!disableEditTx && !isNil(bcsTxn) && !isEmpty(bcsTxn)) {
       const deserializer = new Deserializer(bufferUtils.hexToBytes(bcsTxn));

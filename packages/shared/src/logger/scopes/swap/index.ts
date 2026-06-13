@@ -7,10 +7,13 @@ import { CreateOrderScene } from './scenes/createOrder';
 import { EnterSwapScene } from './scenes/enterSwap';
 import { ProviderChangeScene } from './scenes/providerChange';
 import { SelectTokenScene } from './scenes/selectToken';
+import { StockTokenCheckScene } from './scenes/stockTokenCheck';
 import { SwapEstimateFeeScene } from './scenes/swapEstimateFee';
+import { SwapKlineScene } from './scenes/swapKline';
 import { SwapQuoteScene } from './scenes/swapQuote';
 import { SwapSendTxScene } from './scenes/swapSendTx';
 import { TokenSelectorSearchScene } from './scenes/tokenSelectorSearch';
+import { ValueDropTipScene } from './scenes/valueDropTip';
 
 export class SwapScope extends BaseScope {
   protected override scopeName = EScopeName.swap;
@@ -39,5 +42,11 @@ export class SwapScope extends BaseScope {
 
   swapEstimateFee = this.createScene('swapEstimateFee', SwapEstimateFeeScene);
 
+  swapKline = this.createScene('swapKline', SwapKlineScene);
+
+  stockTokenCheck = this.createScene('stockTokenCheck', StockTokenCheckScene);
+
   swapSendTx = this.createScene('swapSendTx', SwapSendTxScene);
+
+  valueDropTip = this.createScene('valueDropTip', ValueDropTipScene);
 }

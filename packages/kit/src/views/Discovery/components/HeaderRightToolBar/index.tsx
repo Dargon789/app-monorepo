@@ -188,12 +188,15 @@ function AccountSelectorPopoverContent({
     return null;
   }
 
-  const availableNetworksMap = accountsInfo.reduce((acc, account) => {
-    if (Array.isArray(account.availableNetworkIds)) {
-      acc[account.num] = { networkIds: account.availableNetworkIds };
-    }
-    return acc;
-  }, {} as Record<number, { networkIds: string[] }>);
+  const availableNetworksMap = accountsInfo.reduce(
+    (acc, account) => {
+      if (Array.isArray(account.availableNetworkIds)) {
+        acc[account.num] = { networkIds: account.availableNetworkIds };
+      }
+      return acc;
+    },
+    {} as Record<number, { networkIds: string[] }>,
+  );
 
   return (
     <AccountSelectorProviderMirror
@@ -321,7 +324,6 @@ function HeaderRightToolBar() {
     if (connectedAccountsInfo.length === 1) {
       return (
         <Stack
-          ml="$6"
           gap="$6"
           $gtMd={{
             width: platformEnv.isNative ? undefined : '100%',
@@ -360,7 +362,7 @@ function HeaderRightToolBar() {
       );
     }
     return (
-      <Stack ml="$6">
+      <Stack>
         <Popover
           key={`popover-${connectedAccountsInfo.length}-${connectedAccountsInfo
             .map((a) => a.num)

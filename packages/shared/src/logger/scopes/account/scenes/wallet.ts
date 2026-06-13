@@ -14,6 +14,11 @@ interface IToken {
   tokenAddress: string;
 }
 
+export type IHomePageViewedState =
+  | 'notBackedUp'
+  | 'emptyWallet'
+  | 'fundedWallet';
+
 export class WalletScene extends BaseScene {
   @LogToServer()
   @LogToLocal()
@@ -44,6 +49,7 @@ export class WalletScene extends BaseScene {
           details: {
             communication: params.details.communication,
             hardwareWalletType: params.details.hardwareWalletType,
+            ...(params.details.vendor && { vendor: params.details.vendor }),
           },
         };
 
@@ -55,6 +61,15 @@ export class WalletScene extends BaseScene {
             protocol: params.details.protocol,
             network: params.details.network,
             walletName: params.details.walletName,
+          },
+        };
+
+      case 'CreateKeylessWallet':
+        return {
+          addMethod: 'CreateKeylessWallet',
+          isSoftwareWalletOnlyUser: params.isSoftwareWalletOnlyUser,
+          details: {
+            provider: params.details.provider,
           },
         };
 
@@ -101,6 +116,7 @@ export class WalletScene extends BaseScene {
             communication: params.details.communication,
             deviceType: params.details.deviceType,
             hardwareWalletType: params.details.hardwareWalletType,
+            ...(params.details.vendor && { vendor: params.details.vendor }),
             ...(params.details.firmwareVersions && {
               firmwareVersions: params.details.firmwareVersions,
             }),
@@ -121,6 +137,16 @@ export class WalletScene extends BaseScene {
           },
         };
 
+      case 'CreateKeylessWallet':
+        return {
+          status: params.status,
+          addMethod: 'CreateKeylessWallet',
+          isSoftwareWalletOnlyUser: params.isSoftwareWalletOnlyUser,
+          details: {
+            provider: params.details.provider,
+          },
+        };
+
       default: {
         const _exhaustiveCheck: never = params;
         throw new OneKeyLocalError(
@@ -137,7 +163,8 @@ export class WalletScene extends BaseScene {
       | 'createWallet'
       | 'importWallet'
       | 'connectHWWallet'
-      | 'connect3rdPartyWallet';
+      | 'connect3rdPartyWallet'
+      | 'createKeylessWallet';
   }) {
     return params;
   }
@@ -152,6 +179,25 @@ export class WalletScene extends BaseScene {
     return {
       backupMethod,
     };
+  }
+
+  // Funnel numerator. Distinct from `backupWallet` (which fires when the user
+  // picks a method) — this fires only when wallet.backuped flips true.
+  @LogToServer()
+  @LogToLocal()
+  public backupCompleted(params: { walletId: string; walletType: string }) {
+    return params;
+  }
+
+  // Funnel denominator. Deduped to once per (wallet, state) tuple per session
+  // by the caller.
+  @LogToServer()
+  @LogToLocal()
+  public homePageViewed(params: {
+    state: IHomePageViewedState;
+    walletType: string;
+  }) {
+    return params;
   }
 
   @LogToServer()
@@ -190,7 +236,10 @@ export class WalletScene extends BaseScene {
 
   @LogToServer()
   @LogToLocal()
-  public customNetworkAdded(params: { chainID: string }) {
+  public customNetworkAdded(params: {
+    chainID: string;
+    source?: 'manual' | 'chainList' | 'dapp';
+  }) {
     return params;
   }
 
@@ -239,4 +288,8 @@ export class WalletScene extends BaseScene {
       onboardingExit: true,
     };
   }
+
+  @LogToLocal()
+  @LogToServer()
+  public walletPullToRefresh() {}
 }

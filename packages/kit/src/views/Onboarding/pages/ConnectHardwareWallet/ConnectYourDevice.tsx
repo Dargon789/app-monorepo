@@ -51,7 +51,10 @@ import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfi
 import { useAccountSelectorActions } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
 import type { IDBCreateHwWalletParamsBase } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import { HARDWARE_BRIDGE_DOWNLOAD_URL } from '@onekeyhq/shared/src/config/appConfig';
+import {
+  HARDWARE_BRIDGE_DOWNLOAD_URL,
+  ONEKEY_BUY_HARDWARE_URL,
+} from '@onekeyhq/shared/src/config/appConfig';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import {
   BleLocationServiceError,
@@ -261,6 +264,7 @@ function ConnectByQrCode() {
       </SizableText>
       <TutorialsList tutorials={tutorials} mb="$5" w="100%" maxWidth="$96" />
       <Button
+        testID="onboarding-tutorials-btn"
         variant="primary"
         $md={
           {
@@ -516,7 +520,7 @@ function useDeviceConnection({
           return;
         }
 
-        const sortedDevices = response.payload.sort((a, b) =>
+        const sortedDevices = response.payload.toSorted((a, b) =>
           natsort({ insensitive: true })(
             a.name || a.connectId || a.deviceId || a.uuid,
             b.name || b.connectId || b.deviceId || b.uuid,
@@ -576,8 +580,8 @@ function useDeviceConnection({
   }, [deviceScanner]);
 
   const devicesData = useMemo<IConnectYourDeviceItem[]>(
-    () => [
-      ...searchedDevices.map((item) => ({
+    () =>
+      searchedDevices.map((item) => ({
         title: item.name,
         src: HwWalletAvatarImages[getDeviceAvatarImage(item.deviceType)],
         device: item,
@@ -588,7 +592,6 @@ function useDeviceConnection({
         },
         opacity: 1,
       })),
-    ],
     [searchedDevices, onDeviceConnect, ensureStopScan],
   );
 
@@ -651,7 +654,12 @@ function AnimationView({
           bg="$gray3"
           alignItems="center"
         >
-          <Button size="small" variant="tertiary" onPress={handleHelperPress}>
+          <Button
+            size="small"
+            variant="tertiary"
+            onPress={handleHelperPress}
+            testID="onboarding-handle-helper-press-btn"
+          >
             {intl.formatMessage({
               id: ETranslations.troubleshooting_show_helper_cta_label,
             })}
@@ -878,6 +886,7 @@ function ConnectByUSBOrBLE({
             })}
           </SizableText>
           <Button
+            testID="onboarding-btn"
             mx="auto"
             size="large"
             variant="primary"
@@ -1185,7 +1194,7 @@ export function ConnectYourDevicePage() {
   const fwUpdateActions = useFirmwareUpdateActions();
   const { isSoftwareWalletOnlyUser } = useUserWalletProfile();
   const [{ hardwareTransportType }] = useSettingsPersistAtom();
-  const [isCheckingDeviceLoading, setIsChecking] = useState(false);
+  const [_isCheckingDeviceLoading, setIsChecking] = useState(false);
 
   const handleSetupNewWalletPress = useCallback(
     ({ deviceType }: { deviceType: IDeviceType }) => {
@@ -1268,6 +1277,7 @@ export function ConnectYourDevicePage() {
                   renderContent: (
                     <XStack gap="$2.5">
                       <Button
+                        testID="onboarding-package-alert-dialog-btn"
                         flex={1}
                         size="large"
                         $gtMd={{ size: 'medium' } as any}
@@ -1278,6 +1288,7 @@ export function ConnectYourDevicePage() {
                         })}
                       </Button>
                       <Button
+                        testID="onboarding-package-alert-dialog-btn"
                         flex={1}
                         variant="primary"
                         size="large"
@@ -1502,7 +1513,7 @@ export function ConnectYourDevicePage() {
           await backgroundApiProxy.serviceHardware.getFeaturesWithUnlock({
             connectId: device.connectId ?? '',
           });
-      } catch (error) {
+      } catch (_error) {
         await closeDialogAndReturn(device, { skipDelayClose: true });
         return;
       }
@@ -1783,7 +1794,7 @@ export function ConnectYourDevicePage() {
         >
           <SizableText size="$bodyMd" color="$textSubdued">
             {intl.formatMessage({
-              // eslint-disable-next-line spellcheck/spell-checker
+              // oxlint-disable-next-line @cspell/spellchecker
               id: ETranslations.global_onekey_prompt_dont_have_yet,
             })}
           </SizableText>
@@ -1793,7 +1804,7 @@ export function ConnectYourDevicePage() {
             hoverStyle={{
               color: '$textInteractiveHover',
             }}
-            href="https://bit.ly/3YsKilK"
+            href={ONEKEY_BUY_HARDWARE_URL}
             target="_blank"
             size="$bodyMdMedium"
             p="$2"

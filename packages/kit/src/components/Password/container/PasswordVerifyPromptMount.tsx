@@ -1,13 +1,6 @@
-import {
-  PropsWithChildren,
-  Suspense,
-  useCallback,
-  useEffect,
-  useRef,
-} from 'react';
+import { Suspense, useCallback, useEffect, useRef } from 'react';
 
 import { isNil } from 'lodash';
-import { createPortal } from 'react-dom';
 import { useIntl } from 'react-intl';
 
 import { Dialog, Portal, Spinner } from '@onekeyhq/components';
@@ -60,7 +53,15 @@ const PasswordVerifyPromptMount = () => {
     [intl, onClose],
   );
   const showPasswordVerifyPrompt = useCallback(
-    (id: number, dialogProps?: IDialogShowProps) => {
+    ({
+      id,
+      dialogProps,
+      skipPostVerifyBackgroundTasks,
+    }: {
+      id: number;
+      dialogProps?: IDialogShowProps;
+      skipPostVerifyBackgroundTasks?: boolean;
+    }) => {
       dialogRef.current = Dialog.show({
         ...dialogProps,
         title: intl.formatMessage({
@@ -80,6 +81,7 @@ const PasswordVerifyPromptMount = () => {
         renderContent: (
           <Suspense fallback={<Spinner size="large" />}>
             <PasswordVerifyContainer
+              skipPostVerifyBackgroundTasks={skipPostVerifyBackgroundTasks}
               onVerifyRes={async (data) => {
                 await backgroundApiProxy.servicePassword.resolvePasswordPromptDialog(
                   id,
@@ -114,10 +116,12 @@ const PasswordVerifyPromptMount = () => {
         passwordPromptPromiseTriggerData.type ===
         EPasswordPromptType.PASSWORD_VERIFY
       ) {
-        showPasswordVerifyPromptRef.current?.(
-          passwordPromptPromiseTriggerData.idNumber,
-          passwordPromptPromiseTriggerData.dialogProps,
-        );
+        showPasswordVerifyPromptRef.current?.({
+          id: passwordPromptPromiseTriggerData.idNumber,
+          dialogProps: passwordPromptPromiseTriggerData.dialogProps,
+          skipPostVerifyBackgroundTasks:
+            passwordPromptPromiseTriggerData.skipPostVerifyBackgroundTasks,
+        });
       } else {
         showPasswordSetupPromptRef.current?.(
           passwordPromptPromiseTriggerData.idNumber,

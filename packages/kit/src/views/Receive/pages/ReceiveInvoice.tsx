@@ -24,6 +24,7 @@ import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
 import { useAccountData } from '../../../hooks/useAccountData';
 import useAppNavigation from '../../../hooks/useAppNavigation';
+import { ReceiveTestIDs } from '../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -46,32 +47,35 @@ function ReceiveInvoice() {
   useEffect(() => {
     if (!paymentHash || !networkId || !accountId) return;
     const { serviceLightning } = backgroundApiProxy;
-    timerRef.current = setInterval(() => {
-      serviceLightning
-        .fetchSpecialInvoice({
-          paymentHash,
-          accountId,
-          networkId,
-        })
-        .then((res) => {
-          if (res.is_paid) {
-            Toast.success({
-              title: intl.formatMessage({
-                id: ETranslations.ln_payment_received_label,
-              }),
-            });
-            clearInterval(timerRef.current);
-            setTimeout(() => {
-              navigation.popStack();
-              navigation.popStack();
-            }, 500);
-          }
-        })
-        .catch((e) => {
-          // ignore because it's normal to fail when invoice is not paid
-          console.error(e);
-        });
-    }, timerUtils.getTimeDurationMs({ seconds: 5 }));
+    timerRef.current = setInterval(
+      () => {
+        serviceLightning
+          .fetchSpecialInvoice({
+            paymentHash,
+            accountId,
+            networkId,
+          })
+          .then((res) => {
+            if (res.is_paid) {
+              Toast.success({
+                title: intl.formatMessage({
+                  id: ETranslations.ln_payment_received_label,
+                }),
+              });
+              clearInterval(timerRef.current);
+              setTimeout(() => {
+                navigation.popStack();
+                navigation.popStack();
+              }, 500);
+            }
+          })
+          .catch((e) => {
+            // ignore because it's normal to fail when invoice is not paid
+            console.error(e);
+          });
+      },
+      timerUtils.getTimeDurationMs({ seconds: 5 }),
+    );
 
     return () => {
       if (timerRef.current) {
@@ -90,6 +94,7 @@ function ReceiveInvoice() {
     return (
       <>
         <Stack
+          testID={ReceiveTestIDs.InvoiceQRCode}
           borderRadius="$3"
           borderWidth={StyleSheet.hairlineWidth}
           borderColor="$borderSubdued"
@@ -113,6 +118,7 @@ function ReceiveInvoice() {
           borderCurve="continuous"
         >
           <SizableText
+            testID={ReceiveTestIDs.InvoiceText}
             numberOfLines={3}
             textAlign="center"
             size="$bodyLg"
@@ -123,14 +129,19 @@ function ReceiveInvoice() {
             {paymentRequest}
           </SizableText>
         </ConfirmHighlighter>
-        <Button mt="$5" icon="Copy3Outline" onPress={handleCopyInvoice}>
+        <Button
+          testID={ReceiveTestIDs.CopyInvoiceButton}
+          mt="$5"
+          icon="Copy3Outline"
+          onPress={handleCopyInvoice}
+        >
           {intl.formatMessage({ id: ETranslations.global_copy })}
         </Button>
       </>
     );
   }, [account, handleCopyInvoice, intl, network, paymentRequest]);
   return (
-    <Page>
+    <Page testID={ReceiveTestIDs.ReceiveInvoicePage}>
       <Page.Header
         title={intl.formatMessage({ id: ETranslations.lightning_invoice })}
       />

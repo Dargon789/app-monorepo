@@ -18,6 +18,7 @@ import {
   type ICoreCredentialsInfo,
 } from '@onekeyhq/core/src/types';
 import { WALLET_TYPE_HD } from '@onekeyhq/shared/src/consts/dbConsts';
+import { v4CoinTypeToNetworkId } from '@onekeyhq/shared/src/consts/v4CoinTypeToNetworkId';
 import {
   COINTYPE_ADA,
   COINTYPE_BTC,
@@ -45,7 +46,6 @@ import v5localDb from '../../dbs/local/localDb';
 import simpleDb from '../../dbs/simple/simpleDb';
 import { vaultFactory } from '../../vaults/factory';
 
-import { v4CoinTypeToNetworkId } from './v4CoinTypeToNetworkId';
 import v4dbHubs from './v4dbHubs';
 import { EV4LocalDBStoreNames } from './v4local/v4localDBStoreNames';
 import { V4MigrationManagerBase } from './V4MigrationManagerBase';
@@ -262,7 +262,7 @@ export class V4MigrationForAccount extends V4MigrationManagerBase {
           (accountUtils.isImportedWallet({ walletId: w.wallet.id }) &&
             w.wallet.accounts.length > 0),
       )
-      .sort((a, b) => {
+      .toSorted((a, b) => {
         if (a.wallet.type === b.wallet.type) {
           return natsort({ insensitive: true })(a.wallet.id, b.wallet.id);
         }
@@ -692,7 +692,7 @@ export class V4MigrationForAccount extends V4MigrationManagerBase {
               await simpleDb.v4MigrationResult.saveMigratedIndexedAccountId({
                 v5indexedAccountId: indexedAccountAdded.id,
               });
-            } catch (error) {
+            } catch (_error) {
               //
             }
           }
@@ -982,6 +982,7 @@ export class V4MigrationForAccount extends V4MigrationManagerBase {
               if (networkToAddress.length) {
                 for (const [mapNetworkId, mapAddress] of networkToAddress) {
                   await v4dbHubs.logger.runAsyncWithCatch(
+                    // oxlint-disable-next-line no-loop-func
                     async () => {
                       // if (
                       //   mapAddress ===
@@ -1096,7 +1097,8 @@ export class V4MigrationForAccount extends V4MigrationManagerBase {
             if (networkId) {
               // if (
               //   v4account.address ===
-              // eslint-disable-next-line spellcheck/spell-checker
+
+              // oxlint-disable-next-line @cspell/spellchecker
               //   '====bc1qjclx3t2ykepvcqegx8tmn3nwd5ahsswenrvd90'
               // ) {
               //   debugger;
@@ -1282,7 +1284,7 @@ export class V4MigrationForAccount extends V4MigrationManagerBase {
             if (isString(v4device?.payloadJson)) {
               try {
                 v4devicePayloadJson = JSON.parse(v4device.payloadJson || '{}');
-              } catch (error) {
+              } catch (_error) {
                 //
               }
             }
@@ -1475,6 +1477,7 @@ export class V4MigrationForAccount extends V4MigrationManagerBase {
             }),
           });
           await v4dbHubs.logger.runAsyncWithCatch(
+            // oxlint-disable-next-line no-loop-func
             async () => {
               await this.fixV4AccountMissingFields({ v4account });
 

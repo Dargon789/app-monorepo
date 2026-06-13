@@ -20,6 +20,7 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 
 import { useAddAccount } from '../hooks/useAddAccount';
+import { AccountManagerTestIDs } from '../testIDs';
 
 export function AccountSearchBar({
   searchText,
@@ -28,6 +29,7 @@ export function AccountSearchBar({
   isOthersUniversal,
   focusedWalletInfo,
   editable,
+  currentNetworkId,
 }: {
   searchText: string;
   onSearchTextChange: (text: string) => void;
@@ -40,6 +42,7 @@ export function AccountSearchBar({
       }
     | undefined;
   editable: boolean;
+  currentNetworkId?: string;
 }) {
   const intl = useIntl();
   const { activeAccount } = useActiveAccount({ num });
@@ -87,7 +90,7 @@ export function AccountSearchBar({
         size="small"
         allowClear
         placeholder={intl.formatMessage({
-          id: ETranslations.global_search_account_selector,
+          id: ETranslations.global_search,
         })}
         containerProps={{
           flex: 1,
@@ -104,7 +107,7 @@ export function AccountSearchBar({
           title={intl.formatMessage({ id: ETranslations.global_add_account })}
           renderTrigger={
             <IconButton
-              testID="account-search-bar-add-button"
+              testID={AccountManagerTestIDs.searchBarAddButton}
               icon="PlusSmallOutline"
               size="small"
             />
@@ -112,7 +115,7 @@ export function AccountSearchBar({
           renderItems={({ handleActionListClose }) => (
             <>
               <ActionList.Item
-                testID="add-account-button"
+                testID={AccountManagerTestIDs.addAccountButton}
                 icon="PlusSmallOutline"
                 label={intl.formatMessage({
                   id: ETranslations.global_add_account,
@@ -127,6 +130,7 @@ export function AccountSearchBar({
                 <BatchCreateAccountButton
                   focusedWalletInfo={focusedWalletInfo}
                   activeAccount={activeAccount}
+                  currentNetworkId={currentNetworkId}
                   onClose={handleActionListClose}
                 />
               ) : null}

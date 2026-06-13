@@ -1,8 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 import pRetry from 'p-retry';
+import { View } from 'react-native';
 
-import { RefreshControl, ScrollView, Stack } from '@onekeyhq/components';
+import { Page, RefreshControl, ScrollView, Stack } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { ReviewControl } from '@onekeyhq/kit/src/components/ReviewControl';
 import useListenTabFocusState from '@onekeyhq/kit/src/hooks/useListenTabFocusState';
@@ -10,9 +11,11 @@ import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useRouteIsFocused as useIsFocused } from '@onekeyhq/kit/src/hooks/useRouteIsFocused';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { ETabRoutes } from '@onekeyhq/shared/src/routes';
+import { swrKeys } from '@onekeyhq/shared/src/utils/swrCacheUtils';
 
 import { useBannerData } from '../../hooks/useBannerData';
 import { useDisplayHomePageFlag } from '../../hooks/useWebTabs';
+import { DiscoveryTestIDs } from '../../testIDs';
 
 import { DashboardBanner } from './Banner';
 import { BookmarksSection } from './BookmarksSection';
@@ -24,8 +27,10 @@ import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 
 function DashboardContent({
   onScroll,
+  tabId,
 }: {
   onScroll?: (event: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  tabId?: string;
 }) {
   const isFocused = useIsFocused();
 
@@ -38,16 +43,16 @@ function DashboardContent({
   } = usePromiseResult(
     async () => {
       try {
-        const result = await pRetry(
+        return await pRetry(
           () =>
             backgroundApiProxy.serviceDiscovery.fetchDiscoveryHomePageData(),
           {
             retries: 3,
           },
         );
-        return result;
       } catch (error) {
         console.error(error);
+        return undefined;
       } finally {
         setIsRefreshing(false);
       }
@@ -57,6 +62,7 @@ function DashboardContent({
       watchLoading: true,
       checkIsFocused: false,
       revalidateOnReconnect: true,
+      swrKey: swrKeys.discoveryHomePageData(),
     },
   );
 
@@ -82,6 +88,7 @@ function DashboardContent({
     [],
     {
       watchLoading: true,
+      swrKey: swrKeys.discoveryHomeBookmarks(),
     },
   );
 
@@ -106,39 +113,50 @@ function DashboardContent({
   const hasTrending =
     homePageData?.trending && homePageData.trending.length > 0;
   const showDiveInDescription = !hasBookmarks && !hasTrending;
+  const isInitialLoading = Boolean(
+    (isLoading && !homePageData) || bookmarksData === undefined,
+  );
 
   const content = useMemo(
     () => (
       <>
         <Welcome
+          tabId={tabId}
           banner={
             hasActiveBanners ? (
-              <DashboardBanner
-                key="Banner"
-                banners={homePageData?.banners || []}
-                isLoading={isLoading}
-              />
+              <View
+                style={{ width: '100%' }}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
+              >
+                <DashboardBanner
+                  key="Banner"
+                  banners={homePageData?.banners || []}
+                  isLoading={isInitialLoading}
+                />
+              </View>
             ) : null
           }
           discoveryData={homePageData}
         />
 
         <Stack alignItems="center">
-          {!isLoading && showDiveInDescription ? (
+          {!isInitialLoading && showDiveInDescription ? (
             <DiveInContent onReload={refresh} />
           ) : (
             <>
               {hasBookmarks ? (
-                <Stack px="$5" width="100%" $gtXl={{ width: 960 }}>
+                <Stack px="$pagePadding" width="100%">
                   <BookmarksSection key="BookmarksSection" />
                 </Stack>
               ) : null}
 
-              <Stack px="$5" width="100%" $gtXl={{ width: 960 }} mt="$4">
+              <Stack px="$pagePadding" width="100%" mt="$4">
                 <ReviewControl>
                   <TrendingSection
                     data={homePageData?.trending || []}
-                    isLoading={!!isLoading}
+                    isLoading={isInitialLoading}
                   />
                 </ReviewControl>
               </Stack>
@@ -150,16 +168,18 @@ function DashboardContent({
     [
       hasActiveBanners,
       homePageData,
-      isLoading,
+      isInitialLoading,
       showDiveInDescription,
       refresh,
       hasBookmarks,
+      tabId,
     ],
   );
 
   if (platformEnv.isNative) {
     return (
       <ScrollView
+        testID={DiscoveryTestIDs.dashboardPage}
         height="100%"
         onScroll={isFocused ? (onScroll as any) : undefined}
         scrollEventThrottle={16}
@@ -173,10 +193,8 @@ function DashboardContent({
   }
 
   return (
-    <ScrollView>
-      <Stack maxWidth={1280} width="100%" alignSelf="center">
-        {content}
-      </Stack>
+    <ScrollView testID={DiscoveryTestIDs.dashboardPage}>
+      <Page.Container padded={false}>{content}</Page.Container>
     </ScrollView>
   );
 }

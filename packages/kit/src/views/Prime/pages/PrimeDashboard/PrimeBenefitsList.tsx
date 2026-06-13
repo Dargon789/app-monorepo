@@ -1,3 +1,5 @@
+import { useCallback } from 'react';
+
 import { useIntl } from 'react-intl';
 
 import type { IKeyOfIcons } from '@onekeyhq/components';
@@ -13,26 +15,19 @@ import {
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { useOneKeyAuth } from '@onekeyhq/kit/src/components/OneKeyAuth/useOneKeyAuth';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
-import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
-import {
-  EAppEventBusNames,
-  appEventBus,
-} from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import { EModalApprovalManagementRoutes } from '@onekeyhq/shared/src/routes/approvalManagement';
-import { EModalBulkCopyAddressesRoutes } from '@onekeyhq/shared/src/routes/bulkCopyAddresses';
-import { EModalRoutes } from '@onekeyhq/shared/src/routes/modal';
-import { EPrimeFeatures, EPrimePages } from '@onekeyhq/shared/src/routes/prime';
-import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
-import type { IPrimeServerUserInfo } from '@onekeyhq/shared/types/prime/primeTypes';
+import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
+import type { EPrimeFeatures } from '@onekeyhq/shared/src/routes/prime';
 
-import { usePrimeRequirements } from '../../hooks/usePrimeRequirements';
+import { showPrimeFeatureIntroDialog } from '../PrimeFeatures/PrimeFeatureIntroContent';
+import { PRIME_FEATURE_INTROS } from '../PrimeFeatures/primeFeatureIntroUtils';
 
 import type { ISubscriptionPeriod } from '../../hooks/usePrimePaymentTypes';
+import type { IPrimeFeatureIntro } from '../PrimeFeatures/primeFeatureIntroUtils';
 
-function PrimeBenefitsItem({
+function PrimeBenefitsBaseItem({
   icon,
   title,
   subtitle,
@@ -46,6 +41,7 @@ function PrimeBenefitsItem({
   isComingSoon?: boolean;
 }) {
   const intl = useIntl();
+
   return (
     <ListItem drillIn onPress={onPress}>
       <YStack borderRadius="$3" borderCurve="continuous" bg="$brand4" p="$2">
@@ -55,12 +51,17 @@ function PrimeBenefitsItem({
         userSelect="none"
         flex={1}
         primary={
-          <XStack>
-            <SizableText textAlign="left" size="$bodyLgMedium">
+          <XStack alignItems="center">
+            <SizableText
+              textAlign="left"
+              size="$bodyLgMedium"
+              flexShrink={1}
+              numberOfLines={1}
+            >
               {title}
             </SizableText>
             {isComingSoon ? (
-              <Badge ml="$2" badgeSize="sm">
+              <Badge ml="$2" badgeSize="sm" flexShrink={0}>
                 <Badge.Text>
                   {intl.formatMessage({
                     id: ETranslations.id_prime_soon,
@@ -76,227 +77,92 @@ function PrimeBenefitsItem({
   );
 }
 
+function PrimeBenefitsItem({
+  feature,
+  onPress,
+}: {
+  feature: IPrimeFeatureIntro;
+  onPress: () => void;
+}) {
+  const intl = useIntl();
+
+  return (
+    <PrimeBenefitsBaseItem
+      icon={feature.listIcon}
+      title={intl.formatMessage({
+        id: feature.title,
+      })}
+      subtitle={intl.formatMessage(
+        {
+          id: feature.description,
+        },
+        feature.descriptionValues,
+      )}
+      isComingSoon={feature.isComingSoon}
+      onPress={onPress}
+    />
+  );
+}
+
 export function PrimeBenefitsList({
   selectedSubscriptionPeriod,
   networkId,
-  serverUserInfo,
 }: {
   selectedSubscriptionPeriod: ISubscriptionPeriod;
   networkId?: string;
-  serverUserInfo?: IPrimeServerUserInfo;
 }) {
   const navigation = useAppNavigation();
-  const intl = useIntl();
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { ensureOneKeyIDLoggedIn } = usePrimeRequirements();
-  const { isPrimeSubscriptionActive } = useOneKeyAuth();
-  const {
-    activeAccount: { wallet, account, network, indexedAccount },
-  } = useActiveAccount({ num: 0 });
+  const { isPrimeActive } = useOneKeyAuth();
+  const isMobile = platformEnv.isNative || platformEnv.isWebMobile;
+
+  const openFeatureIntro = useCallback(
+    (featureName: EPrimeFeatures) => {
+      defaultLogger.prime.subscription.primeEntryClick({
+        featureName,
+        entryPoint: 'primePage',
+        isPrimeActive,
+      });
+
+      const params = {
+        selectedFeature: featureName,
+        selectedSubscriptionPeriod,
+        networkId,
+      };
+
+      if (isMobile) {
+        showPrimeFeatureIntroDialog(params);
+        return;
+      }
+
+      navigation.push(EPrimePages.PrimeFeatures, params);
+    },
+    [
+      isMobile,
+      isPrimeActive,
+      networkId,
+      navigation,
+      selectedSubscriptionPeriod,
+    ],
+  );
 
   return (
     <Stack py="$2">
-      <PrimeBenefitsItem
-        icon="CloudOutline"
-        title={intl.formatMessage({
-          id: ETranslations.global_onekey_cloud,
-        })}
-        subtitle={intl.formatMessage({
-          id: ETranslations.prime_onekey_cloud_desc,
-        })}
-        onPress={() => {
-          if (platformEnv.isWebDappMode) {
-            Toast.message({
-              title: intl.formatMessage({
-                id: ETranslations.global_web_feature_not_available_go_to_app,
-              }),
-            });
-            return;
-          }
-          if (isPrimeSubscriptionActive) {
-            navigation.navigate(EPrimePages.PrimeCloudSync, {
-              serverUserInfo,
-            });
-          } else {
-            defaultLogger.prime.subscription.primeEntryClick({
-              featureName: EPrimeFeatures.OneKeyCloud,
-              entryPoint: 'primePage',
-            });
-            navigation.navigate(EPrimePages.PrimeFeatures, {
-              showAllFeatures: true,
-              selectedFeature: EPrimeFeatures.OneKeyCloud,
-              selectedSubscriptionPeriod,
-              serverUserInfo,
-            });
-          }
-        }}
-      />
-      {/* <PrimeBenefitsItem
-        icon="MultipleDevicesOutline"
-        title={intl.formatMessage({
-          id: ETranslations.global_prime_device_management,
-        })}
-        subtitle={intl.formatMessage({
-          id: ETranslations.prime_device_management_desc,
-        })}
-        onPress={async () => {
-          if (isPrimeSubscriptionActive) {
-            await ensureOneKeyIDLoggedIn();
-            navigation.pushFullModal(EModalRoutes.PrimeModal, {
-              screen: EPrimePages.PrimeDeviceLimit,
-            });
-          } else {
-            navigation.navigate(EPrimePages.PrimeFeatures, {
-              showAllFeatures: true,
-              selectedFeature: EPrimeFeatures.DeviceManagement,
-              selectedSubscriptionPeriod,
-              serverUserInfo,
-            });
-          }
-        }}
-      /> */}
-      <PrimeBenefitsItem
-        icon="Copy3Outline"
-        title={intl.formatMessage({
-          id: ETranslations.global_bulk_copy_addresses,
-        })}
-        subtitle={intl.formatMessage({
-          id: ETranslations.prime_bulk_copy_addresses_desc,
-        })}
-        onPress={() => {
-          if (platformEnv.isWebDappMode) {
-            Toast.message({
-              title: intl.formatMessage({
-                id: ETranslations.global_web_feature_not_available_go_to_app,
-              }),
-            });
-            return;
-          }
-          if (isPrimeSubscriptionActive) {
-            const fallbackNetworkId = networkUtils.toNetworkIdFallback({
-              networkId,
-              allNetworkFallbackToBtc: true,
-            });
-            navigation.navigate(EModalRoutes.BulkCopyAddressesModal, {
-              screen: EModalBulkCopyAddressesRoutes.BulkCopyAddressesModal,
-              params: {
-                networkId: fallbackNetworkId,
-              },
-            });
-          } else {
-            defaultLogger.prime.subscription.primeEntryClick({
-              featureName: EPrimeFeatures.BulkCopyAddresses,
-              entryPoint: 'primePage',
-            });
-            navigation.navigate(EPrimePages.PrimeFeatures, {
-              showAllFeatures: true,
-              selectedFeature: EPrimeFeatures.BulkCopyAddresses,
-              selectedSubscriptionPeriod,
-              serverUserInfo,
-            });
-          }
-        }}
-      />
-      <PrimeBenefitsItem
-        icon="FlashOutline"
-        title={intl.formatMessage({
-          id: ETranslations.global_bulk_revoke,
-        })}
-        subtitle={intl.formatMessage({
-          id: ETranslations.global_bulk_revoke_desc,
-        })}
-        onPress={() => {
-          if (isPrimeSubscriptionActive) {
-            navigation.navigate(EModalRoutes.ApprovalManagementModal, {
-              screen: EModalApprovalManagementRoutes.ApprovalList,
-              params: {
-                walletId: wallet?.id ?? '',
-                accountId: account?.id ?? '',
-                networkId: network?.id ?? '',
-                indexedAccountId: indexedAccount?.id ?? '',
-              },
-            });
-          } else {
-            defaultLogger.prime.subscription.primeEntryClick({
-              featureName: EPrimeFeatures.BulkRevoke,
-              entryPoint: 'primePage',
-            });
-            navigation.navigate(EPrimePages.PrimeFeatures, {
-              showAllFeatures: true,
-              selectedFeature: EPrimeFeatures.BulkRevoke,
-              selectedSubscriptionPeriod,
-              serverUserInfo,
-            });
-          }
-        }}
-      />
-
-      <PrimeBenefitsItem
-        icon="BellOutline"
-        title={intl.formatMessage({
-          id: ETranslations.global_multi_account_notification,
-        })}
-        subtitle={intl.formatMessage(
-          {
-            id: ETranslations.global_on_chain_notifications_description,
-          },
-          {
-            number: 100,
-          },
-        )}
-        onPress={() => {
-          if (isPrimeSubscriptionActive) {
-            navigation.navigate(EModalRoutes.NotificationsModal);
-          } else {
-            defaultLogger.prime.subscription.primeEntryClick({
-              featureName: EPrimeFeatures.Notifications,
-              entryPoint: 'primePage',
-            });
-            navigation.navigate(EPrimePages.PrimeFeatures, {
-              showAllFeatures: true,
-              selectedFeature: EPrimeFeatures.Notifications,
-              selectedSubscriptionPeriod,
-              serverUserInfo,
-            });
-          }
-        }}
-      />
-
-      <PrimeBenefitsItem
-        isComingSoon
-        icon="ClockTimeHistoryOutline"
-        title={intl.formatMessage({
-          id: ETranslations.global_export_transaction_history,
-        })}
-        subtitle={intl.formatMessage(
-          {
-            id: ETranslations.wallet_export_on_chain_transactions_description,
-          },
-          {
-            networkCount: 12,
-          },
-        )}
-        onPress={() => {
-          defaultLogger.prime.subscription.primeEntryClick({
-            featureName: EPrimeFeatures.HistoryExport,
-            entryPoint: 'primePage',
-          });
-          navigation.navigate(EPrimePages.PrimeFeatures, {
-            showAllFeatures: true,
-            selectedFeature: EPrimeFeatures.HistoryExport,
-            selectedSubscriptionPeriod,
-            serverUserInfo,
-          });
-        }}
-      />
+      {/* OneKey Cloud removed — keyless sync is free, no longer a Prime benefit */}
+      {PRIME_FEATURE_INTROS.map((feature) => (
+        <PrimeBenefitsItem
+          key={feature.id}
+          feature={feature}
+          onPress={() => openFeatureIntro(feature.id)}
+        />
+      ))}
 
       {platformEnv.isDev ? (
         <>
-          <PrimeBenefitsItem
-            isComingSoon
+          <PrimeBenefitsBaseItem
             icon="BezierNodesOutline"
             title="Premium RPC"
             subtitle="Enjoy rapid and secure blockchain access."
+            isComingSoon
             onPress={() => {
               if (process.env.NODE_ENV !== 'production') {
                 Toast.success({
@@ -305,11 +171,11 @@ export function PrimeBenefitsList({
               }
             }}
           />
-          <PrimeBenefitsItem
-            isComingSoon
+          <PrimeBenefitsBaseItem
             icon="FileTextOutline"
             title="Analytics"
             subtitle="sint occaecat cupidatat non proident"
+            isComingSoon
             onPress={() => {
               if (process.env.NODE_ENV !== 'production') {
                 Toast.success({

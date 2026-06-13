@@ -30,7 +30,7 @@ export function HeaderNavigation({
   const activeKey =
     controlledActiveKey === null
       ? null
-      : controlledActiveKey ?? internalActiveKey;
+      : (controlledActiveKey ?? internalActiveKey);
 
   const handleTabPress = (item: IHeaderNavigationItem) => {
     if (controlledActiveKey === undefined) {
@@ -72,8 +72,7 @@ export function HeaderNavigation({
             }}
           >
             <SizableText
-              size="$bodyMd"
-              fontWeight="500"
+              size={isActive ? '$headingMd' : '$bodyLgMedium'}
               color={isActive ? '$text' : '$textSubdued'}
               userSelect="none"
             >

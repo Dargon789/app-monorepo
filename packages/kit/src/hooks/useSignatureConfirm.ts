@@ -23,7 +23,10 @@ import {
 } from '@onekeyhq/shared/src/routes';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import type { IDappSourceInfo } from '@onekeyhq/shared/types';
-import type { IFeeInfoUnit } from '@onekeyhq/shared/types/fee';
+import type {
+  IFeeInfoUnit,
+  IGasAccountScenario,
+} from '@onekeyhq/shared/types/fee';
 import type { IStakingInfo } from '@onekeyhq/shared/types/staking';
 import type { ISwapTxInfo } from '@onekeyhq/shared/types/swap/types';
 import type { ISendTxOnSuccessData } from '@onekeyhq/shared/types/tx';
@@ -54,10 +57,24 @@ type IBuildUnsignedTxParams = {
   useFeeInTx?: boolean;
   feeInfoEditable?: boolean;
   feeInfo?: IFeeInfoUnit;
+  feeInfos?: IFeeInfoUnit[];
   isInternalSwap?: boolean;
   isInternalTransfer?: boolean;
   disableMev?: boolean;
+  // Gas Account scenario code for backend scenario gate.
+  // When omitted, resolved from stakingInfo/swapInfo/isInternalSwap flags; defaults to 'send'.
+  // Callers with scenarios not derivable from those flags (perps, dapp) must set it explicitly.
+  gasAccountScenario?: IGasAccountScenario;
 };
+
+function resolveGasAccountScenario(
+  params: IBuildUnsignedTxParams,
+): IGasAccountScenario {
+  if (params.gasAccountScenario) return params.gasAccountScenario;
+  if (params.isInternalSwap || params.swapInfo) return 'swap';
+  if (params.stakingInfo) return 'earn';
+  return 'send';
+}
 
 export type INavigationToMessageConfirmParams = {
   unsignedMessage: IUnsignedMessage;
@@ -78,13 +95,30 @@ export type INavigationToMessageConfirmAsyncParams = Omit<
   'onSuccess' | 'onFail' | 'onCancel'
 >;
 
-function useSignatureConfirm(params: IParams) {
+type INavigationToTxConfirm = (params: IBuildUnsignedTxParams) => Promise<void>;
+
+type INavigationToMessageConfirm = (
+  params: INavigationToMessageConfirmParams,
+) => void;
+
+type INavigationToMessageConfirmAsync = (
+  params: INavigationToMessageConfirmAsyncParams,
+) => Promise<string>;
+
+type IUseSignatureConfirmResult = {
+  navigationToMessageConfirm: INavigationToMessageConfirm;
+  navigationToMessageConfirmAsync: INavigationToMessageConfirmAsync;
+  navigationToTxConfirm: INavigationToTxConfirm;
+  normalizeTxConfirm: INavigationToTxConfirm;
+};
+
+function useSignatureConfirm(params: IParams): IUseSignatureConfirmResult {
   const { accountId, networkId } = params;
 
   const navigation = useAppNavigation();
   const intl = useIntl();
 
-  const normalizeTxConfirm = useCallback(
+  const normalizeTxConfirm: INavigationToTxConfirm = useCallback(
     async (params: IBuildUnsignedTxParams) => {
       const {
         sameModal,
@@ -95,8 +129,10 @@ function useSignatureConfirm(params: IParams) {
         signOnly,
         useFeeInTx,
         feeInfoEditable,
+        feeInfos,
         approvesInfo,
         swapInfo,
+        stakingInfo,
         encodedTx,
         transfersInfo,
         ...rest
@@ -132,6 +168,7 @@ function useSignatureConfirm(params: IParams) {
               encodedTx,
               transfersInfo,
               swapInfo,
+              stakingInfo,
               prevNonce,
               ...rest,
             }),
@@ -143,11 +180,21 @@ function useSignatureConfirm(params: IParams) {
               accountId,
               approveInfo: approvesInfo?.[0],
               swapInfo,
+              stakingInfo,
               encodedTx,
               transfersInfo,
               ...rest,
             }),
           );
+        }
+
+        if (feeInfos?.length) {
+          unsignedTxs.forEach((unsignedTx, index) => {
+            const feeInfo = feeInfos[index];
+            if (feeInfo) {
+              unsignedTx.feeInfo = feeInfo;
+            }
+          });
         }
 
         const target = params.isInternalSwap
@@ -168,9 +215,11 @@ function useSignatureConfirm(params: IParams) {
             ...transferPayload,
             ...preActionsBeforeConfirmResult,
           } as ITransferPayload;
-        } catch (error) {
+        } catch (_error) {
           noop();
         }
+
+        const gasAccountScenario = resolveGasAccountScenario(params);
 
         if (sameModal) {
           navigation.push(target, {
@@ -184,6 +233,7 @@ function useSignatureConfirm(params: IParams) {
             signOnly,
             useFeeInTx,
             feeInfoEditable,
+            gasAccountScenario,
           });
         } else {
           navigation.pushModal(EModalRoutes.SignatureConfirmModal, {
@@ -199,6 +249,7 @@ function useSignatureConfirm(params: IParams) {
               signOnly,
               useFeeInTx,
               feeInfoEditable,
+              gasAccountScenario,
             },
           });
         }
@@ -213,7 +264,7 @@ function useSignatureConfirm(params: IParams) {
     [accountId, navigation, networkId],
   );
 
-  const lightningSignatureConfirm = useCallback(
+  const lightningSignatureConfirm: INavigationToTxConfirm = useCallback(
     async (params: IBuildUnsignedTxParams) => {
       const { onSuccess, onFail, onCancel } = params;
 
@@ -286,7 +337,7 @@ function useSignatureConfirm(params: IParams) {
     [accountId, navigation, networkId, normalizeTxConfirm],
   );
 
-  const navigationToTxConfirm = useCallback(
+  const navigationToTxConfirm: INavigationToTxConfirm = useCallback(
     async (params: IBuildUnsignedTxParams) => {
       if (networkUtils.isLightningNetworkByNetworkId(networkId)) {
         await lightningSignatureConfirm(params);
@@ -297,7 +348,7 @@ function useSignatureConfirm(params: IParams) {
     [networkId, normalizeTxConfirm, lightningSignatureConfirm],
   );
 
-  const navigationToMessageConfirm = useCallback(
+  const navigationToMessageConfirm: INavigationToMessageConfirm = useCallback(
     (params: INavigationToMessageConfirmParams) => {
       const {
         unsignedMessage,
@@ -348,26 +399,29 @@ function useSignatureConfirm(params: IParams) {
   );
 
   // Promise-based version of navigationToMessageConfirm
-  const navigationToMessageConfirmAsync = useCallback(
-    async (params: INavigationToMessageConfirmAsyncParams): Promise<string> => {
-      return new Promise((resolve, reject) => {
-        navigationToMessageConfirm({
-          ...params,
-          onSuccess: (result) => resolve(result),
-          onFail: (error) => reject(error),
-          onCancel: () =>
-            reject(
-              new OneKeyLocalError(
-                intl.formatMessage({
-                  id: ETranslations.feedback_user_rejected,
-                }),
+  const navigationToMessageConfirmAsync: INavigationToMessageConfirmAsync =
+    useCallback(
+      async (
+        params: INavigationToMessageConfirmAsyncParams,
+      ): Promise<string> => {
+        return new Promise((resolve, reject) => {
+          navigationToMessageConfirm({
+            ...params,
+            onSuccess: (result) => resolve(result),
+            onFail: (error) => reject(error),
+            onCancel: () =>
+              reject(
+                new OneKeyLocalError(
+                  intl.formatMessage({
+                    id: ETranslations.feedback_user_rejected,
+                  }),
+                ),
               ),
-            ),
+          });
         });
-      });
-    },
-    [navigationToMessageConfirm, intl],
-  );
+      },
+      [navigationToMessageConfirm, intl],
+    );
 
   return {
     navigationToMessageConfirm,

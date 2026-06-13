@@ -1,17 +1,20 @@
 import type { ColorTokens, IKeyOfIcons } from '@onekeyhq/components';
 
-import type { IEarnPermit2ApproveSignData } from './staking';
+import type { IEarnPermit2ApproveSignData, IEarnText } from './staking';
 
 export enum EEarnProviderEnum {
   Lido = 'Lido',
   Everstake = 'Everstake',
   Babylon = 'Babylon',
   Morpho = 'Morpho',
+  Pendle = 'Pendle',
   Falcon = 'Falcon',
   Ethena = 'Ethena',
   Momentum = 'Momentum',
   Lista = 'Lista',
   Stakefish = 'Stakefish',
+  Kamino = 'Kamino',
+  Native = 'Native',
 }
 
 export type ISupportedSymbol =
@@ -32,7 +35,23 @@ export type ISupportedSymbol =
   | 'USDf'
   | 'MORPHO'
   | 'LISTA'
-  | 'USDe';
+  | 'USDe'
+  | 'sUSDe'
+  | 'sUSDai'
+  | 'cUSD'
+  | 'srUSDe'
+  | 'jrUSDe'
+  | 'cUSDO'
+  | 'syrupUSDT'
+  | 'sENA'
+  | 'uniBTC'
+  | 'slisBNBx'
+  | 'PlasmaUSD'
+  | 'wstETH'
+  | 'weETH'
+  | 'aUSDT0'
+  | 'stcUSD'
+  | 'kHYPE';
 
 export interface IStakingFlowConfig {
   enabled: boolean;
@@ -86,6 +105,9 @@ export enum EAvailableAssetsTypeEnum {
   All = 'all',
   StableCoins = 'stableCoins',
   NativeTokens = 'nativeTokens',
+  SimpleEarn = 'simpleEarn',
+  FixedRate = 'fixedRate',
+  Staking = 'staking',
 }
 
 export interface IEarnAvailableAssetProtocol {
@@ -111,7 +133,17 @@ export interface IEarnAvailableAssetAprInfo {
     text: string;
     color?: ColorTokens;
   };
+  button?: {
+    type: string;
+    text?: IEarnText;
+    disabled?: boolean;
+  };
 }
+
+export type IEarnAvailableAssetAprRangeInfo = Pick<
+  IEarnAvailableAssetAprInfo,
+  'normal'
+>;
 
 export interface IEarnAvailableAssetBadge {
   tag: string;
@@ -129,5 +161,23 @@ export interface IEarnAvailableAsset {
   protocols: IEarnAvailableAssetProtocol[];
   badges?: IEarnAvailableAssetBadge[];
   aprInfo?: IEarnAvailableAssetAprInfo;
+  minAprInfo?: IEarnAvailableAssetAprRangeInfo;
+  maxAprInfo?: IEarnAvailableAssetAprRangeInfo;
   bgColor?: string;
+  liquidity?: string;
+  icon?: {
+    icon: IKeyOfIcons | string;
+    color?: ColorTokens;
+    bgColor?: string;
+  };
+}
+
+export interface IEarnAvailableAssetV2 {
+  type: 'normal' | 'airdrop';
+  networkId: string;
+  provider: string;
+  symbol: string;
+  vault?: string;
+  ptAddress?: string;
+  enableBatch?: boolean;
 }

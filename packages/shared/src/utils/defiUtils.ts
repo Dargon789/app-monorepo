@@ -65,22 +65,29 @@ function extractParenthesizedContent(input: string) {
 }
 
 function mergeAssets(assets: (IDeFiAsset & { type: EDeFiAssetType })[]) {
-  return assets.reduce((acc, asset) => {
-    const existingAsset = acc.find(
-      (a) => a.symbol === asset.symbol && a.address === asset.address,
-    );
-    if (existingAsset) {
-      existingAsset.value = new BigNumber(existingAsset.value)
-        .plus(asset.value)
-        .toNumber();
-      existingAsset.amount = new BigNumber(existingAsset.amount)
-        .plus(asset.amount)
-        .toFixed();
-    } else {
-      acc.push(asset);
-    }
-    return acc;
-  }, [] as (IDeFiAsset & { type: EDeFiAssetType })[]);
+  return assets.reduce(
+    (acc, asset) => {
+      const existingAsset = acc.find(
+        (a) =>
+          a.symbol === asset.symbol &&
+          a.address === asset.address &&
+          a.category === asset.category &&
+          a.type === asset.type,
+      );
+      if (existingAsset) {
+        existingAsset.value = new BigNumber(existingAsset.value)
+          .plus(asset.value)
+          .toNumber();
+        existingAsset.amount = new BigNumber(existingAsset.amount)
+          .plus(asset.amount)
+          .toFixed();
+      } else {
+        acc.push(asset);
+      }
+      return acc;
+    },
+    [] as (IDeFiAsset & { type: EDeFiAssetType })[],
+  );
 }
 
 function buildProtocolMapKey({
@@ -93,39 +100,103 @@ function buildProtocolMapKey({
   return `${networkId}-${protocol}`;
 }
 
-function transferPositionMap(
-  positionMap: Map<
-    string,
-    {
-      groupId: string;
-      poolName: string;
-      poolFullName: string;
-      category: string;
-      assets: (IDeFiAsset & { type: EDeFiAssetType })[];
-      debts: (IDeFiAsset & { type: EDeFiAssetType })[];
-      rewards: (IDeFiAsset & { type: EDeFiAssetType })[];
-      value: BigNumber;
-    }
-  >,
-) {
+function buildGroupedPositionKey({ groupId }: { groupId: string }) {
+  return groupId;
+}
+
+function getSafeGroupedPositionId({
+  position,
+  positionIndex,
+}: {
+  position: IDeFiPosition;
+  positionIndex: number;
+}) {
+  const normalizedGroupId = position.groupId?.trim();
+
+  if (normalizedGroupId) {
+    return normalizedGroupId;
+  }
+
+  // Fail closed when upstream group_id is missing so unrelated positions
+  // never collapse into one UI group.
+  return `__ungrouped__${position.protocol}-${position.category}-${positionIndex}`;
+}
+
+type IGroupedPositionValue = {
+  groupId: string;
+  poolName: string;
+  poolFullName: string;
+  category: string;
+  assets: (IDeFiAsset & { type: EDeFiAssetType })[];
+  debts: (IDeFiAsset & { type: EDeFiAssetType })[];
+  rewards: (IDeFiAsset & { type: EDeFiAssetType })[];
+  value: BigNumber;
+};
+
+function getGroupedPositionMetadata(position: IDeFiPosition) {
+  const { targetString, originalString } = extractParenthesizedContent(
+    position.name,
+  );
+  return {
+    poolName: targetString,
+    poolFullName: originalString,
+    category: position.category,
+  };
+}
+
+function shouldUsePositionMetadata({
+  current,
+  incoming,
+}: {
+  current: IGroupedPositionValue;
+  incoming: IDeFiPosition;
+}) {
+  const currentHasPrincipal =
+    current.assets.length > 0 || current.debts.length > 0;
+  const incomingHasPrincipal =
+    incoming.assets.length > 0 || incoming.debts.length > 0;
+
+  if (incomingHasPrincipal && !currentHasPrincipal) {
+    return true;
+  }
+
+  return current.category === 'rewards' && incoming.category !== 'rewards';
+}
+
+function updateGroupedPositionMetadata({
+  current,
+  incoming,
+}: {
+  current: IGroupedPositionValue;
+  incoming: IDeFiPosition;
+}) {
+  const metadata = getGroupedPositionMetadata(incoming);
+  current.poolName = metadata.poolName;
+  current.poolFullName = metadata.poolFullName;
+  current.category = metadata.category;
+}
+
+function transferPositionMap(positionMap: Map<string, IGroupedPositionValue>) {
   const positions = Array.from(positionMap.entries())
     .map(([_, position]) => ({
       groupId: position.groupId,
       poolName: position.poolName,
       poolFullName: position.poolFullName,
       category: position.category,
-      assets: mergeAssets(position.assets).sort((a, b) =>
+      assets: mergeAssets(position.assets).toSorted((a, b) =>
         new BigNumber(b.value).comparedTo(new BigNumber(a.value)),
       ),
-      debts: mergeAssets(position.debts).sort((a, b) =>
+      debts: mergeAssets(position.debts).toSorted((a, b) =>
         new BigNumber(b.value).comparedTo(new BigNumber(a.value)),
       ),
-      rewards: mergeAssets(position.rewards).sort((a, b) =>
+      rewards: mergeAssets(position.rewards).toSorted((a, b) =>
         new BigNumber(b.value).comparedTo(new BigNumber(a.value)),
       ),
       value: position.value.toFixed(),
     }))
-    .sort((a, b) => new BigNumber(b.value).comparedTo(new BigNumber(a.value)));
+    .toSorted((a, b) =>
+      new BigNumber(b.value).comparedTo(new BigNumber(a.value)),
+    );
   return positions;
 }
 
@@ -143,19 +214,7 @@ function transformDeFiData({
       owner: string;
       networkId: string;
       protocol: string;
-      positionMap: Map<
-        string,
-        {
-          groupId: string;
-          poolName: string;
-          poolFullName: string;
-          category: string;
-          assets: (IDeFiAsset & { type: EDeFiAssetType })[];
-          debts: (IDeFiAsset & { type: EDeFiAssetType })[];
-          rewards: (IDeFiAsset & { type: EDeFiAssetType })[];
-          value: BigNumber;
-        }
-      >; // key: category
+      positionMap: Map<string, IGroupedPositionValue>; // key: groupId
       categorySet: Set<string>;
     }
   >();
@@ -170,7 +229,7 @@ function transformDeFiData({
   });
 
   Object.values(positions).forEach((networkPositions) => {
-    networkPositions.forEach((position) => {
+    networkPositions.forEach((position, positionIndex) => {
       const protocolPositionsMapKey = `${position.networkId}-${position.protocol}`;
 
       if (!protocolPositionsMap.has(protocolPositionsMapKey)) {
@@ -189,33 +248,26 @@ function transformDeFiData({
         owner: string;
         networkId: string;
         protocol: string;
-        positionMap: Map<
-          string,
-          {
-            groupId: string;
-            poolName: string;
-            poolFullName: string;
-            category: string;
-            assets: (IDeFiAsset & { type: EDeFiAssetType })[];
-            debts: (IDeFiAsset & { type: EDeFiAssetType })[];
-            rewards: (IDeFiAsset & { type: EDeFiAssetType })[];
-            value: BigNumber;
-          }
-        >; // key: category
+        positionMap: Map<string, IGroupedPositionValue>; // key: groupId
         categorySet: Set<string>;
       };
 
-      const positionKey = position.groupId;
+      const safeGroupId = getSafeGroupedPositionId({
+        position,
+        positionIndex,
+      });
 
-      if (!protocolPositionsMapValue.positionMap.has(positionKey)) {
-        const { targetString, originalString } = extractParenthesizedContent(
-          position.name,
-        );
+      const positionKey = buildGroupedPositionKey({
+        groupId: safeGroupId,
+      });
+
+      const isNewPositionGroup =
+        !protocolPositionsMapValue.positionMap.has(positionKey);
+      if (isNewPositionGroup) {
+        const metadata = getGroupedPositionMetadata(position);
         protocolPositionsMapValue.positionMap.set(positionKey, {
-          groupId: position.groupId,
-          poolName: targetString,
-          poolFullName: originalString,
-          category: position.category,
+          groupId: safeGroupId,
+          ...metadata,
           assets: [],
           debts: [],
           rewards: [],
@@ -225,16 +277,20 @@ function transformDeFiData({
 
       const positionValue = protocolPositionsMapValue.positionMap.get(
         positionKey,
-      ) as {
-        groupId: string;
-        poolName: string;
-        poolFullName: string;
-        category: string;
-        assets: (IDeFiAsset & { type: EDeFiAssetType })[];
-        debts: (IDeFiAsset & { type: EDeFiAssetType })[];
-        rewards: (IDeFiAsset & { type: EDeFiAssetType })[];
-        value: BigNumber;
-      };
+      ) as IGroupedPositionValue;
+
+      if (
+        !isNewPositionGroup &&
+        shouldUsePositionMetadata({
+          current: positionValue,
+          incoming: position,
+        })
+      ) {
+        updateGroupedPositionMetadata({
+          current: positionValue,
+          incoming: position,
+        });
+      }
 
       const assets = position.assets.map((asset) => ({
         ...asset,
@@ -283,7 +339,7 @@ function transformDeFiData({
       positions: transferPositionMap(value.positionMap),
       categories: Array.from(value.categorySet),
     }))
-    .sort((a, b) =>
+    .toSorted((a, b) =>
       new BigNumber(
         protocolMap[
           buildProtocolMapKey({
@@ -314,9 +370,10 @@ function transformDeFiData({
 function getEmptyDeFiData() {
   return {
     overview: {
-      totalValue: '0',
-      totalDebt: '0',
-      netWorth: '0',
+      totalValue: 0,
+      totalDebt: 0,
+      netWorth: 0,
+      totalReward: 0,
       chains: [],
       protocolCount: 0,
       positionCount: 0,
@@ -325,9 +382,10 @@ function getEmptyDeFiData() {
     protocolMap: {},
   } as {
     overview: {
-      totalValue: string;
-      totalDebt: string;
-      netWorth: string;
+      totalValue: number;
+      totalDebt: number;
+      netWorth: number;
+      totalReward: number;
       chains: string[];
       protocolCount: number;
       positionCount: number;

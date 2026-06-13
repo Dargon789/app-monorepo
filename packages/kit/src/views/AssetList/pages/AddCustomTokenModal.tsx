@@ -30,6 +30,7 @@ import {
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type {
   EModalAssetListRoutes,
   IModalAssetListParamList,
@@ -57,6 +58,7 @@ import {
   useAddTokenForm,
   useCheckAccountExist,
 } from '../hooks/useAddToken';
+import { AssetListTestIDs } from '../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -68,6 +70,7 @@ function CreateAddressButton(props: IButtonProps) {
   const intl = useIntl();
   return (
     <Button
+      testID="asset-list-intl-btn"
       $md={
         {
           flexGrow: 1,
@@ -130,7 +133,7 @@ function AddCustomTokenModal() {
 
   const isAllNetwork = networkUtils.isAllNetwork({ networkId });
 
-  const { result: allNetworksState, run: refreshAllNetworkState } =
+  const { result: allNetworksState, run: _refreshAllNetworkState } =
     usePromiseResult(
       async () => {
         if (isAllNetwork) {
@@ -324,7 +327,7 @@ function AddCustomTokenModal() {
             },
           });
         } else {
-          const tokenInfo: IAccountToken = {
+          let tokenInfo: IAccountToken = {
             ...searchedTokenRef.current,
             address: searchedTokenRef.current?.address,
             symbol,
@@ -335,11 +338,15 @@ function AddCustomTokenModal() {
             isNative: searchedTokenRef.current?.isNative ?? false,
             $key: `${selectedNetworkIdValue}_${contractAddress}`,
           };
-          await backgroundApiProxy.serviceCustomToken.activateToken({
-            accountId: accountIdForNetwork,
-            networkId: selectedNetworkIdValue,
-            token: tokenInfo,
-          });
+          const { token: activatedToken } =
+            await backgroundApiProxy.serviceCustomToken.activateToken({
+              accountId: accountIdForNetwork,
+              networkId: selectedNetworkIdValue,
+              token: tokenInfo,
+            });
+          if (activatedToken) {
+            tokenInfo = activatedToken;
+          }
           const accountXpubOrAddress =
             await backgroundApiProxy.serviceAccount.getAccountXpubOrAddress({
               accountId: accountIdForNetwork,
@@ -381,6 +388,11 @@ function AddCustomTokenModal() {
       } finally {
         setIsLoading(false);
       }
+      defaultLogger.account.wallet.addCustomToken({
+        network: selectedNetworkIdValue,
+        tokenSymbol: symbol,
+        tokenAddress: contractAddress,
+      });
       Toast.success({
         title: intl.formatMessage({
           id: ETranslations.address_book_add_address_toast_add_success,
@@ -485,6 +497,7 @@ function AddCustomTokenModal() {
               name="contractAddress"
             >
               <Input
+                testID={AssetListTestIDs.contractAddressInput}
                 size="large"
                 $gtMd={{
                   size: 'medium',
@@ -510,6 +523,7 @@ function AddCustomTokenModal() {
             name="symbol"
           >
             <Input
+              testID={AssetListTestIDs.symbolInput}
               size="large"
               $gtMd={{
                 size: 'medium',
@@ -524,6 +538,7 @@ function AddCustomTokenModal() {
             name="decimals"
           >
             <Input
+              testID={AssetListTestIDs.decimalsInput}
               size="large"
               $gtMd={{
                 size: 'medium',

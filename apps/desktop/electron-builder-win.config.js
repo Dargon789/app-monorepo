@@ -1,5 +1,10 @@
-const DLLs = require('./electron-dll.config');
+// oxlint-disable no-template-curly-in-string -- electron-builder template syntax
 const baseElectronBuilderConfig = require('./electron-builder-base.config');
+const {
+  baseFiles,
+  winExcludePrebuilds,
+} = require('./electron-builder-files.config');
+const DLLs = require('./electron-dll.config');
 
 module.exports = {
   ...baseElectronBuilderConfig,
@@ -11,9 +16,12 @@ module.exports = {
   nsis: {
     oneClick: false,
     installerSidebar: 'app/build/static/images/icons/installerSidebar.bmp',
+    installerIcon: 'app/build/static/images/icons/installerIcon.ico',
+    uninstallerIcon: 'app/build/static/images/icons/installerIcon.ico',
     deleteAppDataOnUninstall: true,
   },
   win: {
+    files: [...baseFiles, ...winExcludePrebuilds],
     extraResources: [
       {
         from: 'app/build/static/bin/bridge/win-${arch}',
@@ -21,10 +29,9 @@ module.exports = {
       },
     ],
     extraFiles: DLLs,
-    icon: 'app/build/static/images/icons/512x512.png',
+    icon: 'app/build/static/images/icons/installerIcon.ico',
     artifactName: 'OneKey-Wallet-${version}-win-${arch}.${ext}',
     verifyUpdateCodeSignature: false,
     target: [{ target: 'nsis', arch: ['x64', 'arm64'] }],
   },
 };
-

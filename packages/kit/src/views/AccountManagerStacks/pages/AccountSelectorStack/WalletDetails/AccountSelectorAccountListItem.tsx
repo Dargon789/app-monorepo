@@ -1,11 +1,16 @@
 import { useCallback, useMemo } from 'react';
 
 import type { IButtonProps } from '@onekeyhq/components';
-import { IconButton, SizableText, Stack, XStack } from '@onekeyhq/components';
+import {
+  IconButton,
+  SizableText,
+  Stack,
+  XStack,
+  resetAccountManagerStacksModal,
+} from '@onekeyhq/components';
 import { AccountAvatar } from '@onekeyhq/kit/src/components/AccountAvatar';
 import { AccountSelectorCreateAddressButton } from '@onekeyhq/kit/src/components/AccountSelector/AccountSelectorCreateAddressButton';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
-import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import {
   useAccountSelectorActions,
   useActiveAccount,
@@ -20,8 +25,12 @@ import type {
   IAccountSelectorAccountsListSectionData,
   IAccountSelectorSelectedAccount,
 } from '@onekeyhq/kit-bg/src/dbs/simple/entity/SimpleDbEntityAccountSelector';
-import { useIndexedAccountAddressCreationStateAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import type { IAccountDeriveTypes } from '@onekeyhq/kit-bg/src/vaults/types';
+import {
+  useAccountSelectorDeFiMapAtom,
+  useAccountSelectorValuesMapAtom,
+  useIndexedAccountAddressCreationStateAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import type { INetworkDeriveInfo } from '@onekeyhq/kit-bg/src/vaults/types';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
@@ -29,6 +38,7 @@ import type { IServerNetwork } from '@onekeyhq/shared/types';
 
 import { AccountEditButton } from '../../../components/AccountEdit';
 import { useAccountSelectorAvatarNetwork } from '../../../hooks/useAccountSelectorAvatarNetwork';
+import { AccountManagerTestIDs } from '../../../testIDs';
 
 import { AccountAddress } from './AccountAddress';
 import { AccountValueWithSpotlight } from './AccountValue';
@@ -36,6 +46,7 @@ import { AccountValueWithSpotlight } from './AccountValue';
 function PlusButton({ onPress, loading }: IButtonProps) {
   return (
     <IconButton
+      testID="account-manager-plus-button-icon-btn"
       borderWidth={0}
       borderRadius="$2"
       variant="tertiary"
@@ -55,7 +66,6 @@ export function AccountSelectorAccountListItem({
   index,
   isOthersUniversal,
   selectedAccount,
-  accountsValue,
   linkNetwork,
   allowSelectEmptyAccount,
   editable,
@@ -73,11 +83,6 @@ export function AccountSelectorAccountListItem({
   index: number;
   isOthersUniversal: boolean;
   selectedAccount: IAccountSelectorSelectedAccount;
-  accountsValue: {
-    accountId: string;
-    value: Record<string, string> | string | undefined;
-    currency: string | undefined;
-  }[];
   linkNetwork: boolean | undefined;
   allowSelectEmptyAccount: boolean | undefined;
   editable: boolean;
@@ -91,16 +96,9 @@ export function AccountSelectorAccountListItem({
   mergeDeriveAssetsEnabled: boolean | undefined;
   hideAddress?: boolean;
   enabledNetworksCompatibleWithWalletId: IServerNetwork[];
-  networkInfoMap: Record<
-    string,
-    {
-      deriveType: IAccountDeriveTypes;
-      mergeDeriveAssetsEnabled: boolean;
-    }
-  >;
+  networkInfoMap: Record<string, INetworkDeriveInfo>;
 }) {
   const actions = useAccountSelectorActions();
-  const navigation = useAppNavigation();
   const {
     activeAccount: { network },
   } = useActiveAccount({
@@ -108,6 +106,10 @@ export function AccountSelectorAccountListItem({
   });
 
   const [addressCreationState] = useIndexedAccountAddressCreationStateAtom();
+  const [valuesMapAll] = useAccountSelectorValuesMapAtom();
+  const [deFiMapAll] = useAccountSelectorDeFiMapAtom();
+  const valuesMap = useMemo(() => valuesMapAll[num], [valuesMapAll, num]);
+  const deFiMap = useMemo(() => deFiMapAll[num], [deFiMapAll, num]);
 
   const account = useMemo(
     () => (isOthersUniversal ? (item as IDBAccount) : undefined),
@@ -122,7 +124,7 @@ export function AccountSelectorAccountListItem({
     () =>
       Boolean(
         addressCreationState?.indexedAccountId === indexedAccount?.id &&
-          addressCreationState?.walletId === focusedWalletInfo?.wallet?.id,
+        addressCreationState?.walletId === focusedWalletInfo?.wallet?.id,
       ),
     [
       addressCreationState?.indexedAccountId,
@@ -188,10 +190,14 @@ export function AccountSelectorAccountListItem({
 
   const subTitleInfo = useMemo(() => buildSubTitleInfo(), [buildSubTitleInfo]);
 
-  // TODO performance
   const accountValue = useMemo(
-    () => accountsValue?.find((i) => i.accountId === item.id),
-    [accountsValue, item.id],
+    () => valuesMap?.[item.id],
+    [valuesMap, item.id],
+  );
+
+  const accountDeFiOverview = useMemo(
+    () => deFiMap?.[item.id],
+    [deFiMap, item.id],
   );
 
   const shouldShowCreateAddressButton = useMemo(
@@ -212,6 +218,21 @@ export function AccountSelectorAccountListItem({
     if (isCreatingAddress) {
       return null;
     }
+    if (shouldShowCreateAddressButton) {
+      return (
+        <AccountSelectorCreateAddressButton
+          num={num}
+          selectAfterCreate
+          account={{
+            walletId: focusedWalletInfo?.wallet?.id,
+            networkId: linkedNetworkId,
+            indexedAccountId: indexedAccount?.id,
+            deriveType: selectedAccount.deriveType,
+          }}
+          buttonRender={PlusButton}
+        />
+      );
+    }
     if (editable) {
       return (
         <AccountEditButton
@@ -231,21 +252,6 @@ export function AccountSelectorAccountListItem({
           }
           wallet={focusedWalletInfo?.wallet}
           networkId={linkedNetworkId ?? network?.id}
-        />
-      );
-    }
-    if (shouldShowCreateAddressButton) {
-      return (
-        <AccountSelectorCreateAddressButton
-          num={num}
-          selectAfterCreate
-          account={{
-            walletId: focusedWalletInfo?.wallet?.id,
-            networkId: linkedNetworkId,
-            indexedAccountId: indexedAccount?.id,
-            deriveType: selectedAccount.deriveType,
-          }}
-          buttonRender={PlusButton}
         />
       );
     }
@@ -293,7 +299,7 @@ export function AccountSelectorAccountListItem({
       return null;
 
     return (
-      <>
+      <Stack flexShrink={1}>
         <AccountValueWithSpotlight
           walletId={focusedWalletInfo?.wallet?.id ?? ''}
           enabledNetworksCompatibleWithWalletId={
@@ -303,12 +309,13 @@ export function AccountSelectorAccountListItem({
           isOthersUniversal={isOthersUniversal}
           index={index}
           accountValue={accountValue}
+          accountDeFiOverview={accountDeFiOverview}
           indexedAccountId={indexedAccount?.id}
           linkedAccountId={indexedAccount?.associateAccount?.id ?? item.id}
           linkedNetworkId={avatarNetworkId ?? network?.id}
           mergeDeriveAssetsEnabled={mergeDeriveAssetsEnabled}
         />
-      </>
+      </Stack>
     );
   }, [
     linkNetwork,
@@ -325,6 +332,7 @@ export function AccountSelectorAccountListItem({
     avatarNetworkId,
     network?.id,
     mergeDeriveAssetsEnabled,
+    accountDeFiOverview,
   ]);
 
   const renderAccountAddress = useCallback(() => {
@@ -353,7 +361,7 @@ export function AccountSelectorAccountListItem({
   return (
     <Stack>
       <ListItem
-        testID={`account-item-index-${index}`}
+        testID={AccountManagerTestIDs.accountItem(index)}
         key={item.id}
         renderAvatar={
           <AccountAvatar
@@ -418,7 +426,7 @@ export function AccountSelectorAccountListItem({
                 autoChangeToAccountMatchedNetworkId: undefined,
               });
             }
-            navigation.popStack();
+            resetAccountManagerStacksModal();
           },
           isLoading: isCreatingAddress,
           userSelect: 'none',

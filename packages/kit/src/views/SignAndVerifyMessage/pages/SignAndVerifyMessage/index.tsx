@@ -23,6 +23,7 @@ import { ESignAndVerifyAction } from '@onekeyhq/shared/types/signAndVerify';
 
 import { SignForm } from '../../components/SignForm';
 import { VerifyForm } from '../../components/VerifyForm';
+import { SignAndVerifyMessageTestIDs } from '../../testIDs';
 
 import type { ISignFormData } from '../../components/SignForm';
 import type { IVerifyFormData } from '../../components/VerifyForm';
@@ -294,8 +295,8 @@ function SignAndVerifyMessage() {
       <Page.Body>
         <YStack p="$5" pt="$2" gap="$5">
           <SegmentControl
+            testID={SignAndVerifyMessageTestIDs.segmentControl}
             value={action}
-            fullWidth
             onChange={(v) => {
               const newAction = v as ESignAndVerifyAction;
               setAction(newAction);

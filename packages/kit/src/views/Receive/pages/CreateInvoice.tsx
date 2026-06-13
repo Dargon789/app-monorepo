@@ -1,21 +1,29 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useRoute } from '@react-navigation/core';
 import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
+import { InputAccessoryView } from 'react-native';
 
 import type { IPageNavigationProp } from '@onekeyhq/components';
 import {
+  Button,
   Form,
   Input,
   NumberSizeableText,
   Page,
   TextArea,
+  XStack,
   useForm,
   useMedia,
 } from '@onekeyhq/components';
-import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import {
+  useCurrencyPersistAtom,
+  useSettingsPersistAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { dismissKeyboardWithDelay } from '@onekeyhq/shared/src/keyboard';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { EModalReceiveRoutes } from '@onekeyhq/shared/src/routes';
 import type {
   IModalReceiveParamList,
@@ -28,6 +36,8 @@ import backgroundApiProxy from '../../../background/instance/backgroundApiProxy'
 import { LightningUnitSwitch } from '../../../components/UnitSwitch';
 import useAppNavigation from '../../../hooks/useAppNavigation';
 import { usePromiseResult } from '../../../hooks/usePromiseResult';
+import { convertTokenFiatToCurrency } from '../../../utils/fiatConvert';
+import { ReceiveTestIDs } from '../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -35,6 +45,9 @@ type IFormValues = {
   amount: string;
   description: string;
 };
+
+const CREATE_INVOICE_INPUT_ACCESSORY_VIEW_ID =
+  'create-invoice-input-accessory-view';
 
 function CreateInvoice() {
   const intl = useIntl();
@@ -51,11 +64,20 @@ function CreateInvoice() {
     useAppNavigation<IPageNavigationProp<IModalSendParamList>>();
   const { accountId, networkId } = route.params;
   const [settings] = useSettingsPersistAtom();
+  const [{ currencyMap }] = useCurrencyPersistAtom();
   const { serviceLightning } = backgroundApiProxy;
   const [isLoading, setIsLoading] = useState(false);
 
   const amountValue = form.watch('amount');
   const [lnUnit, setLnUnit] = useState(ELightningUnit.SATS);
+
+  useEffect(() => {
+    if (!amountValue || lnUnit !== ELightningUnit.BTC) return;
+    const dotIndex = amountValue.indexOf('.');
+    if (dotIndex !== -1 && amountValue.length - dotIndex - 1 > 8) {
+      form.setValue('amount', amountValue.slice(0, dotIndex + 9));
+    }
+  }, [amountValue, lnUnit, form]);
   const { result: invoiceConfig } = usePromiseResult(
     () => serviceLightning.getInvoiceConfig({ networkId }),
     [networkId, serviceLightning],
@@ -74,22 +96,17 @@ function CreateInvoice() {
       maxSendAmount:
         lnUnit === ELightningUnit.BTC
           ? chainValueUtils.convertSatsToBtc(invoiceConfig?.maxSendAmount ?? 0)
-          : invoiceConfig?.maxSendAmount ?? 0,
+          : (invoiceConfig?.maxSendAmount ?? 0),
       maxReceiveAmount:
         lnUnit === ELightningUnit.BTC
           ? chainValueUtils.convertSatsToBtc(
               invoiceConfig?.maxReceiveAmount ?? 0,
             )
-          : invoiceConfig?.maxReceiveAmount ?? 0,
+          : (invoiceConfig?.maxReceiveAmount ?? 0),
     };
   }, [invoiceConfig, lnUnit]);
 
-  const { result } = usePromiseResult(async () => {
-    const accountAddress =
-      await backgroundApiProxy.serviceAccount.getAccountAddressForApi({
-        networkId,
-        accountId,
-      });
+  const { result: tokenDetails } = usePromiseResult(async () => {
     const r = await backgroundApiProxy.serviceToken.fetchTokensDetails({
       accountId,
       networkId,
@@ -97,20 +114,25 @@ function CreateInvoice() {
       withFrozenBalance: false,
       withCheckInscription: false,
     });
-    const price = r[0]?.price;
-    return {
-      price,
-    };
+    return r[0];
   }, [networkId, accountId]);
 
   const fiatValue = useMemo(() => {
+    if (!tokenDetails) return '0.00';
+    // fetchTokensDetails responses are normalized to USD basis (tagged
+    // currency:'usd'); convert before rendering under
+    // settings.currencyInfo.symbol.
+    const { price } = convertTokenFiatToCurrency({
+      tokenFiat: tokenDetails,
+      targetCurrency: settings.currencyInfo.id,
+      currencyMap,
+    });
     const amountBN = new BigNumber(linkedAmount || '0');
-    const price = new BigNumber(result?.price || '0');
-    if (amountBN.isInteger() && price) {
-      return amountBN.multipliedBy(price).toFixed(2);
+    if (amountBN.isInteger()) {
+      return amountBN.multipliedBy(new BigNumber(price || '0')).toFixed(2);
     }
     return '0.00';
-  }, [linkedAmount, result?.price]);
+  }, [linkedAmount, tokenDetails, settings.currencyInfo.id, currencyMap]);
 
   const onSubmit = useCallback(
     async (values: IFormValues) => {
@@ -139,7 +161,14 @@ function CreateInvoice() {
   );
 
   return (
-    <Page>
+    <Page
+      testID={ReceiveTestIDs.CreateInvoicePage}
+      scrollEnabled
+      scrollProps={{
+        keyboardDismissMode: 'on-drag',
+        keyboardShouldPersistTaps: 'handled',
+      }}
+    >
       <Page.Header
         title={intl.formatMessage({ id: ETranslations.lightning_invoice })}
       />
@@ -206,6 +235,7 @@ function CreateInvoice() {
             }}
             labelAddon={
               <LightningUnitSwitch
+                testID={ReceiveTestIDs.LightningUnitSwitch}
                 value={lnUnit}
                 onChange={(v) => {
                   setLnUnit(v as ELightningUnit);
@@ -227,6 +257,7 @@ function CreateInvoice() {
             }
           >
             <Input
+              testID={ReceiveTestIDs.AmountInput}
               placeholder={intl.formatMessage({
                 id: ETranslations.form_amount_placeholder,
               })}
@@ -240,6 +271,11 @@ function CreateInvoice() {
                   label: lnUnit === ELightningUnit.BTC ? 'BTC' : 'sats',
                 },
               ]}
+              inputAccessoryViewID={
+                platformEnv.isNativeIOS
+                  ? CREATE_INVOICE_INPUT_ACCESSORY_VIEW_ID
+                  : undefined
+              }
             />
           </Form.Field>
           <Form.Field
@@ -258,6 +294,7 @@ function CreateInvoice() {
             }}
           >
             <TextArea
+              testID={ReceiveTestIDs.DescriptionInput}
               size={media.gtMd ? 'medium' : 'large'}
               $gtMd={{
                 size: 'medium',
@@ -265,6 +302,11 @@ function CreateInvoice() {
               placeholder={intl.formatMessage({
                 id: ETranslations.form_lightning_invoice_placeholder,
               })}
+              inputAccessoryViewID={
+                platformEnv.isNativeIOS
+                  ? CREATE_INVOICE_INPUT_ACCESSORY_VIEW_ID
+                  : undefined
+              }
             />
           </Form.Field>
         </Form>
@@ -273,11 +315,34 @@ function CreateInvoice() {
         onConfirmText={intl.formatMessage({
           id: ETranslations.global_create_invoice,
         })}
-        onConfirm={() => form.handleSubmit(onSubmit)()}
+        onConfirm={() => {
+          void dismissKeyboardWithDelay(100);
+          void form.handleSubmit(onSubmit)();
+        }}
         confirmButtonProps={{
           loading: isLoading,
         }}
       />
+      {platformEnv.isNativeIOS ? (
+        <InputAccessoryView nativeID={CREATE_INVOICE_INPUT_ACCESSORY_VIEW_ID}>
+          <XStack
+            p="$2.5"
+            px="$3.5"
+            justifyContent="flex-end"
+            bg="$bgSubdued"
+            borderTopWidth="$px"
+            borderTopColor="$borderSubdued"
+          >
+            <Button
+              testID="receive-btn"
+              variant="tertiary"
+              onPress={() => void dismissKeyboardWithDelay(100)}
+            >
+              {intl.formatMessage({ id: ETranslations.global_done })}
+            </Button>
+          </XStack>
+        </InputAccessoryView>
+      ) : null}
     </Page>
   );
 }

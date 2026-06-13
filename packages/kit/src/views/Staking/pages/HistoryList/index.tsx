@@ -121,6 +121,7 @@ const HistoryItem = ({
             })}
           </SizableText>
           <IconButton
+            testID="staking-subtitle-icon-btn"
             icon="OpenOutline"
             size="small"
             variant="tertiary"
@@ -153,7 +154,7 @@ const HistoryItem = ({
           children: <Icon name="GlobusOutline" />,
         },
       }}
-      title={item.title}
+      title={item.title ?? ''}
       subtitle={subtitle}
       onPress={onPress}
     >
@@ -254,6 +255,7 @@ const HistoryContent = ({
     <YStack flex={1}>
       <XStack px="$5">
         <Select
+          testID="staking-handle-select-change-select"
           value={filterType}
           renderTrigger={({ label }) => (
             <XStack h="$12" ai="center" gap="$1">
@@ -343,7 +345,7 @@ function HistoryList() {
             ),
           })),
         }))
-        .sort((a, b) => b.data[0].timestamp - a.data[0].timestamp);
+        .toSorted((a, b) => b.data[0].timestamp - a.data[0].timestamp);
 
       // local history items
       if (filterType !== 'rebate' && stakeTag) {

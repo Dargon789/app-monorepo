@@ -1,6 +1,10 @@
+/* eslint-disable @typescript-eslint/no-unsafe-enum-comparison */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useCallback, useEffect, useRef } from 'react';
 
+import { CommonActions, StackActions } from '@react-navigation/native';
 import { debounce, isEqual, noop, upperFirst } from 'lodash';
+import pRetry from 'p-retry';
 import { useIntl } from 'react-intl';
 
 import {
@@ -11,8 +15,8 @@ import {
   getDialogInstances,
   getFormInstances,
   rootNavigationRef,
-  useIsTabletDetailView,
   useShortcuts,
+  useSplitSubView,
 } from '@onekeyhq/components';
 import { ipcMessageKeys } from '@onekeyhq/desktop/app/config';
 import {
@@ -23,26 +27,39 @@ import {
 import {
   EAppUpdateStatus,
   EUpdateFileType,
+  EUpdateStrategy,
   getUpdateFileType,
 } from '@onekeyhq/shared/src/appUpdate';
+import {
+  PERPS_CONFIG_FETCH_MAX_RETRIES,
+  PERPS_CONFIG_FETCH_RETRY_INTERVAL_MS,
+} from '@onekeyhq/shared/src/consts/perp';
+import errorToastUtils from '@onekeyhq/shared/src/errors/utils/errorToastUtils';
 import {
   EAppEventBusNames,
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
+import {
+  EPerpPageEnterSource,
+  setPerpPageEnterSource,
+} from '@onekeyhq/shared/src/logger/scopes/perp/perpPageSource';
+import BootRecovery from '@onekeyhq/shared/src/modules/BootRecovery';
 import { electronUpdateListeners } from '@onekeyhq/shared/src/modules3rdParty/auto-update/electronUpdateListeners';
 import { initIntercom } from '@onekeyhq/shared/src/modules3rdParty/intercom';
 import performance from '@onekeyhq/shared/src/performance';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import {
   EDiscoveryModalRoutes,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   EGalleryRoutes,
   EModalRoutes,
   EModalSettingRoutes,
   EMultiTabBrowserRoutes,
+  EOnboardingPagesV2,
+  EOnboardingV2Routes,
   ETabEarnRoutes,
+  ETabMarketRoutes,
   ETabRoutes,
 } from '@onekeyhq/shared/src/routes';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -50,15 +67,23 @@ import { EPrimePages } from '@onekeyhq/shared/src/routes/prime';
 import { ERootRoutes } from '@onekeyhq/shared/src/routes/root';
 import { EShortcutEvents } from '@onekeyhq/shared/src/shortcuts/shortcuts.enum';
 import { ESpotlightTour } from '@onekeyhq/shared/src/spotlight';
+import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
+import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 
 import backgroundApiProxy from '../background/instance/backgroundApiProxy';
-import { useAppUpdateInfo } from '../components/UpdateReminder/hooks';
+import { AccountSelectorProviderMirror } from '../components/AccountSelector';
+import {
+  AppUpdateForeground,
+  isAutoUpdateStrategy,
+  useAppUpdateInfo,
+} from '../components/AppUpdate';
+import { SplitViewPrompt } from '../components/SplitViewPrompt';
 import useAppNavigation from '../hooks/useAppNavigation';
 import { useOnLock } from '../hooks/useOnLock';
-import {
-  isOpenedMyOneKeyModal,
-  useToMyOneKeyModal,
-} from '../views/DeviceManagement/hooks/useToMyOneKeyModal';
+import { useRunAfterTokensDone } from '../hooks/useRunAfterTokensDone';
+import { useTrayDataProvider } from '../hooks/useTrayDataProvider';
+
+import { useExtensionMarketTokenDetailHashNavigation } from './useExtensionMarketTokenDetailHashNavigation';
 
 import type { IntlShape } from 'react-intl';
 
@@ -68,7 +93,14 @@ const useOnLockCallback = platformEnv.isDesktop
 
 const useAppUpdateInfoCallback = platformEnv.isDesktop
   ? useAppUpdateInfo
-  : () => ({} as ReturnType<typeof useAppUpdateInfo>);
+  : () => ({}) as ReturnType<typeof useAppUpdateInfo>;
+
+// useAppUpdateInfo no longer accepts `autoCheck` — first-launch dispatch
+// and AppState 'active' resume listener now live in <AppUpdateForeground />,
+// mounted once below in Bootstrap's render output. Existing callers in
+// Bootstrap (Desktop only) pulled `useAppUpdateInfo(false, false)` for the
+// data side; that signature is preserved by treating the second arg as
+// ignored.
 
 const useDesktopEvents = platformEnv.isDesktop
   ? () => {
@@ -80,12 +112,8 @@ const useDesktopEvents = platformEnv.isDesktop
       const useOnLockRef = useRef(onLock);
       useOnLockRef.current = onLock;
 
-      const toMyOneKeyModal = useToMyOneKeyModal();
-
-      const { checkForUpdates, onUpdateAction } = useAppUpdateInfoCallback(
-        false,
-        false,
-      );
+      const { checkForUpdates, downloadPackage, onUpdateAction } =
+        useAppUpdateInfoCallback(false);
       const isCheckingUpdate = useRef(false);
 
       const onCheckUpdate = useCallback(async () => {
@@ -95,7 +123,26 @@ const useDesktopEvents = platformEnv.isDesktop
         }
         isCheckingUpdate.current = true;
         const { isNeedUpdate, response } = await checkForUpdates();
-        if (isNeedUpdate || response === undefined) {
+        // OTA (silent/seamless) updates download/install transparently in
+        // the background. The desktop menu "Check for updates" must not open
+        // the download/verify UI for these strategies — that breaks the
+        // silent/seamless contract. Instead, kick off the background
+        // download silently (the auto useEffect only runs once at startup,
+        // so mid-session OTA discovery would otherwise stall) and show the
+        // "up to date" dialog as user feedback. The auto useEffect still
+        // drives any user-visible install dialog when status === ready.
+        const isOtaStrategy =
+          response &&
+          isAutoUpdateStrategy(
+            response.updateStrategy ?? EUpdateStrategy.manual,
+          );
+        if (isNeedUpdate && isOtaStrategy) {
+          // serviceAppUpdate.downloadPackage() inside this hook gates on
+          // DOWNLOAD_ENTRY_STATUSES, so calling it while already in-flight
+          // is a safe no-op. Fire-and-forget — we don't await the download.
+          void downloadPackage?.();
+        }
+        if ((isNeedUpdate && !isOtaStrategy) || response === undefined) {
           onUpdateAction();
           isCheckingUpdate.current = false;
         } else {
@@ -116,7 +163,7 @@ const useDesktopEvents = platformEnv.isDesktop
             }),
           });
         }
-      }, [checkForUpdates, intl, onUpdateAction]);
+      }, [checkForUpdates, downloadPackage, intl, onUpdateAction]);
 
       const onCheckUpdateRef = useRef(onCheckUpdate);
       onCheckUpdateRef.current = onCheckUpdate;
@@ -136,11 +183,14 @@ const useDesktopEvents = platformEnv.isDesktop
               const route = routeState.routes[routeState.routes.length - 1];
               if (
                 route &&
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
                 (route.params as { screen: string })?.screen ===
                   EModalRoutes.SettingModal
               ) {
                 if (
+                  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
                   route.name === ERootRoutes.Modal ||
+                  // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
                   route.name === ERootRoutes.iOSFullScreen
                 ) {
                   const routeLength =
@@ -267,9 +317,7 @@ const useDesktopEvents = platformEnv.isDesktop
             break;
           case EShortcutEvents.TabEarn:
             ensureModalClosedAndNavigate(() => {
-              navigation.switchTab(ETabRoutes.Earn, {
-                screen: ETabEarnRoutes.EarnHome,
-              });
+              navigation.switchTab(ETabRoutes.Earn);
             });
             break;
           case EShortcutEvents.TabSwap:
@@ -284,6 +332,7 @@ const useDesktopEvents = platformEnv.isDesktop
             break;
           case EShortcutEvents.TabPerps:
             ensureModalClosedAndNavigate(() => {
+              setPerpPageEnterSource(EPerpPageEnterSource.Shortcut);
               navigation.switchTab(ETabRoutes.Perp);
             });
             break;
@@ -293,26 +342,28 @@ const useDesktopEvents = platformEnv.isDesktop
             });
             break;
           case EShortcutEvents.TabMyOneKey:
-            if (!isOpenedMyOneKeyModal()) {
-              ensureModalClosedAndNavigate(() => {
-                void toMyOneKeyModal();
-              });
-            } else {
-              ensureModalClosedAndNavigate();
-            }
+            ensureModalClosedAndNavigate(() => {
+              navigation.switchTab(ETabRoutes.DeviceManagement);
+            });
             break;
           case EShortcutEvents.TabBrowser:
             ensureModalClosedAndNavigate(() => {
               navigation.switchTab(ETabRoutes.Discovery);
             });
             break;
+          case EShortcutEvents.TabDeveloper:
+            ensureModalClosedAndNavigate(() => {
+              navigation.switchTab(ETabRoutes.Developer);
+            });
+            break;
           case EShortcutEvents.NewTab2:
             if (platformEnv.isDesktop) {
-              navigation.switchTab(ETabRoutes.MultiTabBrowser, {
-                screen: EMultiTabBrowserRoutes.MultiTabBrowser,
-                params: {
-                  action: 'create_new_tab',
-                },
+              navigation.switchTab(ETabRoutes.MultiTabBrowser);
+              void timerUtils.wait(50).then(() => {
+                appEventBus.emit(
+                  EAppEventBusNames.CreateNewBrowserTab,
+                  undefined,
+                );
               });
             } else {
               navigation.pushModal(EModalRoutes.DiscoveryModal, {
@@ -348,6 +399,7 @@ const useAboutVersion =
               renderContent: (
                 <YStack gap={4} alignItems="center" pt="$4">
                   <Image
+                    // eslint-disable-next-line @typescript-eslint/no-require-imports
                     source={require('../../assets/logo.png')}
                     size={72}
                     borderRadius="$full"
@@ -374,9 +426,11 @@ const useAboutVersion =
     : noop;
 
 export const useFetchCurrencyList = () => {
-  useEffect(() => {
-    void backgroundApiProxy.serviceSetting.fetchCurrencyList();
-  }, []);
+  useRunAfterTokensDone({
+    run: () => {
+      void backgroundApiProxy.serviceSetting.fetchCurrencyList();
+    },
+  });
 };
 
 export const useFetchMarketBasicConfig = () => {
@@ -387,7 +441,24 @@ export const useFetchMarketBasicConfig = () => {
 
 export const useFetchPerpConfig = () => {
   useEffect(() => {
-    void backgroundApiProxy.serviceHyperliquid.updatePerpsConfigByServerWithCache();
+    void pRetry(
+      async (attemptNumber) => {
+        try {
+          if (attemptNumber === 1) {
+            return await backgroundApiProxy.serviceHyperliquid.updatePerpsConfigByServerWithCache();
+          }
+          return await backgroundApiProxy.serviceHyperliquid.updatePerpsConfigByServer();
+        } catch (err) {
+          errorToastUtils.toastIfErrorDisable(err);
+          throw err;
+        }
+      },
+      {
+        retries: PERPS_CONFIG_FETCH_MAX_RETRIES,
+        minTimeout: PERPS_CONFIG_FETCH_RETRY_INTERVAL_MS,
+        maxTimeout: PERPS_CONFIG_FETCH_RETRY_INTERVAL_MS,
+      },
+    ).catch(noop);
   }, []);
 };
 
@@ -400,7 +471,7 @@ const launchFloatingIconEvent = async (intl: IntlShape) => {
       await backgroundApiProxy.serviceSetting.isShowFloatingButton();
     const launchTimesLastReset =
       await backgroundApiProxy.serviceApp.getLaunchTimesLastReset();
-    if (!isShowFloatingButton && launchTimesLastReset === 5) {
+    if (!isShowFloatingButton && launchTimesLastReset >= 5) {
       Dialog.show({
         title: '',
         showExitButton: false,
@@ -415,6 +486,7 @@ const launchFloatingIconEvent = async (intl: IntlShape) => {
                 w: 360,
                 h: 163,
               }}
+              // eslint-disable-next-line @typescript-eslint/no-require-imports
               source={require('@onekeyhq/kit/assets/floating_icon_placeholder.png')}
             />
             <YStack gap="$1">
@@ -456,6 +528,15 @@ const launchFloatingIconEvent = async (intl: IntlShape) => {
   }
 };
 
+const useLogVersionInfo = () => {
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void defaultLogger.setting.device.logFullVersionInfo();
+    }, 15_000);
+    return () => clearTimeout(timer);
+  }, []);
+};
+
 export const useIntercomInit = () => {
   const isInitializedRef = useRef(false);
 
@@ -484,7 +565,10 @@ export const useLaunchEvents = (): void => {
         hasLaunchEventsExecutedRef.current = true;
         setTimeout(async () => {
           await backgroundApiProxy.serviceApp.updateLaunchTimes();
-          if (platformEnv.isExtension) {
+          if (
+            platformEnv.isExtensionUiPopup ||
+            platformEnv.isExtensionUiSidePanel
+          ) {
             await launchFloatingIconEvent(intl);
           }
         }, 250);
@@ -497,10 +581,7 @@ const getBuilderNumber = (builderNumber?: string) => {
   return builderNumber ? Number(builderNumber.split('-')[0]) : -1;
 };
 export const useCheckUpdateOnDesktop =
-  platformEnv.isDesktop &&
-  !platformEnv.isMas &&
-  !platformEnv.isDesktopLinuxSnap &&
-  !platformEnv.isDesktopWinMsStore
+  platformEnv.isDesktop && !platformEnv.isDesktopStore
     ? () => {
         useEffect(() => {
           const subscription = electronUpdateListeners.onDownloadedFileEvent?.(
@@ -590,7 +671,7 @@ export const useRemindDevelopmentBuildExtension =
     : noop;
 
 export const useTabletDetailView = () => {
-  const isTabletDetailView = useIsTabletDetailView();
+  const isTabletDetailView = useSplitSubView();
   const appNavigation = useAppNavigation();
   useEffect(() => {
     if (isTabletDetailView) {
@@ -610,6 +691,32 @@ export const useTabletDetailView = () => {
           appNavigation.pushModal(event.route, event.params);
         }, 10);
       };
+      const onCleanTokenDetailInTabletDetailView = () => {
+        appNavigation.dispatch((state) => {
+          // Filter out only token detail pages, keep others (like banner list)
+          const filteredRoutes = state.routes.filter(
+            (route) =>
+              route.name !== ETabMarketRoutes.MarketDetailV2 &&
+              route.name !== ETabMarketRoutes.MarketNativeDetail,
+          );
+
+          // If no token detail routes were removed, do nothing
+          if (filteredRoutes.length === state.routes.length) {
+            return StackActions.pop(0);
+          }
+
+          // If all routes would be removed, clear all
+          if (filteredRoutes.length === 0) {
+            return StackActions.pop(state.routes.length);
+          }
+
+          return CommonActions.reset({
+            ...state,
+            routes: filteredRoutes,
+            index: filteredRoutes.length - 1,
+          });
+        });
+      };
       appEventBus.on(EAppEventBusNames.SwitchTabBar, onSwitchTabBar);
       appEventBus.on(
         EAppEventBusNames.PushPageInTabletDetailView,
@@ -618,6 +725,10 @@ export const useTabletDetailView = () => {
       appEventBus.on(
         EAppEventBusNames.PushModalPageInTabletDetailView,
         onPushModalPageInTabletDetailView,
+      );
+      appEventBus.on(
+        EAppEventBusNames.CleanTokenDetailInTabletDetailView,
+        onCleanTokenDetailInTabletDetailView,
       );
       return () => {
         appEventBus.off(EAppEventBusNames.SwitchTabBar, onSwitchTabBar);
@@ -629,10 +740,33 @@ export const useTabletDetailView = () => {
           EAppEventBusNames.PushModalPageInTabletDetailView,
           onPushModalPageInTabletDetailView,
         );
+        appEventBus.off(
+          EAppEventBusNames.CleanTokenDetailInTabletDetailView,
+          onCleanTokenDetailInTabletDetailView,
+        );
       };
     }
   }, [appNavigation, isTabletDetailView]);
 };
+
+function TrayDataProviderInner() {
+  useTrayDataProvider();
+  return null;
+}
+
+function DesktopTrayDataProvider() {
+  return (
+    <AccountSelectorProviderMirror
+      config={{
+        sceneName: EAccountSelectorSceneName.home,
+        sceneUrl: '',
+      }}
+      enabledNum={[0]}
+    >
+      <TrayDataProviderInner />
+    </AccountSelectorProviderMirror>
+  );
+}
 
 export function Bootstrap() {
   const navigation = useAppNavigation();
@@ -677,18 +811,18 @@ export function Bootstrap() {
         //   screen: EOnboardingPages.ConnectWallet,
         // });
         // ----------------------------------------------
-        // navigation.navigate(ERootRoutes.Onboarding, {
-        //   screen: EOnboardingV2Routes.OnboardingV2,
-        //   params: {
-        //     screen: EOnboardingPagesV2.AddExistingWallet,
-        //   },
-        // });
+        navigation.navigate(ERootRoutes.Onboarding, {
+          screen: EOnboardingV2Routes.OnboardingV2,
+          params: {
+            screen: EOnboardingPagesV2.CreateOrImportWallet,
+          },
+        });
         // navigation.navigate(ETabRoutes.Developer, {
         //    screen: EGalleryRoutes.ComponentKeylessWallet,
         // });
-        navigation.navigate(ETabRoutes.Developer, {
-          screen: EGalleryRoutes.ComponentOneKeyID,
-        });
+        // navigation.navigate(ETabRoutes.Developer, {
+        //   screen: EGalleryRoutes.ComponentOneKeyID,
+        // });
       }, 1000);
 
       return () => clearTimeout(timer);
@@ -697,13 +831,132 @@ export function Bootstrap() {
   }, [navigation, autoNavigation?.enabled, autoNavigation?.selectedTab]);
 
   useEffect(() => {
-    if (devSettings.enabled) {
-      performance.start(true, !!devSettings.settings?.showPerformanceMonitor);
+    // Sampler runs unconditionally in production: 1Hz mach syscall +
+    // rAF counter is negligible overhead, and the data feeds the
+    // memory-pressure observability path (anomaly logs, future
+    // telemetry) for all users. Process-global on the native side, so
+    // start once on mount — don't re-start when dev settings toggle.
+    performance.start(1000);
+  }, []);
+
+  useEffect(() => {
+    if (devSettings.enabled && devSettings.settings?.showPerformanceMonitor) {
+      performance.showOverlay();
+    } else {
+      performance.hideOverlay();
     }
     return () => {
-      performance.stop();
+      performance.hideOverlay();
     };
   }, [devSettings.enabled, devSettings.settings?.showPerformanceMonitor]);
+
+  // Dev-only: expose a global handle to control the native performance
+  // overlay from the JS console or an automation harness. On iOS the overlay
+  // is a full-screen passthrough UIWindow (react-native-perf-stats) that can
+  // swallow synthesized taps landing over its HUD box during UI automation,
+  // so `globalThis.$onekeyPerfMonitor.hide()` unblocks driving without having
+  // to toggle dev settings. Programmatic `move` is not exposed by the native
+  // module (the overlay is drag-only), so this only offers show/hide/toggle.
+  useEffect(() => {
+    if (!platformEnv.isDev) {
+      return undefined;
+    }
+    const globalRef = globalThis as typeof globalThis & {
+      $onekeyPerfMonitor?: {
+        show: () => void;
+        hide: () => void;
+        toggle: () => void;
+      };
+    };
+    let shown = Boolean(
+      devSettings.enabled && devSettings.settings?.showPerformanceMonitor,
+    );
+    globalRef.$onekeyPerfMonitor = {
+      show: () => {
+        shown = true;
+        performance.showOverlay();
+      },
+      hide: () => {
+        shown = false;
+        performance.hideOverlay();
+      },
+      toggle: () => {
+        shown = !shown;
+        if (shown) {
+          performance.showOverlay();
+        } else {
+          performance.hideOverlay();
+        }
+      },
+    };
+    return () => {
+      delete globalRef.$onekeyPerfMonitor;
+    };
+  }, [devSettings.enabled, devSettings.settings?.showPerformanceMonitor]);
+
+  // Bridge native memory-warning notifications to the cross-process
+  // appEventBus, so background services and JS-side caches can react.
+  // Registered once for the lifetime of the React tree; the native
+  // listener is a process-global observer (see MemoryWarningCenter on
+  // each platform), so we never want it tied to per-screen state.
+  useEffect(() => {
+    const id = performance.addMemoryWarningListener((event) => {
+      appEventBus.emit(EAppEventBusNames.MemoryPressureWarning, event);
+      // Run GC after Main-runtime subscribers (listener closures + any
+      // FG caches that subscribe directly) have had a chance to drop
+      // references. setTimeout(0) yields the current macrotask so any
+      // synchronous `clear()` on this runtime finishes first.
+      //
+      // Cross-runtime note (iOS/Android with split Hermes): this GC
+      // call only reclaims Main's heap. Background-side caches
+      // (@backgroundClass services, memoize buffers, socket queues)
+      // live in a separate Hermes instance and are GC'd by a symmetric
+      // listener in BackgroundApiBase.constructor after the IPC-
+      // delivered event fires there. Critical-only: a `low` event
+      // isn't worth the stop-the-world cost.
+      if (event.level === 'critical') {
+        setTimeout(() => {
+          performance.forceGarbageCollection();
+        }, 0);
+      }
+    });
+    return () => {
+      performance.removeMemoryWarningListener(id);
+    };
+  }, []);
+
+  // === Boot Recovery: mark boot success after 5s stability window ===
+  useEffect(() => {
+    if (!platformEnv.isNative && !platformEnv.isDesktop) return;
+    const timer = setTimeout(() => {
+      try {
+        BootRecovery.markBootSuccess();
+      } catch {
+        // Silently fail — don't let recovery mechanism crash the app
+      }
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useLogVersionInfo();
+
+  // === Boot Recovery: check if we recovered from recovery page → report to Sentry ===
+  useEffect(() => {
+    if (!platformEnv.isNative) return;
+    const checkRecoveryFlag = async () => {
+      try {
+        const action = await BootRecovery.getAndClearRecoveryAction();
+        if (action) {
+          defaultLogger.app.error.log(
+            `recovery_page_shown: action=${action}, platform=${platformEnv.isNativeIOS ? 'ios' : 'android'}`,
+          );
+        }
+      } catch {
+        // Silently fail
+      }
+    };
+    void checkRecoveryFlag();
+  }, []);
 
   useFetchCurrencyList();
   useFetchMarketBasicConfig();
@@ -714,7 +967,18 @@ export function Bootstrap() {
   useCheckUpdateOnDesktop();
   useIntercomInit();
   useClearStorageOnExtension();
+  useExtensionMarketTokenDetailHashNavigation();
   useRemindDevelopmentBuildExtension();
   useTabletDetailView();
-  return null;
+  return (
+    <>
+      {/* Mount-once container for app-update side effects (first-launch
+          dispatch + AppState 'active' resume listener). Replaces the
+          per-mount useEffect that previously lived in
+          UpdateReminder/hooks.tsx#useAppUpdateInfo. */}
+      <AppUpdateForeground />
+      <SplitViewPrompt />
+      {platformEnv.isDesktopMac ? <DesktopTrayDataProvider /> : null}
+    </>
+  );
 }

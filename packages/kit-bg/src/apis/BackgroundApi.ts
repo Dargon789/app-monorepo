@@ -1,7 +1,7 @@
 /* eslint-disable new-cap */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 
-// eslint-disable-next-line import/order
+// eslint-disable-next-line import-js/order
 
 import externalWalletFactory from '../connectors/externalWalletFactory';
 import localDb from '../dbs/local/localDb';
@@ -11,7 +11,9 @@ import { vaultFactory } from '../vaults/factory';
 import BackgroundApiBase from './BackgroundApiBase';
 
 import type { IBackgroundApi } from './IBackgroundApi';
+import type ServiceHyperliquidCache from '../services/ServiceHyperLiquid/ServiceHyperliquidCache';
 import type ServiceHyperliquidExchange from '../services/ServiceHyperLiquid/ServiceHyperliquidExchange';
+import type ServiceHyperliquidReferral from '../services/ServiceHyperLiquid/ServiceHyperliquidReferral';
 import type ServiceHyperliquidSubscription from '../services/ServiceHyperLiquid/ServiceHyperliquidSubscription';
 import type ServiceHyperliquidWallet from '../services/ServiceHyperLiquid/ServiceHyperliquidWallet';
 
@@ -381,6 +383,16 @@ class BackgroundApi extends BackgroundApiBase implements IBackgroundApi {
     return value;
   }
 
+  get serviceKeylessCloudSync() {
+    const Service =
+      require('../services/ServiceKeylessCloudSync') as typeof import('../services/ServiceKeylessCloudSync');
+    const value = new Service.default({
+      backgroundApi: this,
+    });
+    Object.defineProperty(this, 'serviceKeylessCloudSync', { value });
+    return value;
+  }
+
   get serviceQrWallet() {
     const Service =
       require('../services/ServiceQrWallet') as typeof import('../services/ServiceQrWallet');
@@ -488,6 +500,16 @@ class BackgroundApi extends BackgroundApiBase implements IBackgroundApi {
       backgroundApi: this,
     });
     Object.defineProperty(this, 'serviceAppUpdate', { value });
+    return value;
+  }
+
+  get servicePendingInstallTask() {
+    const ServicePendingInstallTask =
+      require('../services/servicePendingInstallTask') as typeof import('../services/servicePendingInstallTask');
+    const value = new ServicePendingInstallTask.default({
+      backgroundApi: this,
+    });
+    Object.defineProperty(this, 'servicePendingInstallTask', { value });
     return value;
   }
 
@@ -751,6 +773,16 @@ class BackgroundApi extends BackgroundApiBase implements IBackgroundApi {
     return value;
   }
 
+  get serviceHyperliquidCache(): ServiceHyperliquidCache {
+    const Service =
+      require('../services/ServiceHyperLiquid/ServiceHyperliquidCache') as typeof import('../services/ServiceHyperLiquid/ServiceHyperliquidCache');
+    const value = new Service.default({
+      backgroundApi: this,
+    });
+    Object.defineProperty(this, 'serviceHyperliquidCache', { value });
+    return value;
+  }
+
   get serviceHyperliquidExchange(): ServiceHyperliquidExchange {
     const Service =
       require('../services/ServiceHyperLiquid/ServiceHyperliquidExchange') as typeof import('../services/ServiceHyperLiquid/ServiceHyperliquidExchange');
@@ -758,6 +790,16 @@ class BackgroundApi extends BackgroundApiBase implements IBackgroundApi {
       backgroundApi: this,
     });
     Object.defineProperty(this, 'serviceHyperliquidExchange', { value });
+    return value;
+  }
+
+  get serviceHyperliquidReferral(): ServiceHyperliquidReferral {
+    const Service =
+      require('../services/ServiceHyperLiquid/ServiceHyperliquidReferral') as typeof import('../services/ServiceHyperLiquid/ServiceHyperliquidReferral');
+    const value = new Service.default({
+      backgroundApi: this,
+    });
+    Object.defineProperty(this, 'serviceHyperliquidReferral', { value });
     return value;
   }
 
@@ -818,6 +860,16 @@ class BackgroundApi extends BackgroundApiBase implements IBackgroundApi {
       backgroundApi: this,
     });
     Object.defineProperty(this, 'serviceOneKeyID', { value });
+    return value;
+  }
+
+  get serviceRookieGuide() {
+    const Service =
+      require('../services/ServiceRookieGuide') as typeof import('../services/ServiceRookieGuide');
+    const value = new Service.default({
+      backgroundApi: this,
+    });
+    Object.defineProperty(this, 'serviceRookieGuide', { value });
     return value;
   }
 }

@@ -21,6 +21,7 @@ import { NetworkAvatar } from '@onekeyhq/kit/src/components/NetworkAvatar';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import utils from '@onekeyhq/shared/src/utils/accountUtils';
 import { formatTime } from '@onekeyhq/shared/src/utils/dateUtils';
 import type { ISignedMessage } from '@onekeyhq/shared/types/signatureRecord';
@@ -35,7 +36,7 @@ const ListEmptyComponent = () => {
       description={intl.formatMessage({
         id: ETranslations.settings_no_signed_text_desc,
       })}
-      icon="ClockAlertOutline"
+      illustration="DocumentGlobe"
     />
   );
 };
@@ -77,6 +78,7 @@ const SignTextItem = ({ item }: { item: ISignedMessage }) => {
             {item.title}
           </SizableText>
           <IconButton
+            testID="setting-result-icon-btn"
             variant="tertiary"
             icon="Copy3Outline"
             size="small"
@@ -85,9 +87,10 @@ const SignTextItem = ({ item }: { item: ISignedMessage }) => {
         </XStack>
         <XStack justifyContent="space-between" p="$3">
           <TextArea
+            testID="setting-textarea"
             maxHeight="$24"
-            disabled
             editable={false}
+            scrollEnabled
             userSelect="none"
             value={
               item.contentType === 'json'
@@ -105,8 +108,6 @@ const SignTextItem = ({ item }: { item: ISignedMessage }) => {
               <NetworkAvatar size={16} networkId={item.networkId} />
             </Stack>
             <SizableText color="$textSubdued" size="$bodySmMedium">
-              {item.network.name}
-              {' • '}
               {utils.shortenAddress({ address: item.address })}
             </SizableText>
           </XStack>
@@ -138,6 +139,7 @@ export const SignText = () => {
 
   return (
     <Tabs.SectionList
+      windowSize={platformEnv.isNativeAndroid ? 3 : undefined}
       stickySectionHeadersEnabled={false}
       sections={sections}
       keyExtractor={keyExtractor}

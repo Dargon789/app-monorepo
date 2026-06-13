@@ -26,6 +26,11 @@ import { settingsAtom } from '../states/jotai/atoms';
 import { getVaultSettings } from '../vaults/settings';
 
 import ServiceBase from './ServiceBase';
+import {
+  isAccountSelectorHomeSyncSourceScene,
+  isAccountSelectorHomeSyncTargetScene,
+  shouldSyncAccountSelectorHomeAndSwapScenes,
+} from './utils/accountSelectorHomeSyncUtils';
 
 import type {
   IDBAccount,
@@ -62,34 +67,44 @@ class ServiceAccountSelector extends ServiceBase {
     sceneUrl?: string;
     num: number;
   }) {
-    const syncScenes: {
-      sceneName: EAccountSelectorSceneName;
-      num: number;
-    }[] = [
-      {
-        sceneName: EAccountSelectorSceneName.home,
-        num: 0,
-      },
-      {
-        sceneName: EAccountSelectorSceneName.swap,
-        num: 0,
-      },
-    ];
-
     const { swapToAnotherAccountSwitchOn } = await settingsAtom.get();
-    if (!swapToAnotherAccountSwitchOn) {
-      syncScenes.push({
-        sceneName: EAccountSelectorSceneName.swap,
-        num: 1,
-      });
-    }
+    return isAccountSelectorHomeSyncTargetScene({
+      scene: { sceneName, sceneUrl, num },
+      swapToAnotherAccountSwitchOn,
+    });
+  }
 
-    return syncScenes.some((item) =>
-      accountSelectorUtils.isEqualAccountSelectorScene({
-        scene1: item,
-        scene2: { sceneName, sceneUrl, num },
-      }),
-    );
+  @backgroundMethod()
+  async shouldSyncWithHomeSource(params: {
+    sceneName: EAccountSelectorSceneName;
+    sceneUrl?: string;
+    num: number;
+  }) {
+    return isAccountSelectorHomeSyncSourceScene(params);
+  }
+
+  @backgroundMethod()
+  async shouldSyncHomeAndSwapSelectedAccount({
+    sourceScene,
+    targetScene,
+  }: {
+    sourceScene: {
+      sceneName: EAccountSelectorSceneName;
+      sceneUrl?: string;
+      num: number;
+    };
+    targetScene: {
+      sceneName: EAccountSelectorSceneName;
+      sceneUrl?: string;
+      num: number;
+    };
+  }) {
+    const { swapToAnotherAccountSwitchOn } = await settingsAtom.get();
+    return shouldSyncAccountSelectorHomeAndSwapScenes({
+      sourceScene,
+      targetScene,
+      swapToAnotherAccountSwitchOn,
+    });
   }
 
   @backgroundMethod()
@@ -123,7 +138,7 @@ class ServiceAccountSelector extends ServiceBase {
           swapMap[num] = swapDataMerged;
           if (swapMap && swapMap[num]) {
             // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-            swapMap[num]!.networkId = usedNetworkId;
+            swapMap[num].networkId = usedNetworkId;
           }
         }
       };
@@ -283,15 +298,15 @@ class ServiceAccountSelector extends ServiceBase {
       }) || Boolean(account && !indexedAccountId);
     const isQrWallet = Boolean(
       wallet?.id &&
-        accountUtils.isQrWallet({
-          walletId: wallet?.id || '',
-        }),
+      accountUtils.isQrWallet({
+        walletId: wallet?.id || '',
+      }),
     );
     const isHwWallet = Boolean(
       wallet?.id &&
-        accountUtils.isHwWallet({
-          walletId: wallet?.id || '',
-        }),
+      accountUtils.isHwWallet({
+        walletId: wallet?.id || '',
+      }),
     );
     const universalAccountName = (() => {
       // hd account or others account
@@ -319,10 +334,17 @@ class ServiceAccountSelector extends ServiceBase {
         //
       }
     }
+    // Mocked/deprecated wallets are "zombie" records still in DB but no
+    // longer user-facing (e.g. HW wallet removed via isRemoveToMocked).
+    // Creating addresses on them silently fails, so gate every canCreate
+    // path (OK-51091). `hasNoUsableWallet` in accountUtils gives the same
+    // guarantee for the UI surface; this is defense-in-depth for any code
+    // path that reads canCreateAddress directly.
+    const isWalletUnusable = accountUtils.isWalletDeprecatedOrMocked(wallet);
     let canCreateAddress = false;
     if (isAllNetwork && networkId) {
       // build mocked networkAccount of all network
-      if (!isOthersWallet && indexedAccountId) {
+      if (!isOthersWallet && indexedAccountId && !isWalletUnusable) {
         try {
           account =
             await this.backgroundApi.serviceAccount.getMockedAllNetworkAccount({
@@ -333,12 +355,29 @@ class ServiceAccountSelector extends ServiceBase {
           account = undefined;
           canCreateAddress = true;
         }
+      } else if (
+        !isOthersWallet &&
+        wallet &&
+        !isWalletUnusable &&
+        !indexedAccountId
+      ) {
+        // When all accounts are deleted, allow creating the first account
+        // for HD wallets, HW wallets, and QR wallets.
+        const isHdOrHwOrQrWallet =
+          accountUtils.isHdWallet({ walletId: wallet.id }) ||
+          accountUtils.isHwWallet({ walletId: wallet.id }) ||
+          accountUtils.isQrWallet({ walletId: wallet.id });
+        if (isHdOrHwOrQrWallet) {
+          canCreateAddress = true;
+        }
       }
     } else {
       // single network
-      canCreateAddress = !isOthersWallet && !account?.address;
+      canCreateAddress =
+        !isOthersWallet && !isWalletUnusable && !account?.address;
       if (isQrWallet && vaultSettings) {
-        canCreateAddress = !!vaultSettings.qrAccountEnabled;
+        canCreateAddress =
+          !isWalletUnusable && !!vaultSettings.qrAccountEnabled;
       }
     }
 
@@ -842,11 +881,6 @@ class ServiceAccountSelector extends ServiceBase {
     }
 
     let accountsCount = 0;
-    let accountsValue: {
-      accountId: string;
-      value: Record<string, string> | string | undefined;
-      currency: string | undefined;
-    }[] = [];
 
     let mergeDeriveAssetsEnabled = false;
     if (selectedNetworkId) {
@@ -858,36 +892,47 @@ class ServiceAccountSelector extends ServiceBase {
         )?.mergeDeriveAssetsEnabled ?? false;
     }
 
-    try {
-      const accountsForValuesQuery: {
-        accountId: string;
-      }[] = [];
+    const accountsForValuesQuery: {
+      accountId: string;
+      networkId: string;
+      indexedAccountId?: string;
+      accountAddress?: string;
+      xpub?: string;
+    }[] = [];
 
+    try {
       sectionData?.forEach?.((s) => {
         s?.data?.forEach?.((account) => {
           accountsCount += 1;
+          const accountAddress =
+            (account as IDBAccount).address ||
+            (account as IDBIndexedAccount).associateAccount?.address ||
+            '';
+          const xpub =
+            ('xpub' in account &&
+              ((account.xpubSegwit || account.xpub) ?? '')) ||
+            ('associateAccount' in account &&
+              account.associateAccount &&
+              'xpub' in account.associateAccount &&
+              ((account.associateAccount.xpubSegwit ||
+                account.associateAccount.xpub) ??
+                '')) ||
+            '';
           accountsForValuesQuery.push({
             accountId: account.id,
+            networkId:
+              (account as IDBAccount).createAtNetwork ||
+              selectedNetworkId ||
+              '',
+            indexedAccountId: accountUtils.buildIndexedAccountId({
+              walletId: (account as IDBIndexedAccount).walletId ?? '',
+              index: (account as IDBIndexedAccount).index,
+            }),
+            accountAddress,
+            xpub,
           });
         });
       });
-      if (
-        accountUtils.isOthersWallet({
-          walletId: focusedWallet ?? '',
-        })
-      ) {
-        accountsValue =
-          await this.backgroundApi.serviceAccountProfile.getAccountsValue({
-            accounts: accountsForValuesQuery,
-          });
-      } else {
-        accountsValue =
-          await this.backgroundApi.serviceAccountProfile.getAllNetworkAccountsValue(
-            {
-              accounts: accountsForValuesQuery,
-            },
-          );
-      }
     } catch (error) {
       //
     }
@@ -896,9 +941,84 @@ class ServiceAccountSelector extends ServiceBase {
       sectionData,
       focusedWalletInfo,
       accountsCount,
-      accountsValue,
       mergeDeriveAssetsEnabled,
+      accountsForValuesQuery,
     };
+  }
+
+  @backgroundMethod()
+  async buildAccountAddressMap({
+    focusedWallet,
+    indexedAccountIds,
+  }: {
+    focusedWallet: IAccountSelectorFocusedWallet;
+    indexedAccountIds: string[];
+  }): Promise<Record<string, string[]> | undefined> {
+    if (
+      !accountUtils.isIndexedAccountWallet({ walletId: focusedWallet }) ||
+      !indexedAccountIds.length
+    ) {
+      return undefined;
+    }
+
+    try {
+      const relevantIds = new Set(indexedAccountIds);
+      const { allDbAccounts } =
+        await this.backgroundApi.serviceAccount.getAccountsInSameIndexedAccountId(
+          { indexedAccountId: indexedAccountIds[0] },
+        );
+      const accountAddressMap: Record<string, string[]> = {};
+      for (const dbAccount of allDbAccounts) {
+        const key = dbAccount.indexedAccountId;
+        if (key && relevantIds.has(key) && dbAccount.address) {
+          const addr = dbAccount.address.toLowerCase();
+          accountAddressMap[key] ??= [];
+          if (!accountAddressMap[key].includes(addr)) {
+            accountAddressMap[key].push(addr);
+          }
+        }
+      }
+      return accountAddressMap;
+    } catch (error) {
+      // silently fail — address search degrades to name-only
+      return {};
+    }
+  }
+
+  @backgroundMethod()
+  async buildAccountSelectorAccountsValuesData({
+    accounts,
+  }: {
+    accounts: {
+      accountId: string;
+      networkId: string;
+      indexedAccountId?: string;
+      accountAddress?: string;
+      xpub?: string;
+    }[];
+  }) {
+    const accountsDeFiOverview =
+      await this.backgroundApi.serviceDeFi.getAccountsLocalDeFiOverview({
+        accounts,
+      });
+    // Compound-key shape consumed by `calculateAccountTotalValue`; the
+    // per-address `getAllNetworkAccountsValue` would yield Record<networkId,
+    // worth> and silently miss every compound-key lookup downstream. The
+    // batched form folds N storage reads into one (the SimpleDb entity has
+    // caching disabled, so the per-account form paid a fresh
+    // deserialization per row — a 50-row selector batch turned into 50
+    // reads).
+    const accountsValue =
+      await this.backgroundApi.serviceAccountProfile.getAllNetworkAccountsValueByAccountIdBatch(
+        {
+          accounts: accounts.map((a) => ({
+            accountId: a.accountId,
+            accountAddress: a.accountAddress,
+            xpub: a.xpub,
+          })),
+        },
+      );
+    return { accountsValue, accountsDeFiOverview };
   }
 }
 

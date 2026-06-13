@@ -3,12 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { HardwareErrorCode } from '@onekeyfe/hd-shared';
 import { noop } from 'lodash';
 import { useIntl } from 'react-intl';
-import { Linking, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import {
   Anchor,
   Button,
   Dialog,
+  HeightTransition,
   Icon,
   SizableText,
   Spinner,
@@ -20,10 +21,8 @@ import {
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { HyperlinkText } from '@onekeyhq/kit/src/components/HyperlinkText';
 import { MultipleClickStack } from '@onekeyhq/kit/src/components/MultipleClickStack';
-import { useHelpLink } from '@onekeyhq/kit/src/hooks/useHelpLink';
 import type { IDBDevice } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import { useDevSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import { FIRMWARE_CONTACT_US_URL } from '@onekeyhq/shared/src/config/appConfig';
 import {
   type OneKeyError,
   type OneKeyServerApiError,
@@ -43,6 +42,26 @@ import type {
 } from '@onekeyhq/shared/types/device';
 
 import type { SearchDevice } from '@onekeyfe/hd-core';
+
+const AUTO_CLOSE_DELAY_MS = 1200;
+
+function useAutoClose(callback: () => void, enabled: boolean) {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  const hasClosedRef = useRef(false);
+
+  useEffect(() => {
+    if (enabled && !hasClosedRef.current) {
+      const timer = setTimeout(() => {
+        if (!hasClosedRef.current) {
+          hasClosedRef.current = true;
+          callbackRef.current();
+        }
+      }, AUTO_CLOSE_DELAY_MS);
+      return () => clearTimeout(timer);
+    }
+  }, [enabled]);
+}
 
 type IFirmwareAuthenticationState =
   | 'unknown'
@@ -417,6 +436,8 @@ function VerifyHash({
   const isShowContinue =
     Object.values(statues).filter((s) => s !== 'success').length === 0;
 
+  useAutoClose(() => onActionPress?.(), isShowContinue);
+
   return (
     <YStack>
       {isShowContinue ? (
@@ -453,20 +474,6 @@ function VerifyHash({
           />
         ))}
       </YStack>
-      {isShowContinue ? (
-        <Button
-          mt="$5"
-          $md={
-            {
-              size: 'large',
-            } as any
-          }
-          variant="primary"
-          onPress={onActionPress}
-        >
-          {intl.formatMessage({ id: ETranslations.global_continue })}
-        </Button>
-      ) : null}
     </YStack>
   );
 }
@@ -502,6 +509,7 @@ export function EnumBasicDialogContentContainer({
       <Stack pt="$4">
         {!showRiskyWarning ? (
           <Button
+            testID="onboarding-render-footer-btn"
             $md={
               {
                 size: 'large',
@@ -529,6 +537,7 @@ export function EnumBasicDialogContentContainer({
               })}
             </SizableText>
             <Button
+              testID="onboarding-btn"
               $md={
                 {
                   size: 'large',
@@ -648,32 +657,19 @@ export function EnumBasicDialogContentContainer({
         );
       case EFirmwareAuthenticationDialogContentType.verification_successful:
         return (
-          <>
-            <Dialog.Header>
-              <Dialog.Icon icon="BadgeVerifiedSolid" tone="success" />
-              <Dialog.Title>
-                {intl.formatMessage({
-                  id: ETranslations.device_auth_successful_title,
-                })}
-              </Dialog.Title>
-              <Dialog.Description>
-                {intl.formatMessage({
-                  id: ETranslations.device_auth_successful_desc,
-                })}
-              </Dialog.Description>
-            </Dialog.Header>
-            <Button
-              $md={
-                {
-                  size: 'large',
-                } as any
-              }
-              variant="primary"
-              onPress={onActionPress}
-            >
-              {intl.formatMessage({ id: ETranslations.global_continue })}
-            </Button>
-          </>
+          <Dialog.Header>
+            <Dialog.Icon icon="BadgeVerifiedSolid" tone="success" />
+            <Dialog.Title>
+              {intl.formatMessage({
+                id: ETranslations.device_auth_successful_title,
+              })}
+            </Dialog.Title>
+            <Dialog.Description>
+              {intl.formatMessage({
+                id: ETranslations.device_auth_successful_desc,
+              })}
+            </Dialog.Description>
+          </Dialog.Header>
         );
       case EFirmwareAuthenticationDialogContentType.network_error:
         return (
@@ -693,6 +689,7 @@ export function EnumBasicDialogContentContainer({
               </Dialog.Description>
             </Dialog.Header>
             <Button
+              testID="onboarding-btn"
               $md={
                 {
                   size: 'large',
@@ -730,18 +727,20 @@ export function EnumBasicDialogContentContainer({
               </Dialog.Description>
             </Dialog.Header>
             <Button
+              testID="onboarding-btn"
               $md={
                 {
                   size: 'large',
                 } as any
               }
               variant="primary"
-              onPress={() => Linking.openURL(FIRMWARE_CONTACT_US_URL)}
+              onPress={() => showIntercom()}
             >
               {intl.formatMessage({ id: ETranslations.global_contact_us })}
             </Button>
             {canSkipUnofficialDevice ? (
               <Button
+                testID="onboarding-btn"
                 $md={
                   {
                     size: 'large',
@@ -782,6 +781,7 @@ export function EnumBasicDialogContentContainer({
               onActionPress={onActionPress}
             />
             <Button
+              testID="onboarding-btn"
               mt="$5"
               $md={
                 {
@@ -789,12 +789,13 @@ export function EnumBasicDialogContentContainer({
                 } as any
               }
               variant="primary"
-              onPress={() => Linking.openURL(FIRMWARE_CONTACT_US_URL)}
+              onPress={() => showIntercom()}
             >
               {intl.formatMessage({ id: ETranslations.global_contact_us })}
             </Button>
             {canSkipUnofficialDevice ? (
               <Button
+                testID="onboarding-btn"
                 mt="$5"
                 $md={
                   {
@@ -826,6 +827,7 @@ export function EnumBasicDialogContentContainer({
               </Dialog.Description>
             </Dialog.Header>
             <Button
+              testID="onboarding-btn"
               $md={
                 {
                   size: 'large',
@@ -856,6 +858,7 @@ export function EnumBasicDialogContentContainer({
               </Dialog.Description>
             </Dialog.Header>
             <Button
+              testID="onboarding-btn"
               $md={
                 {
                   size: 'large',
@@ -894,6 +897,7 @@ export function EnumBasicDialogContentContainer({
               />
             </Dialog.Header>
             <Button
+              testID="onboarding-btn"
               $md={
                 {
                   size: 'large',
@@ -953,7 +957,13 @@ export function FirmwareAuthenticationDialogContent({
     useNewProcess,
   });
 
-  const requestsUrl = useHelpLink({ path: 'requests/new' });
+  useAutoClose(
+    () => onContinue({ checked: true }),
+    !useNewProcess &&
+      contentType ===
+        EFirmwareAuthenticationDialogContentType.verification_successful &&
+      result === 'official',
+  );
 
   const handleContinuePress = useCallback(() => {
     onContinue({ checked: false });
@@ -978,7 +988,7 @@ export function FirmwareAuthenticationDialogContent({
       },
       unofficial: {
         onPress: async () => {
-          await Linking.openURL(requestsUrl);
+          await showIntercom();
         },
       },
       error: {
@@ -1011,13 +1021,16 @@ export function FirmwareAuthenticationDialogContent({
     handleDevSkipVerificationPress,
     versionCompareResult,
     onContinue,
-    requestsUrl,
     reset,
     setContentType,
     verify,
   ]);
 
-  return <Stack gap="$5">{content}</Stack>;
+  return (
+    <HeightTransition initialHeight={0}>
+      <Stack gap="$5">{content}</Stack>
+    </HeightTransition>
+  );
 }
 
 export function useFirmwareVerifyDialog() {
@@ -1052,11 +1065,6 @@ export function useFirmwareVerifyDialog() {
       };
 
       setIsLoading(true);
-      // await backgroundApiProxy.serviceApp.showDialogLoading({
-      //   title: appLocale.intl.formatMessage({
-      //     id: ETranslations.global_processing,
-      //   }),
-      // });
       let shouldUseNewAuthenticateVersion = false;
       try {
         console.log('====> features: ', features);

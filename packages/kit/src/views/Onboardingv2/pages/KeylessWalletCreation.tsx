@@ -8,9 +8,11 @@ import { EOnboardingV2KeylessWalletCreationMode } from '@onekeyhq/shared/src/rou
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 
 import { AccountSelectorProviderMirror } from '../../../components/AccountSelector';
+import { useKeylessWalletFeatureIsEnabled } from '../../../components/KeylessWallet/useKeylessWallet';
 import { useAppRoute } from '../../../hooks/useAppRoute';
 import { KeylessShareCardsView } from '../components/KeylessShareCardsView';
 import { OnboardingLayout } from '../components/OnboardingLayout';
+import { OnboardingTestIDs } from '../testIDs';
 
 function KeylessWalletCreation() {
   const route = useAppRoute<
@@ -19,9 +21,14 @@ function KeylessWalletCreation() {
   >();
   const mode =
     route.params?.mode ?? EOnboardingV2KeylessWalletCreationMode.Create;
+  const isKeylessWalletEnabled = useKeylessWalletFeatureIsEnabled();
+
+  if (!isKeylessWalletEnabled) {
+    return null;
+  }
 
   return (
-    <Page>
+    <Page testID={OnboardingTestIDs.keylessWalletCreationPage}>
       <OnboardingLayout>
         <OnboardingLayout.Header title="Secure your wallet" />
         <OnboardingLayout.Body constrained={false}>

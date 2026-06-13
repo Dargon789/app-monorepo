@@ -8,8 +8,11 @@ import type {
   EQRCodeHandlerType,
 } from '@onekeyhq/shared/types/qrCode';
 import type { ITokenData } from '@onekeyhq/shared/types/token';
+import type { IUrlValue } from '@onekeyhq/shared/types/uri';
 
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export type { IUrlValue } from '@onekeyhq/shared/types/uri';
+
+// eslint-disable-next-line @typescript-eslint/no-empty-interface, @typescript-eslint/no-empty-object-type
 export interface IBaseValue {}
 export interface IChainValue extends IBaseValue {
   address: string;
@@ -41,12 +44,14 @@ export interface IEthereumValue extends IChainValue {
   n?: number;
   // byte code data for transaction
   code?: string;
+  functionName?: string;
   uint256?: string;
   value?: string;
 }
 export interface ISolanaValue extends Omit<IChainValue, 'address'> {
   recipient?: string;
-  // eslint-disable-next-line spellcheck/spell-checker
+
+  // oxlint-disable-next-line @cspell/spellchecker
   splToken?: string;
   reference?: string[];
   label?: string;
@@ -85,16 +90,6 @@ export interface IAnimationValue extends IBaseValue {
   fullUr?: IAirGapUrJson;
   progress: number;
 }
-export interface IUrlValue extends IBaseValue {
-  url: string;
-  hostname: string;
-  origin: string;
-  pathname: string;
-  urlSchema: string;
-  urlPathList: string[];
-  urlParamList: { [key: string]: string };
-}
-
 export type IQRCodeHandlerResult<T extends IBaseValue> = {
   type: EQRCodeHandlerType;
   data: T;
@@ -118,8 +113,14 @@ export type IQRCodeHandlerParseResult<T extends IBaseValue> =
 export type IQRCodeHandlerParseOutsideOptions = {
   handlers?: EQRCodeHandlerNames[];
   defaultHandler?: (value: string) => void;
-  autoHandleResult?: boolean;
-  popNavigation?: () => void;
+  /**
+   * When true, parse() executes built-in side effects for recognized payloads
+   * (navigation, WalletConnect connect, reward/update redirects, etc.).
+   * When false, parse() only returns parsed data and leaves follow-up actions
+   * to the caller.
+   */
+  autoExecuteParsedAction?: boolean;
+  popNavigation?: boolean;
   account?: INetworkAccount;
   network?: IServerNetwork;
   wallet?: IDBWallet;

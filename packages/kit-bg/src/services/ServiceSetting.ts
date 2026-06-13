@@ -7,10 +7,10 @@ import {
   isTaprootPath,
 } from '@onekeyhq/core/src/chains/btc/sdkBtc';
 import type { IAccountSelectorAvailableNetworksMap } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
-import type { ICurrencyItem } from '@onekeyhq/kit/src/views/Setting/pages/Currency';
 import {
   backgroundClass,
   backgroundMethod,
+  toastIfError,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
 import {
   getListedNetworkMap,
@@ -22,6 +22,10 @@ import {
   IMPL_LTC,
 } from '@onekeyhq/shared/src/engine/engineConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+import {
+  EAppEventBusNames,
+  appEventBus,
+} from '@onekeyhq/shared/src/eventBus/appEventBus';
 import type { ETranslations, ILocaleSymbol } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import {
@@ -34,6 +38,7 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
 import deviceUtils from '@onekeyhq/shared/src/utils/deviceUtils';
+import { generateUUID } from '@onekeyhq/shared/src/utils/miscUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import resetUtils from '@onekeyhq/shared/src/utils/resetUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
@@ -44,10 +49,13 @@ import {
 } from '@onekeyhq/shared/src/utils/tokenUtils';
 import type {
   EHardwareTransportType,
+  ICurrencyItem,
   IServerNetwork,
 } from '@onekeyhq/shared/types';
 import type { EAlignPrimaryAccountMode } from '@onekeyhq/shared/types/dappConnection';
+import type { IApiClientResponse } from '@onekeyhq/shared/types/endpoint';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
+import type { IKytSupportedAsset } from '@onekeyhq/shared/types/kyt';
 import type {
   IClearCacheOnAppState,
   IFetchWalletConfigResp,
@@ -63,7 +71,9 @@ import {
   currencyPersistAtom,
   desktopBluetoothAtom,
 } from '../states/jotai/atoms';
+import { primePersistAtom } from '../states/jotai/atoms/prime';
 import {
+  settingsFiatPaySiteWhitelistPersistAtom,
   settingsLastActivityAtom,
   settingsPersistAtom,
 } from '../states/jotai/atoms/settings';
@@ -73,6 +83,7 @@ import ServiceBase from './ServiceBase';
 import type { ISimpleDBAppStatus } from '../dbs/simple/entity/SimpleDbEntityAppStatus';
 import type ProviderApiPrivate from '../providers/ProviderApiPrivate';
 import type { IDesktopBluetoothAtom } from '../states/jotai/atoms';
+import type { INewBrowserTabPosition } from '../states/jotai/atoms/settings';
 
 export type IAccountDerivationConfigItem = {
   num: number;
@@ -133,6 +144,16 @@ class ServiceSetting extends ServiceBase {
   public async getInstanceId() {
     const { instanceId } = await settingsPersistAtom.get();
     return instanceId;
+  }
+
+  @backgroundMethod()
+  public async resetInstanceId() {
+    const newInstanceId = generateUUID();
+    await settingsPersistAtom.set((prev) => ({
+      ...prev,
+      instanceId: newInstanceId,
+    }));
+    return newInstanceId;
   }
 
   @backgroundMethod()
@@ -248,7 +269,16 @@ class ServiceSetting extends ServiceBase {
       return;
     }
     await settingsPersistAtom.set((prev) => ({ ...prev, currencyInfo }));
+    // Refresh the rate map before the token-list refresh — otherwise the
+    // resulting fetchAccountTokens may see the new currency missing from
+    // currencyMap and tag the cache with the request currency instead of USD.
+    try {
+      await this.fetchCurrencyList();
+    } catch {
+      // best-effort
+    }
     await this.backgroundApi.serviceStaking.resetEarnCache();
+    appEventBus.emit(EAppEventBusNames.RefreshTokenList, undefined);
   }
 
   @backgroundMethod()
@@ -281,6 +311,9 @@ class ServiceSetting extends ServiceBase {
       await this.backgroundApi.simpleDb.browserBookmarks.clearRawData();
       await this.backgroundApi.simpleDb.browserRiskWhiteList.clearRawData();
       this.backgroundApi.serviceDiscovery._isUrlExistInRiskWhiteList.clear();
+      this.backgroundApi.serviceDiscovery._clearDiscoveryHomeBookmarksSwr({
+        refreshMountedViews: true,
+      });
     }
     if (values.connectSites) {
       // clear connect sites
@@ -295,6 +328,9 @@ class ServiceSetting extends ServiceBase {
     }
     if (values.customRpc) {
       await this.backgroundApi.simpleDb.customRpc.clearRawData();
+    }
+    if (values.customNetworkFee) {
+      await this.backgroundApi.simpleDb.feeInfo.clearCustomFeeInfo();
     }
     if (values.serverNetworks) {
       await this.backgroundApi.simpleDb.serverNetwork.clearRawData();
@@ -337,7 +373,7 @@ class ServiceSetting extends ServiceBase {
       return Object.values(vaultSettings.accountDeriveInfo).length > 1;
     });
 
-    const toppedImpl = [IMPL_BTC, IMPL_EVM, IMPL_LTC].reduce(
+    const toppedImpl = [IMPL_EVM, IMPL_BTC, IMPL_LTC].reduce(
       (result, o, index) => {
         result[o] = index;
         return result;
@@ -442,6 +478,98 @@ class ServiceSetting extends ServiceBase {
         reviewControl: show,
       }));
     }
+  }
+
+  private async syncFiatPaySiteWhitelistToRuntime(origins: string[]) {
+    if (platformEnv.isDesktop) {
+      void globalThis.desktopApiProxy?.webview.setFiatPaySiteWhitelist(origins);
+    }
+  }
+
+  private async applyFiatPaySiteWhitelist(origins: string[]) {
+    await settingsFiatPaySiteWhitelistPersistAtom.set((prev) => ({
+      ...prev,
+      fiatPaySiteWhitelist: origins,
+    }));
+    await this.syncFiatPaySiteWhitelistToRuntime(origins);
+  }
+
+  @backgroundMethod()
+  public async restoreFiatPaySiteWhitelistFromPersist() {
+    const { fiatPaySiteWhitelist } =
+      await settingsFiatPaySiteWhitelistPersistAtom.get();
+    await this.syncFiatPaySiteWhitelistToRuntime(fiatPaySiteWhitelist);
+  }
+
+  @backgroundMethod()
+  public async fetchFiatPaySiteWhitelist() {
+    const client = await this.getClient(EServiceEndpointEnum.Utility);
+    const key = 'FiatPay_site_white_list';
+    let response;
+    try {
+      response = await client.get<{
+        data: { value: string; key: string }[];
+      }>('/utility/v1/setting', {
+        params: {
+          key,
+        },
+      });
+    } catch (e) {
+      // Network error: keep cached whitelist, do not clear
+      console.error('fetchFiatPaySiteWhitelist network error', e);
+      return;
+    }
+    let origins: string[] = [];
+    const data = response.data.data;
+    const matched = data.find((item) => item.key === key);
+    if (matched) {
+      try {
+        const sites: { name: string; url: string }[] = JSON.parse(
+          matched.value,
+        );
+        origins = sites
+          .map((site) => {
+            try {
+              return new URL(site.url).origin;
+            } catch {
+              return '';
+            }
+          })
+          .filter(Boolean);
+      } catch {
+        // JSON parse failed: treat as server revocation, origins stays []
+        console.error(
+          'fetchFiatPaySiteWhitelist JSON parse failed',
+          matched.value,
+        );
+      }
+    }
+    // When key is missing or JSON is invalid, origins is [], clearing the whitelist (server revocation)
+    await this.applyFiatPaySiteWhitelist(origins);
+  }
+
+  @backgroundMethod()
+  public async fetchGetStartedLinks({
+    slots,
+  }: {
+    slots: ('hardware_faqs' | 'hardware_getstarteds')[];
+  }) {
+    const client = await this.getClient(EServiceEndpointEnum.Utility);
+    const response = await client.get<{
+      data: {
+        linkId: string;
+        title: string;
+        mode: number;
+        payload: string;
+        image: string;
+        description: string;
+      }[];
+    }>('/utility/v1/link-config', {
+      params: {
+        slots: slots.join(','),
+      },
+    });
+    return response.data.data;
   }
 
   @backgroundMethod()
@@ -612,6 +740,46 @@ class ServiceSetting extends ServiceBase {
   }
 
   @backgroundMethod()
+  public async setUseGasAccountByDefault(value: boolean) {
+    await settingsPersistAtom.set((prev) => ({
+      ...prev,
+      useGasAccountByDefault: value,
+    }));
+  }
+
+  @backgroundMethod()
+  public async setEnableMenuBarTray(value: boolean) {
+    await settingsPersistAtom.set((prev) => ({
+      ...prev,
+      enableMenuBarTray: value,
+    }));
+  }
+
+  @backgroundMethod()
+  public async setEnableSplitView(value: boolean) {
+    await settingsPersistAtom.set((prev) => ({
+      ...prev,
+      enableSplitView: value,
+    }));
+  }
+
+  @backgroundMethod()
+  public async getEnableMenuBarTray() {
+    const { enableMenuBarTray } = await settingsPersistAtom.get();
+    // Fall back to true to match settingsAtomInitialValue for upgrades.
+    return enableMenuBarTray ?? true;
+  }
+
+  @backgroundMethod()
+  public async setNewBrowserTabPosition(value: INewBrowserTabPosition) {
+    await settingsPersistAtom.set((prev) =>
+      prev.newBrowserTabPosition === value
+        ? prev
+        : { ...prev, newBrowserTabPosition: value },
+    );
+  }
+
+  @backgroundMethod()
   public async getEnableBTCFreshAddress() {
     const { enableBTCFreshAddress } = await settingsPersistAtom.get();
     return enableBTCFreshAddress ?? false;
@@ -681,7 +849,7 @@ class ServiceSetting extends ServiceBase {
         '/wallet/v1/wallet/config',
       );
       return resp.data.data;
-    } catch (e) {
+    } catch (_e) {
       return null;
     }
   }
@@ -821,6 +989,120 @@ class ServiceSetting extends ServiceBase {
     ]);
 
     return aggregateTokenConfigMap;
+  }
+
+  @backgroundMethod()
+  async isKytIntroShown({ onekeyUserId }: { onekeyUserId: string }) {
+    if (!onekeyUserId) {
+      return false;
+    }
+    const v = await this.backgroundApi.simpleDb.appStatus.getRawData();
+    return v?.kytIntroShownUserIds?.includes(onekeyUserId) ?? false;
+  }
+
+  @backgroundMethod()
+  async setKytIntroShown({ onekeyUserId }: { onekeyUserId: string }) {
+    if (!onekeyUserId) {
+      return;
+    }
+    await this.backgroundApi.simpleDb.appStatus.setRawData(
+      (v): ISimpleDBAppStatus => {
+        const ids = v?.kytIntroShownUserIds ?? [];
+        if (ids.includes(onekeyUserId)) {
+          return { ...v, kytIntroShownUserIds: ids };
+        }
+        return { ...v, kytIntroShownUserIds: [...ids, onekeyUserId] };
+      },
+    );
+  }
+
+  @backgroundMethod()
+  async resetKytIntroShown() {
+    await this.backgroundApi.simpleDb.appStatus.setRawData(
+      (v): ISimpleDBAppStatus => ({
+        ...v,
+        kytIntroShownUserIds: [],
+      }),
+    );
+  }
+
+  @backgroundMethod()
+  async getKytSupportedAssets(): Promise<IKytSupportedAsset[]> {
+    // Public endpoint — no auth token needed, so use the plain client.
+    const client = await this.getClient(EServiceEndpointEnum.Prime);
+    // Errors are surfaced as an in-page error state by the caller, so suppress
+    // the default error toast to avoid a duplicate prompt.
+    const requestConfig: Parameters<typeof client.get>[1] & {
+      autoHandleError?: boolean;
+    } = {
+      autoHandleError: false,
+    };
+    const res = await client.get<
+      IApiClientResponse<{ list: IKytSupportedAsset[] }>
+    >('/prime/v1/kyt/supported-assets', requestConfig);
+    return res.data.data?.list ?? [];
+  }
+
+  // Read the cached KYT (receive risk monitoring) enabled state for a Prime user.
+  // The cache mirrors the server `kytEnabled` value synced on prime user info fetch
+  // (see syncKytEnabledFromServer), so this reflects the latest interface result.
+  @backgroundMethod()
+  async getKytEnabled({
+    onekeyUserId,
+  }: {
+    onekeyUserId: string | undefined;
+  }): Promise<boolean> {
+    if (!onekeyUserId) {
+      return false;
+    }
+    const { receiveRiskMonitoringMap } = await settingsPersistAtom.get();
+    return receiveRiskMonitoringMap?.[onekeyUserId] ?? false;
+  }
+
+  // Sync the server-reported KYT enabled state into the local cache so the
+  // settings switch and the intro dialog gate stay aligned with the interface.
+  // Skips when the field is absent (older server) to avoid clobbering the cache.
+  @backgroundMethod()
+  async syncKytEnabledFromServer({
+    onekeyUserId,
+    kytEnabled,
+  }: {
+    onekeyUserId: string | undefined;
+    kytEnabled: boolean | undefined;
+  }): Promise<void> {
+    if (!onekeyUserId || kytEnabled === undefined) {
+      return;
+    }
+    await settingsPersistAtom.set((prev) => ({
+      ...prev,
+      receiveRiskMonitoringMap: {
+        ...prev.receiveRiskMonitoringMap,
+        [onekeyUserId]: kytEnabled,
+      },
+    }));
+  }
+
+  @backgroundMethod()
+  @toastIfError()
+  async apiSetKytEnabled({ enabled }: { enabled: boolean }): Promise<boolean> {
+    const client = await this.getOneKeyIdClient(EServiceEndpointEnum.Prime);
+    const res = await client.put<IApiClientResponse<{ kytEnabled: boolean }>>(
+      '/prime/v1/kyt/enabled',
+      { enabled },
+    );
+    const kytEnabled = res.data.data?.kytEnabled ?? enabled;
+    // Local cache is the source of truth; persist per Prime user (OneKey ID).
+    const { onekeyUserId } = await primePersistAtom.get();
+    if (onekeyUserId) {
+      await settingsPersistAtom.set((prev) => ({
+        ...prev,
+        receiveRiskMonitoringMap: {
+          ...prev.receiveRiskMonitoringMap,
+          [onekeyUserId]: kytEnabled,
+        },
+      }));
+    }
+    return kytEnabled;
   }
 }
 

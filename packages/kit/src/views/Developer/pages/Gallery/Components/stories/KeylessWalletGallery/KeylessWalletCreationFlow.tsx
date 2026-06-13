@@ -21,7 +21,7 @@ import type { IStepState } from './types';
 export const KeylessWalletCreationFlow = () => {
   const { generatePacks, saveDevicePack, uploadCloudPack, uploadAuthPack } =
     useKeylessWallet();
-  const { logout } = useOneKeyAuth();
+  const { logoutWithPurchasesSdk } = useOneKeyAuth();
 
   const [step1, setStep1] = useState<IStepState>({ status: 'pending' });
   const [step2, setStep2] = useState<IStepState>({ status: 'pending' });
@@ -30,9 +30,9 @@ export const KeylessWalletCreationFlow = () => {
 
   const [generatedPacks, setGeneratedPacks] =
     useState<IKeylessWalletPacks | null>(null);
-  const [packSetIdFromDevicePack, setpackSetIdFromDevicePack] =
+  const [packSetIdFromDevicePack, setPackSetIdFromDevicePack] =
     useState<string>('');
-  const [packSetIdFromCloudPack, setpackSetIdFromCloudPack] =
+  const [packSetIdFromCloudPack, setPackSetIdFromCloudPack] =
     useState<string>('');
 
   const handleStep1 = useCallback(async () => {
@@ -57,7 +57,7 @@ export const KeylessWalletCreationFlow = () => {
       const result = await saveDevicePack({
         devicePack: generatedPacks.deviceKeyPack,
       });
-      setpackSetIdFromDevicePack(result.packSetIdFromDevicePack);
+      setPackSetIdFromDevicePack(result.packSetIdFromDevicePack);
       setStep2({ status: 'success', result });
     } catch (e: any) {
       const errorMessage = (e as Error)?.message ?? 'Unknown error';
@@ -76,7 +76,7 @@ export const KeylessWalletCreationFlow = () => {
       const result = await uploadCloudPack({
         cloudPack: generatedPacks.cloudKeyPack,
       });
-      setpackSetIdFromCloudPack(result.packSetIdFromCloudPack);
+      setPackSetIdFromCloudPack(result.packSetIdFromCloudPack);
       setStep3({ status: 'success', result });
     } catch (e: any) {
       const errorMessage = (e as Error)?.message ?? 'Unknown error';
@@ -123,8 +123,8 @@ export const KeylessWalletCreationFlow = () => {
     setStep3({ status: 'pending' });
     setStep4({ status: 'pending' });
     setGeneratedPacks(null);
-    setpackSetIdFromDevicePack('');
-    setpackSetIdFromCloudPack('');
+    setPackSetIdFromDevicePack('');
+    setPackSetIdFromCloudPack('');
 
     Toast.success({
       title: 'Flow Status Reset',
@@ -162,7 +162,7 @@ export const KeylessWalletCreationFlow = () => {
           size="small"
           variant="secondary"
           onPress={async () => {
-            await logout();
+            await logoutWithPurchasesSdk();
             Toast.success({
               title: 'OneKey ID Logged Out',
               message: 'OneKey ID has been logged out.',

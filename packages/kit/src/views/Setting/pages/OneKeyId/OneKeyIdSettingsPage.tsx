@@ -14,12 +14,15 @@ import {
   YStack,
 } from '@onekeyhq/components';
 import type { IIconProps, ISizableTextProps } from '@onekeyhq/components';
+import { ANIMATE_ONLY_OPACITY } from '@onekeyhq/components/src/utils/animationConstants';
+import { useKeylessWalletFeatureIsEnabled } from '@onekeyhq/kit/src/components/KeylessWallet/useKeylessWallet';
 import { useOneKeyAuth } from '@onekeyhq/kit/src/components/OneKeyAuth/useOneKeyAuth';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { EModalSettingRoutes } from '@onekeyhq/shared/src/routes';
 
+import { SettingTestIDs } from '../../testIDs';
 import { TabSettingsListItem, TabSettingsSection } from '../Tab/ListItem';
 import { useIsTabNavigator } from '../Tab/useIsTabNavigator';
 
@@ -52,6 +55,7 @@ function OneKeyIdUserProfile() {
   if (!isLoggedIn) {
     return (
       <XStack
+        testID={SettingTestIDs.oneKeyIdSignIn}
         alignItems="center"
         gap="$3"
         p="$4"
@@ -86,7 +90,6 @@ function OneKeyIdUserProfile() {
 
   return (
     <YStack alignItems="center" gap="$3">
-      {/* TODO: @zuo - clickable to pick image */}
       <YStack>
         <OneKeyIdAvatar size="$16" />
         <YStack
@@ -95,7 +98,7 @@ function OneKeyIdUserProfile() {
           borderRadius="$full"
           overflow="hidden"
           animation="quick"
-          animateOnly={['opacity']}
+          animateOnly={ANIMATE_ONLY_OPACITY}
           opacity={0}
           hoverStyle={{
             opacity: 1,
@@ -137,6 +140,7 @@ function OneKeyIdSettingsPageView() {
   const navigation = useAppNavigation();
   const { isLoggedIn } = useOneKeyAuth();
   const isTabNavigator = useIsTabNavigator();
+  const isKeylessWalletEnabled = useKeylessWalletFeatureIsEnabled();
 
   const titleProps = useMemo(
     () => ({
@@ -167,17 +171,19 @@ function OneKeyIdSettingsPageView() {
   }, [navigation]);
 
   return (
-    <Page>
+    <Page testID={SettingTestIDs.oneKeyIdPage}>
       <Page.Header title="OneKey ID" />
       <Page.Body>
         <YStack px="$4" pt="$3" gap="$6">
+          <SizableText>Hello World</SizableText>
           {/* User Profile Section */}
-          <OneKeyIdUserProfile />
+          {isKeylessWalletEnabled ? <OneKeyIdUserProfile /> : null}
 
           {/* Menu Items - only show when logged in */}
           {isLoggedIn ? (
-            <TabSettingsSection>
+            <TabSettingsSection testID={SettingTestIDs.oneKeyIdSettings}>
               <TabSettingsListItem
+                testID={SettingTestIDs.oneKeyIdPersonalInfo}
                 icon="PeopleOutline"
                 iconProps={iconProps}
                 title="Personal information"
@@ -189,6 +195,7 @@ function OneKeyIdSettingsPageView() {
                 <Divider borderColor="$neutral3" />
               </XStack>
               <TabSettingsListItem
+                testID={SettingTestIDs.oneKeyIdSignInSecurity}
                 icon="LockOutline"
                 iconProps={iconProps}
                 title="Sign-In & Security"
@@ -196,17 +203,21 @@ function OneKeyIdSettingsPageView() {
                 drillIn
                 onPress={handleSignInSecurity}
               />
-              <XStack mx="$5">
-                <Divider borderColor="$neutral3" />
-              </XStack>
-              <TabSettingsListItem
-                icon="CloudOutline"
-                iconProps={iconProps}
-                title="Keyless wallet"
-                titleProps={titleProps}
-                drillIn
-                onPress={handleKeylessWallet}
-              />
+              {isKeylessWalletEnabled ? (
+                <>
+                  <XStack mx="$5">
+                    <Divider borderColor="$neutral3" />
+                  </XStack>
+                  <TabSettingsListItem
+                    icon="CloudOutline"
+                    iconProps={iconProps}
+                    title="Keyless wallet"
+                    titleProps={titleProps}
+                    drillIn
+                    onPress={handleKeylessWallet}
+                  />
+                </>
+              ) : null}
             </TabSettingsSection>
           ) : null}
         </YStack>

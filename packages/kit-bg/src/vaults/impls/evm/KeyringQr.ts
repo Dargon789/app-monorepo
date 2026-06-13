@@ -92,17 +92,24 @@ export class KeyringQr extends KeyringQrBase {
   ): IGetChildPathTemplatesResult {
     const { airGapAccount } = params;
     // TODO get deriveType by path
-    if (
-      airGapAccount.note &&
-      airGapAccount.note === EAirGapAccountNoteEvm.Standard
-    ) {
+    if (airGapAccount.note === EAirGapAccountNoteEvm.Standard) {
+      // The xpub at m/44'/60'/0' covers both Standard children (0/i) and
+      // LedgerLegacy children (i) via public derivation. Real signer firmware
+      // exports this xpub with note=Standard regardless of which derive type
+      // the user asked for, so we accept both subtrees here.
       return {
-        childPathTemplates: ['0/*'],
+        childPathTemplates: ['0/*', '*'],
+      };
+    }
+    if (airGapAccount.note === EAirGapAccountNoteEvm.LedgerLegacy) {
+      return {
+        childPathTemplates: ['*'],
       };
     }
     return {
       childPathTemplates: [
         '0/*', // standard
+        '*', // ledger legacy
         '0/0', // ledger live
       ],
     };
@@ -134,8 +141,8 @@ export class KeyringQr extends KeyringQrBase {
     try {
       const sig = sdk.eth.parseSignature(ur);
       return Promise.resolve(sig);
-    } catch (error) {
-      // eslint-disable-next-line spellcheck/spell-checker
+    } catch (_error) {
+      // oxlint-disable-next-line @cspell/spellchecker
       // ERROR throw from node_modules/@keystonehq/keystone-sdk/dist/chains/ethereum.js
       //        throw new OneKeyLocalError('type not match');
       throw new OneKeyErrorAirGapInvalidQrCode();

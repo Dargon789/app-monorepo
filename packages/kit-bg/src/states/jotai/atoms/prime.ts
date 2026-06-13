@@ -24,9 +24,9 @@ export const primePersistAtomInitialValue: IPrimePersistAtomData = {
   onekeyUserId: undefined,
   primeSubscription: undefined,
   subscriptionManageUrl: undefined,
-  keylessWalletId: undefined, // packSetId
-  // salt: undefined,
-  // pwdHash: undefined,
+  keylessWalletId: undefined,
+  nickname: undefined,
+  avatar: undefined,
 };
 export const {
   target: primePersistAtom, // persist
@@ -39,7 +39,14 @@ export const {
 
 export type IPrimeCloudSyncPersistAtomData = {
   isCloudSyncEnabled: boolean;
-  lastSyncTime?: number;
+  hasEverEnabledOneKeyIdSync?: boolean;
+  hasEverEnabledKeylessSync?: boolean;
+  lastSyncTime?: number; // lastSyncTimeLegacy
+  lastSyncTimeOneKeyId?: number;
+  lastSyncTimeKeyless?: number;
+
+  isCloudSyncEnabledKeyless?: boolean;
+  currentCloudSyncKeylessWalletId?: string | null;
 };
 export const {
   target: primeCloudSyncPersistAtom,
@@ -49,6 +56,9 @@ export const {
   persist: true,
   initialValue: {
     isCloudSyncEnabled: false,
+    hasEverEnabledOneKeyIdSync: false,
+    hasEverEnabledKeylessSync: false,
+    isCloudSyncEnabledKeyless: false,
   },
 });
 
@@ -157,6 +167,7 @@ export type IPrimeTransferImportProgressTotalDetailInfo = {
 export type IPrimeTransferAtomData = {
   shouldPreventExit: boolean;
   websocketConnected: boolean;
+  websocketReconnecting: boolean;
   websocketError: string | undefined;
   websocketEndpointUpdatedAt: number | undefined;
   status: EPrimeTransferStatus;
@@ -196,6 +207,7 @@ export const { target: primeTransferAtom, use: usePrimeTransferAtom } =
     initialValue: {
       shouldPreventExit: false,
       websocketConnected: false,
+      websocketReconnecting: false,
       websocketError: undefined,
       websocketEndpointUpdatedAt: undefined,
       status: EPrimeTransferStatus.init,

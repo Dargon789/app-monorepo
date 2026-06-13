@@ -141,7 +141,7 @@ export function ImportSingleChainBase({
         setValidateResult(result);
         console.log('validateGeneralInputOfImporting result', result);
         // TODO: need to replaced by https://github.com/mattermost/react-native-paste-input
-      } catch (error) {
+      } catch (_error) {
         setValidateResult({
           isValid: false,
         });
@@ -201,7 +201,7 @@ export function ImportSingleChainBase({
                   onPress: async () => {
                     const result = await start({
                       handlers: [],
-                      autoHandleResult: false,
+                      autoExecuteParsedAction: false,
                     });
                     form.setValue('input', result.raw);
                   },
@@ -268,6 +268,7 @@ export function ImportSingleChainBase({
             name="accountName"
           >
             <Input
+              testID="onboarding-input"
               maxLength={MAX_LENGTH_ACCOUNT_NAME}
               placeholder={intl.formatMessage({
                 id: ETranslations.form_enter_account_name_placeholder,

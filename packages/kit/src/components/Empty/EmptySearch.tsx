@@ -17,7 +17,7 @@ function EmptySearch({
     <Empty
       {...(props as any)}
       testID="Wallet-No-Search-Empty"
-      icon="SearchOutline"
+      illustration="QuestionMark"
       title={intl.formatMessage({
         id: ETranslations.global_search_no_results_title,
       })}
@@ -31,6 +31,7 @@ function EmptySearch({
       button={
         manageTokenEnabled ? (
           <Button
+            testID="empty-intl-btn"
             mt="$6"
             size="medium"
             variant="primary"

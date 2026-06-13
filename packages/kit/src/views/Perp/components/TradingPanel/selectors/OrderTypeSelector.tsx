@@ -36,6 +36,7 @@ export const OrderTypeSelector = memo<IOrderTypeSelectorProps>(
     );
     return (
       <Select
+        testID="perp-order-type-options-select"
         items={orderTypeOptions}
         value={value}
         onChange={onChange}
@@ -45,7 +46,6 @@ export const OrderTypeSelector = memo<IOrderTypeSelectorProps>(
         })}
         renderTrigger={({ onPress, label, disabled: disabledTrigger }) => (
           <XStack
-            cursor="pointer"
             onPress={onPress}
             disabled={disabledTrigger}
             height={isMobile ? 32 : 30}
@@ -55,10 +55,11 @@ export const OrderTypeSelector = memo<IOrderTypeSelectorProps>(
             justifyContent="space-between"
             px="$3"
             flex={1}
+            cursor="pointer"
           >
             <SizableText size="$bodyMdMedium">{label}</SizableText>
             <Icon
-              name="ChevronTriangleDownSmallOutline"
+              name="ChevronDownSmallOutline"
               color="$iconSubdued"
               size="$4"
             />

@@ -9,6 +9,8 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 
+import { AccountManagerTestIDs } from '../../testIDs';
+
 import {
   getTitleAndDescription,
   showWalletRemoveDialog,
@@ -30,6 +32,9 @@ export function WalletRemoveButton({
     if (platformEnv.isWebDappMode) {
       return intl.formatMessage({ id: ETranslations.explore_disconnect });
     }
+    if (wallet?.isKeyless) {
+      return intl.formatMessage({ id: ETranslations.log_out_wallet });
+    }
     if (accountUtils.isHwHiddenWallet({ wallet })) {
       return intl.formatMessage({ id: ETranslations.remove_hidden_wallet });
     }
@@ -46,9 +51,20 @@ export function WalletRemoveButton({
     });
   }, [isRemoveToMocked, wallet, intl]);
 
+  const icon = useMemo(() => {
+    if (wallet?.isKeyless) {
+      return 'LogoutOutline';
+    }
+    if (isRemoveToMocked) {
+      return 'DeleteOutline';
+    }
+    return 'EjectOutline';
+  }, [wallet?.isKeyless, isRemoveToMocked]);
+
   return (
     <ActionList.Item
-      icon={isRemoveToMocked ? 'DeleteOutline' : 'EjectOutline'}
+      testID={AccountManagerTestIDs.walletRemoveButton}
+      icon={icon}
       destructive
       label={label}
       onClose={onClose}
@@ -57,16 +73,18 @@ export function WalletRemoveButton({
           getTitleAndDescription({
             wallet,
             isRemoveToMocked,
+            intl,
           });
         showWalletRemoveDialog({
           config,
           title,
           description,
-          // No checkbox for hw/qr wallets and keyless wallets
+          // No checkbox for hw/qr wallets (keyless has its own checkbox logic)
           showCheckBox: !isHwOrQr && !isKeyless,
           defaultChecked: false,
           wallet,
           isRemoveToMocked,
+          isKeyless,
         });
       }}
     />

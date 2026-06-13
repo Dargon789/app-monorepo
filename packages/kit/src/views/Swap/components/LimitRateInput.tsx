@@ -16,6 +16,7 @@ interface ILimitRateInputProps {
   onReverseChange: (reverse: boolean) => void;
   reverse: boolean;
   inputRate?: string;
+  testID?: string;
 }
 
 const LimitRateInput = ({
@@ -25,18 +26,21 @@ const LimitRateInput = ({
   onReverseChange,
   reverse,
   inputRate,
+  testID,
 }: ILimitRateInputProps) => {
   const currency = useMemo(
     () => ({
       from: !reverse
-        ? fromTokenInfo?.symbol ?? '-'
-        : toTokenInfo?.symbol ?? '-',
-      to: !reverse ? toTokenInfo?.symbol ?? '-' : fromTokenInfo?.symbol ?? '-',
+        ? (fromTokenInfo?.symbol ?? '-')
+        : (toTokenInfo?.symbol ?? '-'),
+      to: !reverse
+        ? (toTokenInfo?.symbol ?? '-')
+        : (fromTokenInfo?.symbol ?? '-'),
     }),
     [fromTokenInfo, toTokenInfo, reverse],
   );
   return (
-    <XStack gap="$1" alignItems="center">
+    <XStack testID={testID} gap="$1" alignItems="center">
       <SizableText
         size="$bodyMd"
         numberOfLines={1}
@@ -48,6 +52,7 @@ const LimitRateInput = ({
         {fromTokenInfo ? `1 ${currency.from} = ` : '-'}
       </SizableText>
       <Input
+        testID="swap-currency-input"
         key={`${currency.from}-${currency.to}`}
         autoScrollTopDelayMs={2500}
         keyboardType="decimal-pad"

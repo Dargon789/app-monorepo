@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useThrottledCallback } from 'use-debounce';
 
+import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { defaultLogger } from '../../logger/logger';
@@ -76,7 +77,6 @@ const downloadPackage: IDownloadPackage = async ({
     return new Promise<IUpdateDownloadedEvent>((resolve) => {
       const onDownloadedSubscription = electronUpdateListeners.onDownloaded?.(
         (params) => {
-          console.log('params', params);
           onDownloadedSubscription?.();
           resolve(params);
         },
@@ -94,8 +94,11 @@ const downloadASC: IDownloadASC = async (params) => {
   });
 };
 
-const verifyASC: IVerifyASC = async () => {
-  await globalThis.desktopApiProxy.appUpdate.verifyASC();
+const verifyASC: IVerifyASC = async (params) => {
+  await globalThis.desktopApiProxy.appUpdate.verifyASC({
+    ...params,
+    buildNumber: String(platformEnv.buildNumber || 1),
+  });
 };
 
 const verifyPackage: IVerifyPackage = async (params) => {
@@ -106,6 +109,9 @@ const verifyPackage: IVerifyPackage = async (params) => {
 };
 
 const installPackage: IInstallPackage = async ({ downloadedEvent }) => {
+  if (!downloadedEvent?.downloadedFile || !downloadedEvent?.downloadUrl) {
+    throw new OneKeyLocalError('NOT_FOUND_PACKAGE');
+  }
   await globalThis.desktopApiProxy.appUpdate.installPackage({
     ...downloadedEvent,
     buildNumber: String(platformEnv.buildNumber || 1),
@@ -153,6 +159,9 @@ const clearPackage: IClearPackage = async () => {
   await globalThis.desktopApiProxy.appUpdate.clearUpdateCache();
 };
 
+// Desktop has no standalone APK artifacts (Android-only concept) — no-op.
+const clearApkCache = async (): Promise<void> => {};
+
 const manualInstallPackage: IManualInstallPackage = async (params) =>
   new Promise((resolve) => {
     void globalThis.desktopApiProxy.appUpdate.manualInstallPackage(params);
@@ -169,6 +178,7 @@ export const AppUpdate: IAppUpdate = {
   installPackage,
   manualInstallPackage,
   clearPackage,
+  clearApkCache,
 };
 
 export const BundleUpdate: IBundleUpdate = {
@@ -188,11 +198,35 @@ export const BundleUpdate: IBundleUpdate = {
     globalThis.desktopApiProxy.bundleUpdate.getFallbackUpdateBundleData(),
   switchBundle: (params) =>
     globalThis.desktopApiProxy.bundleUpdate.setCurrentUpdateBundleData(params),
+  isSkipGpgVerificationAllowed: () =>
+    globalThis.desktopApiProxy.bundleUpdate.isSkipGpgVerificationAllowed(),
+  pruneStaleAppVersionBundles: () =>
+    globalThis.desktopApiProxy.bundleUpdate.pruneStaleAppVersionBundles(),
+  isBundleExists: (appVersion, bundleVersion) =>
+    globalThis.desktopApiProxy.bundleUpdate.isBundleExists(
+      appVersion,
+      bundleVersion,
+    ),
+  verifyExtractedBundle: (appVersion, bundleVersion) =>
+    globalThis.desktopApiProxy.bundleUpdate.verifyExtractedBundle(
+      appVersion,
+      bundleVersion,
+    ),
+  listLocalBundles: () =>
+    globalThis.desktopApiProxy.bundleUpdate.listLocalBundles(),
   clearBundle: () => globalThis.desktopApiProxy.bundleUpdate.clearBundle(),
+  clearDownload: () => globalThis.desktopApiProxy.bundleUpdate.clearDownload(),
+  resetToBuiltInBundle: () =>
+    globalThis.desktopApiProxy.bundleUpdate.resetToBuiltInBundle(),
+  restart: () => {
+    void globalThis.desktopApiProxy.bundleUpdate.restart();
+  },
   clearAllJSBundleData: () =>
     globalThis.desktopApiProxy.bundleUpdate.clearAllJSBundleData(),
   testVerification: () =>
     globalThis.desktopApiProxy.bundleUpdate.testVerification(),
+  testSkipVerification: () =>
+    globalThis.desktopApiProxy.bundleUpdate.testSkipVerification(),
   testDeleteJsBundle: (appVersion, bundleVersion) =>
     globalThis.desktopApiProxy.bundleUpdate.testDeleteJsBundle(
       appVersion,
@@ -217,8 +251,11 @@ export const BundleUpdate: IBundleUpdate = {
     globalThis.desktopApiProxy.bundleUpdate.getNativeAppVersion(),
   getNativeBuildNumber: () =>
     globalThis.desktopApiProxy.bundleUpdate.getNativeBuildNumber(),
+  getBuiltinBundleVersion: () =>
+    globalThis.desktopApiProxy.bundleUpdate.getBuiltinBundleVersion(),
   getJsBundlePath: () =>
     globalThis.desktopApiProxy.bundleUpdate.getJsBundlePath(),
+  getBackgroundJsBundlePath: () => Promise.resolve(''),
   getSha256FromFilePath: (filePath) =>
     globalThis.desktopApiProxy.bundleUpdate.getSha256FromFilePath(filePath),
 };

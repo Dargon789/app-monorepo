@@ -9,6 +9,7 @@ import {
   XStack,
   YStack,
 } from '@onekeyhq/components';
+import { ANIMATE_ONLY_OPACITY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
 import type { IAmountInputFormItemProps } from '@onekeyhq/kit/src/components/AmountInput';
 import { AmountInput } from '@onekeyhq/kit/src/components/AmountInput';
 import SwapPercentageStageBadge from '@onekeyhq/kit/src/views/Swap/components/SwapPercentageStageBadge';
@@ -16,10 +17,12 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import type { BlurEvent, StyleProp, TextStyle } from 'react-native';
 
+// Note: testIDs are passed through inputProps from parent components
+
 export const stakingInputAccessoryViewID =
   'staking-amount-input-accessory-view';
 
-export const StakingPercentageInputStage = [25, 50, 100];
+export const StakingPercentageInputStage = [25, 50, 75, 100];
 
 export const useOnBlurAmountValue = (
   amountValue: string,
@@ -43,12 +46,14 @@ export function StakingAmountInput({
   title,
   inputProps,
   disabled,
+  forceSubduedBackground,
   onSelectPercentageStage,
   value,
   onBlur,
   ...props
 }: IAmountInputFormItemProps & {
   title: string;
+  forceSubduedBackground?: boolean;
   onSelectPercentageStage: (percent: number) => void;
 }) {
   const [percentageInputStageShow, setPercentageInputStageShow] =
@@ -70,7 +75,9 @@ export function StakingAmountInput({
   return (
     <YStack
       borderRadius="$3"
-      backgroundColor={disabled ? '$bgDisabled' : '$bgSubdued'}
+      backgroundColor={
+        disabled && !forceSubduedBackground ? '$bgDisabled' : '$bgSubdued'
+      }
       borderWidth="$0"
     >
       <XStack justifyContent="space-between" pt="$2.5" px="$3.5">
@@ -83,6 +90,7 @@ export function StakingAmountInput({
           (percentageInputStageShow || !!value) ? (
             <XStack
               animation="quick"
+              animateOnly={ANIMATE_ONLY_OPACITY_TRANSFORM}
               enterStyle={{
                 opacity: 0,
                 x: 8,
@@ -125,6 +133,10 @@ export function StakingAmountInput({
         }}
         value={value}
         {...props}
+        onChange={(val: string) => {
+          if (disabled) return;
+          props.onChange?.(val);
+        }}
       />
       {platformEnv.isNativeIOS ? (
         <InputAccessoryView nativeID={stakingInputAccessoryViewID}>

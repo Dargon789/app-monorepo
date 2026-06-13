@@ -1,12 +1,22 @@
 import { useCallback, useMemo } from 'react';
 
+import { useIntl } from 'react-intl';
+
 import type { IIconButtonProps } from '@onekeyhq/components';
+import {
+  Popover,
+  Tooltip,
+  useIsDesktopModeUIInTabPages,
+} from '@onekeyhq/components';
 import { HeaderNotificationButton } from '@onekeyhq/components/src/layouts/Navigation/Header';
 import { useNotificationsAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
+import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { EModalRoutes } from '@onekeyhq/shared/src/routes';
 import { EModalNotificationsRoutes } from '@onekeyhq/shared/src/routes/notifications';
 
 import useAppNavigation from '../../../hooks/useAppNavigation';
+import { NotificationListViewPopover } from '../../../views/Notifications/components/NotificationListView';
 
 export interface IHeaderNotificationIconButtonProps {
   size?: IIconButtonProps['size'];
@@ -19,24 +29,72 @@ export function HeaderNotificationIconButton({
   iconSize,
   testID,
 }: IHeaderNotificationIconButtonProps) {
+  const intl = useIntl();
   const navigation = useAppNavigation();
   const [{ firstTimeGuideOpened, badge }] = useNotificationsAtom();
 
-  const notificationBadge = useMemo(
-    () => ({
+  const notificationBadge = useMemo(() => {
+    // Web dapp mode disables the first-time notification guide
+    // (`canShowNotificationSettings` is hardcoded false in NotificationListView),
+    // so `firstTimeGuideOpened` never flips to true and the guide red dot would
+    // never clear — even after marking all read. Drive the badge purely off the
+    // unread count there, so it disappears once everything is read.
+    if (platformEnv.isWebDappMode) {
+      return { show: !!badge, count: badge };
+    }
+    return {
       show: !firstTimeGuideOpened || !!badge,
       count: firstTimeGuideOpened ? badge : undefined,
-    }),
-    [firstTimeGuideOpened, badge],
-  );
+    };
+  }, [firstTimeGuideOpened, badge]);
 
-  const handleNotificationPress = useCallback(async () => {
+  const handleNotificationPress = useCallback(() => {
     navigation.pushModal(EModalRoutes.NotificationsModal, {
       screen: EModalNotificationsRoutes.NotificationList,
     });
   }, [navigation]);
 
-  return (
+  const isDesktopModeUI = useIsDesktopModeUIInTabPages();
+
+  return isDesktopModeUI ? (
+    <Popover
+      title=""
+      showHeader={false}
+      placement="bottom-end"
+      offset={6}
+      keepChildrenMounted
+      renderTrigger={
+        <Tooltip
+          placement="bottom"
+          renderTrigger={
+            <HeaderNotificationButton
+              size={size}
+              iconSize={iconSize}
+              showBadge={notificationBadge.show}
+              badgeCount={notificationBadge.count}
+              testID={testID ?? 'dex-notification-button'}
+            />
+          }
+          renderContent={intl.formatMessage({
+            id: ETranslations.global_notifications,
+          })}
+        />
+      }
+      floatingPanelProps={{
+        width: 434,
+        maxWidth: 434,
+        height: 592,
+        px: 0,
+        overflow: 'hidden',
+      }}
+      renderContent={
+        <NotificationListViewPopover
+          showPageHeader={false}
+          containerStyle={{ width: 434, maxWidth: 434, height: 592 }}
+        />
+      }
+    />
+  ) : (
     <HeaderNotificationButton
       size={size}
       iconSize={iconSize}

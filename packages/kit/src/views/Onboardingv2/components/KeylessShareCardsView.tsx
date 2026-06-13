@@ -25,21 +25,20 @@ import { MultipleClickStack } from '../../../components/MultipleClickStack';
 import useAppNavigation from '../../../hooks/useAppNavigation';
 import { usePromiseResult } from '../../../hooks/usePromiseResult';
 
-import {
-  ECreationStepId,
-  ECreationStepState,
-  type ICreationStep,
-  type IKeylessShareCardRuntimeStep,
-  type IKeylessShareCardsCardContextValue,
-  type IKeylessShareCardsRefs,
-  type IKeylessShareCardsViewProps,
-} from './keylessOnboardingTypes';
+import { ECreationStepId, ECreationStepState } from './keylessOnboardingTypes';
 import { KeylessShareCardAuthKey } from './KeylessShareCardAuthKey';
 import { KeylessShareCardCloudKey } from './KeylessShareCardCloudKey';
 import { KeylessShareCardDeviceKey } from './KeylessShareCardDeviceKey';
 import { KeylessShareCardsContext } from './KeylessShareCardsContext';
 import { KeylessShareCardsEffects } from './KeylessShareCardsEffects';
 import { OnboardingLayout } from './OnboardingLayout';
+
+import type {
+  IKeylessShareCardRuntimeStep,
+  IKeylessShareCardsCardContextValue,
+  IKeylessShareCardsRefs,
+  IKeylessShareCardsViewProps,
+} from './keylessOnboardingTypes';
 
 // Step order constant - defined outside component to avoid recreation
 const STEP_ORDER = [
@@ -456,6 +455,7 @@ export function KeylessShareCardsView({ mode }: IKeylessShareCardsViewProps) {
             }}
           >
             <Input
+              testID="onboardingv2-handle-import-custom-mnemonic-input"
               autoFocus
               flex={1}
               placeholder="Enter your custom mnemonic phrase"
@@ -564,7 +564,10 @@ export function KeylessShareCardsView({ mode }: IKeylessShareCardsViewProps) {
             h="$10"
             debugComponent={
               <YStack gap="$2">
-                <Button onPress={handleImportCustomMnemonic}>
+                <Button
+                  onPress={handleImportCustomMnemonic}
+                  testID="onboardingv2-btn"
+                >
                   ImportCustomMnemonic
                 </Button>
               </YStack>

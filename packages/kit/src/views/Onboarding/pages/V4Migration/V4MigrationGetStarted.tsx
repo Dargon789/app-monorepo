@@ -15,6 +15,7 @@ import {
   SizableText,
   Stack,
   Toast,
+  useTheme,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
@@ -39,6 +40,10 @@ export function V4MigrationGetStarted({
   const isAutoStartOnMount = Boolean(route?.params?.isAutoStartOnMount);
 
   const [isLoading, setIsLoading] = useState(false);
+
+  const theme = useTheme();
+  const bgAppColor = theme.bgApp.val;
+  const transparentColor = theme.transparent.val;
 
   const handleNavigateToV4MigrationPreview = async () => {
     if (platformEnv.isWebDappMode) {
@@ -103,6 +108,7 @@ export function V4MigrationGetStarted({
                 </SizableText>
                 <Stack mt="$4">
                   <Input
+                    testID="onboarding-input"
                     secureTextEntry
                     onChangeText={(v) => {
                       v4password = v;
@@ -172,6 +178,7 @@ export function V4MigrationGetStarted({
         {showCloseButton ? (
           <Page.Close>
             <IconButton
+              testID="onboarding-is-auto-start-in-first-time-icon-btn"
               icon="CrossedLargeOutline"
               position="absolute"
               variant="tertiary"
@@ -197,7 +204,7 @@ export function V4MigrationGetStarted({
               left="$0"
               right="$0"
               bottom="$0"
-              colors={['transparent', '$bgApp']}
+              colors={[transparentColor, bgAppColor]}
               $platform-native={{
                 display: 'none',
               }}
@@ -221,6 +228,7 @@ export function V4MigrationGetStarted({
             </Stack>
           </Stack>
           <Button
+            testID="onboarding-btn"
             mt="$8"
             size="large"
             $gtMd={

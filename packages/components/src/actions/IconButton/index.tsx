@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import type { TooltipProps } from '@onekeyhq/components/src/shared/tamagui';
 
@@ -17,11 +17,14 @@ import type { IButtonProps, IIconProps, IKeyOfIcons } from '../../primitives';
 import type { ITooltipProps } from '../Tooltip';
 import type { GestureResponderEvent } from 'react-native';
 
-export interface IIconButtonProps
-  extends Omit<IButtonProps, 'iconAfter' | 'children' | 'icon'> {
+export interface IIconButtonProps extends Omit<
+  IButtonProps,
+  'iconAfter' | 'children' | 'icon'
+> {
   icon: IKeyOfIcons;
   iconSize?: IIconProps['size'];
   iconProps?: IIconProps;
+  allowPressWhenDisabled?: boolean;
   title?: ITooltipProps['renderContent'];
   // Allow triggering via the Enter or Space key.
   hotKey?: boolean;
@@ -55,6 +58,7 @@ export function IconButton(props: IIconButtonProps) {
     title,
     icon,
     iconProps,
+    allowPressWhenDisabled = false,
     size,
     variant = 'secondary',
     hotKey = false,
@@ -63,10 +67,12 @@ export function IconButton(props: IIconButtonProps) {
     ...rest
   } = props;
 
+  const visualDisabled = !!disabled;
+  const effectiveDisabled = visualDisabled && !allowPressWhenDisabled;
   const { p, negativeMargin } = getSizeStyles(size);
 
   const { sharedFrameStyles, iconColor } = getSharedButtonStyles({
-    disabled,
+    disabled: visualDisabled,
     loading,
     variant,
   });
@@ -77,46 +83,66 @@ export function IconButton(props: IIconButtonProps) {
     event.preventDefault();
   }, []);
 
-  const renderIconButton = () => (
-    <ButtonFrame
-      p={p}
-      borderRadius="$full"
-      disabled={!!disabled || !!loading}
-      aria-disabled={!!disabled || !!loading}
-      // @ts-expect-error
-      onKeyDown={hotKey ? undefined : onKeyDown}
-      hitSlop={size === 'small' ? NATIVE_HIT_SLOP : undefined}
-      {...(variant === 'tertiary' && {
-        m: negativeMargin,
-      })}
-      {...sharedFrameStyles}
-      {...rest}
-      onPress={onPress}
-      onLongPress={onLongPress}
-    >
-      {loading ? (
-        <Stack
-          {...(size !== 'small' && {
-            m: '$0.5',
-          })}
-        >
-          <Spinner color={iconColor} size="small" />
-        </Stack>
-      ) : (
-        <Icon
-          color={iconColor}
-          name={icon}
-          size={iconSize || (size === 'small' ? '$5' : '$6')}
-          {...iconProps}
-        />
-      )}
-    </ButtonFrame>
+  const iconButtonElement = useMemo(
+    () => (
+      <ButtonFrame
+        p={p}
+        borderRadius="$full"
+        disabled={effectiveDisabled || !!loading}
+        aria-disabled={effectiveDisabled || !!loading}
+        // @ts-expect-error
+        onKeyDown={hotKey ? undefined : onKeyDown}
+        hitSlop={size === 'small' ? NATIVE_HIT_SLOP : undefined}
+        {...(variant === 'tertiary' && {
+          m: negativeMargin,
+        })}
+        {...sharedFrameStyles}
+        {...rest}
+        onPress={onPress}
+        onLongPress={onLongPress}
+      >
+        {loading ? (
+          <Stack
+            {...(size !== 'small' && {
+              m: '$0.5',
+            })}
+          >
+            <Spinner color={iconColor} size="small" />
+          </Stack>
+        ) : (
+          <Icon
+            color={iconColor}
+            name={icon}
+            size={iconSize || (size === 'small' ? '$5' : '$6')}
+            {...iconProps}
+          />
+        )}
+      </ButtonFrame>
+    ),
+    [
+      effectiveDisabled,
+      hotKey,
+      icon,
+      iconColor,
+      iconProps,
+      iconSize,
+      loading,
+      negativeMargin,
+      onKeyDown,
+      onLongPress,
+      onPress,
+      p,
+      rest,
+      sharedFrameStyles,
+      size,
+      variant,
+    ],
   );
 
   if (title) {
     return (
       <Tooltip
-        renderTrigger={renderIconButton()}
+        renderTrigger={iconButtonElement}
         renderContent={title}
         placement={titlePlacement}
         {...(variant === 'tertiary' && { offset: 12 })}
@@ -125,5 +151,5 @@ export function IconButton(props: IIconButtonProps) {
     );
   }
 
-  return renderIconButton();
+  return iconButtonElement;
 }

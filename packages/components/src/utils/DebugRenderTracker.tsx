@@ -1,13 +1,15 @@
 /* eslint-disable jsx-a11y/no-static-element-interactions */
 /* eslint-disable jsx-a11y/click-events-have-key-events */
 import type { ComponentType, FC, ReactNode } from 'react';
-import { useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import appStorage from '@onekeyhq/shared/src/storage/appStorage';
 import { EAppSyncStorageKeys } from '@onekeyhq/shared/src/storage/syncStorage';
 
-import { Toast } from '../actions';
+import { Toast } from '../actions/Toast';
+
+const cursorZoomInStyle = { cursor: 'zoom-in' } as const;
 
 const css1 = 'debug-render-tracker-animated-bg';
 const css2 = 'debug-render-tracker-animated-bg0';
@@ -32,6 +34,18 @@ function DebugRenderTracker(
     children: ReactNode;
   },
 ): ReactNode {
+  if (process.env.NODE_ENV === 'production' || !platformEnv.isRuntimeBrowser) {
+    return props.children;
+  }
+
+  return <DebugRenderTrackerBrowser {...props} />;
+}
+
+function DebugRenderTrackerBrowser(
+  props: IDebugRenderTrackerProps & {
+    children: ReactNode;
+  },
+): ReactNode {
   const {
     children,
     position = 'top-left',
@@ -43,56 +57,52 @@ function DebugRenderTracker(
   const classRef = useRef<typeof css1 | typeof css2>(css1);
   const renderTimesRef = useRef(0);
 
-  if (process.env.NODE_ENV !== 'production') {
-    if (platformEnv.isRuntimeBrowser) {
-      const isDebugRenderTrackerEnabled = appStorage.syncStorage.getBoolean(
-        EAppSyncStorageKeys.onekey_debug_render_tracker,
-      );
-      if (isDebugRenderTrackerEnabled) {
-        classRef.current = classRef.current === css1 ? css2 : css1;
-        renderTimesRef.current += 1;
+  const handleClick = useCallback(() => {
+    Toast.message({
+      title: `DebugRenderTracker`,
+      message: `${props.name || '[UnknownTrackerName]'}: ${
+        renderTimesRef.current
+      }`,
+    });
+    setRefresh(new Date().getTime());
+  }, [props.name]);
 
-        const divElement = (
+  const badgeTextStyle = useMemo(
+    () => ({
+      transform: `translate(${offsetX || 0}px, ${offsetY || 0}px)`,
+    }),
+    [offsetX, offsetY],
+  );
+
+  const isDebugRenderTrackerEnabled = appStorage.syncStorage.getBoolean(
+    EAppSyncStorageKeys.onekey_debug_render_tracker,
+  );
+  if (isDebugRenderTrackerEnabled) {
+    classRef.current = classRef.current === css1 ? css2 : css1;
+    renderTimesRef.current += 1;
+
+    const divElement = (
+      <div className={classRef.current} style={containerStyle}>
+        <div
+          onClick={handleClick}
+          style={cursorZoomInStyle}
+          className={`debug-render-tracker-times-badge ${position}`}
+        >
           <div
-            className={classRef.current}
-            style={{
-              ...containerStyle,
-            }}
+            className="debug-render-tracker-times-badge-text"
+            style={badgeTextStyle}
           >
-            <div
-              onClick={() => {
-                Toast.message({
-                  title: `DebugRenderTracker`,
-                  message: `${props.name || '[UnknownTrackerName]'}: ${
-                    renderTimesRef.current
-                  }`,
-                });
-                setRefresh(new Date().getTime());
-              }}
-              style={{
-                cursor: 'zoom-in',
-              }}
-              className={`debug-render-tracker-times-badge ${position}`}
-            >
-              <div
-                className="debug-render-tracker-times-badge-text"
-                style={{
-                  transform: `translate(${offsetX || 0}px, ${offsetY || 0}px)`,
-                }}
-              >
-                {renderTimesRef.current}
-              </div>
-            </div>
-            {children}
+            {renderTimesRef.current}
           </div>
-        );
-        return divElement;
-        // const clonedElement = cloneElement(children, {
-        //   className: classRef.current, // not working for FlatList
-        // });
-        // return clonedElement;
-      }
-    }
+        </div>
+        {children}
+      </div>
+    );
+    return divElement;
+    // const clonedElement = cloneElement(children, {
+    //   className: classRef.current, // not working for FlatList
+    // });
+    // return clonedElement;
   }
 
   return children;

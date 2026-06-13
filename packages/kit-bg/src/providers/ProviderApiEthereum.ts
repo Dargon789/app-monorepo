@@ -14,6 +14,7 @@ import {
   permissionRequired,
   providerApiMethod,
 } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import { EOAuthSocialLoginProvider } from '@onekeyhq/shared/src/consts/authConsts';
 import { HYPER_LIQUID_ORIGIN } from '@onekeyhq/shared/src/consts/perp';
 import { IMPL_EVM } from '@onekeyhq/shared/src/engine/engineConsts';
 import type { OneKeyError } from '@onekeyhq/shared/src/errors';
@@ -21,6 +22,7 @@ import {
   EAppEventBusNames,
   appEventBus,
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
+import { isKeylessWebAutoConnectOriginAllowed } from '@onekeyhq/shared/src/keylessWallet/keylessWebUtils';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import { EVM_SAFE_RPC_METHODS } from '@onekeyhq/shared/src/rpcCache/constants';
 import { RpcCache } from '@onekeyhq/shared/src/rpcCache/RpcCache';
@@ -78,6 +80,30 @@ function convertToEthereumChainResult(
     chainId: result?.chainId,
     networkVersion: undefined,
   };
+}
+
+// Validate a dApp-supplied keyless provider hint. Returns the typed enum
+// value only when the origin is on the keyless allowlist (e.g. app.onekey.so)
+// AND the value matches a known provider; otherwise undefined. Prevents
+// arbitrary origins from force-opening the connect modal with a keyless
+// preselect, and prevents downstream code from treating bogus strings as
+// providers.
+const KEYLESS_PROVIDER_VALUES: readonly string[] = Object.values(
+  EOAuthSocialLoginProvider,
+);
+
+function parseKeylessProviderHint({
+  value,
+  origin,
+}: {
+  value: unknown;
+  origin?: string;
+}): EOAuthSocialLoginProvider | undefined {
+  if (!value || !origin) return undefined;
+  if (!isKeylessWebAutoConnectOriginAllowed(origin)) return undefined;
+  if (typeof value !== 'string') return undefined;
+  if (!KEYLESS_PROVIDER_VALUES.includes(value)) return undefined;
+  return value as EOAuthSocialLoginProvider;
 }
 
 function prefixTxValueToHex(value: string) {
@@ -259,9 +285,41 @@ class ProviderApiEthereum extends ProviderApiBase {
   }
 
   @providerApiMethod()
-  async eth_requestAccounts(request: IJsBridgeMessagePayload) {
+  async eth_requestAccounts(
+    request: IJsBridgeMessagePayload,
+    params?: Record<string, unknown>,
+  ) {
+    const _requestOneKeyKeylessAccount = parseKeylessProviderHint({
+      value: params?.requestOneKeyKeylessAccount,
+      origin: request.origin,
+    });
+
     return this.semaphore.runExclusive(async () => {
       const accounts = await this.eth_accounts(request);
+
+      // Keyless provider hint path: web "Continue with Google/Apple" pressed.
+      // Matching authorized account → silent reuse; mismatch or unauthorized
+      // → force-open ConnectionModal with the keyless account preselected.
+      // This makes the web button behave as a switch entry rather than
+      // silently returning whatever was previously authorized.
+      if (_requestOneKeyKeylessAccount && request.origin) {
+        const isMatching = await this.backgroundApi.serviceDApp
+          .isOriginAuthorizedKeylessProvider({
+            origin: request.origin,
+            provider: _requestOneKeyKeylessAccount,
+            scope: request.scope,
+          })
+          .catch(() => false);
+        if (isMatching && accounts && accounts.length) {
+          return accounts;
+        }
+        await this.backgroundApi.serviceDApp.openConnectionModal(request, {
+          preselectKeylessProvider: _requestOneKeyKeylessAccount,
+        });
+        void this._getConnectedNetworkName(request);
+        return this.eth_accounts(request);
+      }
+
       if (accounts && accounts.length) {
         return accounts;
       }
@@ -301,9 +359,36 @@ class ProviderApiEthereum extends ProviderApiBase {
     request: IJsBridgeMessagePayload,
     _permissions: Record<string, unknown>,
   ) {
+    const _requestOneKeyKeylessAccount = parseKeylessProviderHint({
+      value: _permissions?.requestOneKeyKeylessAccount,
+      origin: request.origin,
+    });
+
     defaultLogger.discovery.dapp.dappRequest({ request });
-    await this.backgroundApi.serviceDApp.openConnectionModal(request);
-    const accounts = await this.eth_accounts(request);
+    let accounts = await this.eth_accounts(request);
+
+    // Mirror eth_requestAccounts: keyless provider hint routes to a
+    // matching-or-modal decision so a "Continue with Google/Apple" button
+    // routed via wallet_requestPermissions doesn't silently return whatever
+    // non-keyless account was previously authorized.
+    if (_requestOneKeyKeylessAccount && request.origin) {
+      const isMatching = await this.backgroundApi.serviceDApp
+        .isOriginAuthorizedKeylessProvider({
+          origin: request.origin,
+          provider: _requestOneKeyKeylessAccount,
+          scope: request.scope,
+        })
+        .catch(() => false);
+      if (!isMatching || !accounts.length) {
+        await this.backgroundApi.serviceDApp.openConnectionModal(request, {
+          preselectKeylessProvider: _requestOneKeyKeylessAccount,
+        });
+        accounts = await this.eth_accounts(request);
+      }
+    } else if (!accounts.length) {
+      await this.backgroundApi.serviceDApp.openConnectionModal(request);
+      accounts = await this.eth_accounts(request);
+    }
     const chainId = await this.eth_chainId(request);
 
     const id = request.id?.toString() ?? generateUUID();
@@ -357,9 +442,8 @@ class ProviderApiEthereum extends ProviderApiBase {
 
   @providerApiMethod()
   async eth_chainId(request: IJsBridgeMessagePayload) {
-    const networks = await this.backgroundApi.serviceDApp.getConnectedNetworks(
-      request,
-    );
+    const networks =
+      await this.backgroundApi.serviceDApp.getConnectedNetworks(request);
     if (!isNil(networks?.[0]?.chainId)) {
       return hexUtils.hexlify(Number(networks?.[0]?.chainId), {
         removeZeros: true,
@@ -371,9 +455,8 @@ class ProviderApiEthereum extends ProviderApiBase {
 
   @providerApiMethod()
   async net_version(request: IJsBridgeMessagePayload) {
-    const networks = await this.backgroundApi.serviceDApp.getConnectedNetworks(
-      request,
-    );
+    const networks =
+      await this.backgroundApi.serviceDApp.getConnectedNetworks(request);
     if (!isNil(networks?.[0]?.chainId)) {
       return networks?.[0]?.chainId;
     }
@@ -672,7 +755,9 @@ class ProviderApiEthereum extends ProviderApiBase {
     ...messages: any[]
   ) {
     defaultLogger.discovery.dapp.dappRequest({ request });
-    console.log('eth_signTypedData_v1', messages, request);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('eth_signTypedData_v1', messages, request);
+    }
     return this.eth_signTypedData(request, ...messages);
   }
 
@@ -685,7 +770,9 @@ class ProviderApiEthereum extends ProviderApiBase {
     const { accountInfo: { accountId, networkId } = {} } = (
       await this.getAccountsInfo(request)
     )[0];
-    console.log('eth_signTypedData_v3', messages, request);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('eth_signTypedData_v3', messages, request);
+    }
     return this.backgroundApi.serviceDApp.openSignMessageModal({
       request,
       unsignedMessage: {
@@ -718,14 +805,16 @@ class ProviderApiEthereum extends ProviderApiBase {
           hyperLiquidApproveAgentTypedData?.primaryType ===
             'HyperliquidTransaction:ApproveAgent';
 
-        console.log(
-          'hyperliquid——eth_signTypedData_v4',
-          messages?.[0],
-          hyperLiquidApproveAgentTypedData,
-          isHyperLiquidApproveAgentMessage,
-        );
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(
+            'hyperliquid——eth_signTypedData_v4',
+            messages?.[0],
+            hyperLiquidApproveAgentTypedData,
+            isHyperLiquidApproveAgentMessage,
+          );
+        }
       }
-    } catch (e) {
+    } catch (_e) {
       // eslint-disable-next-line no-empty
     }
 
@@ -733,7 +822,9 @@ class ProviderApiEthereum extends ProviderApiBase {
     const { accountInfo: { accountId, networkId } = {} } = (
       await this.getAccountsInfo(request)
     )[0];
-    console.log('eth_signTypedData_v4', messages, request);
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('eth_signTypedData_v4', messages, request);
+    }
     const result = await this.backgroundApi.serviceDApp.openSignMessageModal({
       request,
       unsignedMessage: {

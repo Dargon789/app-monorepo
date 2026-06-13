@@ -3,6 +3,7 @@ import type { IDecodedTxExtraCosmos } from '@onekeyhq/core/src/chains/cosmos/typ
 import type { IDecodedTxExtraDnx } from '@onekeyhq/core/src/chains/dnx/types';
 import type { IDecodedTxExtraLightning } from '@onekeyhq/core/src/chains/lightning/types';
 import type { IDecodedTxExtraSol } from '@onekeyhq/core/src/chains/sol/types';
+import type { IDecodedTxExtraStellar } from '@onekeyhq/core/src/chains/stellar/types';
 import type { IDecodedTxExtraTon } from '@onekeyhq/core/src/chains/ton/types';
 import type { IDecodedTxExtraTron } from '@onekeyhq/core/src/chains/tron/types';
 import type { IDecodedTxExtraXrp } from '@onekeyhq/core/src/chains/xrp/types';
@@ -13,6 +14,7 @@ import type { IDappSourceInfo } from '.';
 import type { IHostSecurity } from './discovery';
 import type { IFeeInfoUnit, ITronResourceRentalInfo } from './fee';
 import type { EOnChainHistoryTxType } from './history';
+import type { EKytRiskLevel, IKytHistoryResult } from './kyt';
 import type { ENFTType } from './nft';
 import type {
   EParseTxType,
@@ -90,6 +92,16 @@ export type IDecodedTxPayload = {
   value: string;
   label: string;
   type: EOnChainHistoryTxType;
+  privateSend?: {
+    orderId?: string;
+    rocketXOrderId?: string;
+    payinAddress?: string;
+    provider?: string;
+    providerName?: string;
+    providerLogo?: string;
+    supportUrl?: string;
+    originalRecipient?: string;
+  };
 };
 
 export type IUtxoAddressInfo = {
@@ -108,7 +120,8 @@ export type IDecodedTxExtraInfo =
   | IDecodedTxExtraTron
   | IDecodedTxExtraSol
   | IDecodedTxExtraCosmos
-  | IDecodedTxExtraTon;
+  | IDecodedTxExtraTon
+  | IDecodedTxExtraStellar;
 
 export type IDecodedTx = {
   txid: string; // blockHash
@@ -152,6 +165,10 @@ export type IDecodedTx = {
   nativeAmount?: string;
   nativeAmountValue?: string;
   riskyLevel?: number;
+  kytRiskLevel?: EKytRiskLevel;
+  // Full KYT block carried from the history list so the detail page can render
+  // optimistically before its own request resolves.
+  kyt?: IKytHistoryResult;
 
   originalTxId?: string; // for ton
 
@@ -219,6 +236,12 @@ export type IDecodedTxActionAssetTransfer = IDecodedTxActionBase & {
   swapReceivedNetworkId?: string;
 };
 
+export enum EApproveType {
+  Approve = 'approve',
+  IncreaseAllowance = 'increaseAllowance',
+  IncreaseApproval = 'increaseApproval',
+}
+
 export type IDecodedTxActionTokenApprove = IDecodedTxActionBase & {
   amount: string;
   symbol: string;
@@ -228,6 +251,7 @@ export type IDecodedTxActionTokenApprove = IDecodedTxActionBase & {
   isInfiniteAmount: boolean;
   tokenIdOnNetwork: string;
   label?: string;
+  approveType?: EApproveType;
 };
 
 export type IDecodedTxActionTokenActivate = IDecodedTxActionBase & {

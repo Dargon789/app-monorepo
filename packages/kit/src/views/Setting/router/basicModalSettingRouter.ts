@@ -26,11 +26,18 @@ const SettingClearAppCacheModal = LazyLoadPage(
 const SettingProtectionModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/Protection'),
 );
+const SettingReceiveRiskSupportedAssetsModal = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Setting/pages/Protection/ReceiveRiskSupportedAssets'),
+);
 const SettingSpendUTXOModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/SpendUTXO'),
 );
 const SettingCustomRPCModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/CustomRPC'),
+);
+const SettingChainListSearch = LazyLoadPage(
+  () => import('@onekeyhq/kit/src/views/ChainSelector/pages/ChainListSearch'),
 );
 const SettingCustomNetworkModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/CustomNetwork'),
@@ -55,51 +62,42 @@ const V4MigrationDevSettings = LazyLoadPage(
 
 const PageDevUnitTests = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Setting/pages/DevUnitTests/PageDevUnitTests'
-    ),
+    import('@onekeyhq/kit/src/views/Setting/pages/DevUnitTests/PageDevUnitTests'),
 );
 
 const DesktopApiProxyTestDevSettings = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Setting/pages/Tab/DevSettingsSection/DesktopApiProxyTestDevSettings'
-    ),
+    import('@onekeyhq/kit/src/views/Setting/pages/Tab/DevSettingsSection/DesktopApiProxyTestDevSettings'),
 );
 
 const PerpGallery = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/PerpGallery'
-    ),
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/PerpGallery'),
 );
 
 const CryptoGallery = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CryptoGallery'
-    ),
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CryptoGallery'),
 );
 
 const CloudBackupGallery = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CloudBackupGallery'
-    ),
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/CloudBackupGallery'),
 );
 
 const AuthGallery = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/AuthGallery'
-    ),
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/AuthGallery'),
 );
 
 const KeylessWalletGallery = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/KeylessWalletGallery'
-    ),
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/KeylessWalletGallery'),
+);
+
+const StorageGallery = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/StorageGallery'),
 );
 
 const ExportCustomNetworkConfig = LazyLoadPage(
@@ -109,16 +107,12 @@ const ExportCustomNetworkConfig = LazyLoadPage(
 
 const NotificationsSettings = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Setting/pages/Notifications/NotificationsSettings'
-    ),
+    import('@onekeyhq/kit/src/views/Setting/pages/Notifications/NotificationsSettings'),
 );
 
 const ManageAccountActivity = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Setting/pages/Notifications/ManageAccountActivity'
-    ),
+    import('@onekeyhq/kit/src/views/Setting/pages/Notifications/ManageAccountActivity'),
 );
 
 const AlignPrimaryAccountModal = LazyLoadPage(
@@ -127,10 +121,6 @@ const AlignPrimaryAccountModal = LazyLoadPage(
 
 const CustomTransactionModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/CustomTransaction'),
-);
-
-const PerpUserConfigModal = LazyLoadPage(
-  () => import('@onekeyhq/kit/src/views/Setting/pages/PerpUserConfig'),
 );
 
 // OneKey ID sub-pages
@@ -151,9 +141,38 @@ const OneKeyIdKeylessWalletPage = LazyLoadPage(
 
 const DevAppUpdateModalSettingModal = LazyLoadPage(
   () =>
-    import(
-      '@onekeyhq/kit/src/views/Setting/pages/DevAppUpdateModalSettingModal'
-    ),
+    import('@onekeyhq/kit/src/views/Setting/pages/DevAppUpdateModalSettingModal'),
+);
+
+const DevBundleManagerModal = LazyLoadPage(
+  () => import('@onekeyhq/kit/src/views/Setting/pages/DevBundleManagerModal'),
+);
+
+const DevBundleVersionList = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Setting/pages/DevBundleSwitcher/VersionList'),
+);
+
+const DevBundleList = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Setting/pages/DevBundleSwitcher/BundleList'),
+);
+
+const DevLocalBundleList = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Setting/pages/DevBundleSwitcher/LocalBundleList'),
+);
+
+const DevBundleUpdateStatusModal = LazyLoadPage(
+  () => import('@onekeyhq/kit/src/views/Setting/pages/DevBundleUpdateStatus'),
+);
+
+const DevSplitBundleTest = LazyLoadPage(
+  () => import('@onekeyhq/kit/src/views/Setting/pages/DevSplitBundleTest'),
+);
+
+const DevDrawingOrderStress = LazyLoadPage(
+  () => import('@onekeyhq/kit/src/views/Setting/pages/DevDrawingOrderStress'),
 );
 
 export const BasicModalSettingStack: IModalFlowNavigatorConfig<
@@ -177,6 +196,10 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
     component: SettingCustomRPCModal,
   },
   {
+    name: EModalSettingRoutes.SettingChainListSearch,
+    component: SettingChainListSearch,
+  },
+  {
     name: EModalSettingRoutes.SettingCustomNetwork,
     component: SettingCustomNetworkModal,
   },
@@ -188,6 +211,10 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
     name: EModalSettingRoutes.SettingProtectModal,
     component: SettingProtectionModal,
     rewrite: '/protection',
+  },
+  {
+    name: EModalSettingRoutes.SettingReceiveRiskSupportedAssets,
+    component: SettingReceiveRiskSupportedAssetsModal,
   },
   {
     name: EModalSettingRoutes.SettingClearAppCache,
@@ -238,6 +265,10 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
     component: KeylessWalletGallery,
   },
   {
+    name: EModalSettingRoutes.SettingDevStorageGalleryModal,
+    component: StorageGallery,
+  },
+  {
     name: EModalSettingRoutes.SettingExportCustomNetworkConfig,
     component: ExportCustomNetworkConfig,
   },
@@ -261,10 +292,6 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
     name: EModalSettingRoutes.SettingFloatingIconModal,
     component: FloatingIconModal,
   },
-  {
-    name: EModalSettingRoutes.SettingPerpUserConfig,
-    component: PerpUserConfigModal,
-  },
   // OneKey ID sub-pages
   {
     name: EModalSettingRoutes.SettingOneKeyIdPersonalInfo,
@@ -277,6 +304,34 @@ export const BasicModalSettingStack: IModalFlowNavigatorConfig<
   {
     name: EModalSettingRoutes.SettingOneKeyIdKeylessWallet,
     component: OneKeyIdKeylessWalletPage,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevBundleManagerModal,
+    component: DevBundleManagerModal,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevBundleVersionList,
+    component: DevBundleVersionList,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevBundleList,
+    component: DevBundleList,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevLocalBundleList,
+    component: DevLocalBundleList,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevBundleUpdateStatusModal,
+    component: DevBundleUpdateStatusModal,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevSplitBundleTestModal,
+    component: DevSplitBundleTest,
+  },
+  {
+    name: EModalSettingRoutes.SettingDevDrawingOrderStressModal,
+    component: DevDrawingOrderStress,
   },
   ...(ModalAddressBookRouter as IModalFlowNavigatorConfig<
     EModalSettingRoutes | EModalAddressBookRoutes,

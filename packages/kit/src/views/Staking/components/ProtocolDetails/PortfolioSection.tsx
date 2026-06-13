@@ -18,7 +18,6 @@ import {
   Stack,
   XStack,
   YStack,
-  usePopoverContext,
 } from '@onekeyhq/components';
 import { Token } from '@onekeyhq/kit/src/components/Token';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
@@ -32,6 +31,7 @@ import type {
 } from '@onekeyhq/shared/types/staking';
 import type { IToken } from '@onekeyhq/shared/types/token';
 
+import { StakingTestIDs } from '../../testIDs';
 import { formatApy, formatStakingDistanceToNowStrict } from '../utils';
 
 import { ProtocolRewards } from './ProtocolRewards';
@@ -49,6 +49,7 @@ type IPortfolioItemProps = {
   useLoading?: boolean;
   badgeType?: IBadgeType;
   badgeText?: string;
+  testID?: string;
 };
 
 function PortfolioItem({
@@ -64,6 +65,7 @@ function PortfolioItem({
   useLoading,
   badgeType,
   badgeText,
+  testID,
 }: IPortfolioItemProps) {
   const [loading, setLoading] = useState(false);
   const handlePress = useCallback(async () => {
@@ -98,6 +100,7 @@ function PortfolioItem({
             title={statusText}
             renderTrigger={
               <IconButton
+                testID="staking-icon-btn"
                 iconColor="$iconSubdued"
                 size="small"
                 icon="InfoCircleOutline"
@@ -128,6 +131,7 @@ function PortfolioItem({
           variant="primary"
           onPress={handlePress}
           loading={loading}
+          testID={testID}
         >
           {buttonText}
         </Button>
@@ -261,81 +265,81 @@ function PendingInactiveItem({
   );
 }
 
-function RewardAmountPopoverContent({
-  totalRewardAmount,
-  waitingRebateRewardAmount,
-  tokenSymbol,
-  onHistory,
-}: {
-  totalRewardAmount: number;
-  waitingRebateRewardAmount: number;
-  tokenSymbol: string;
-  onHistory?: IPortfolioInfoProps['onHistory'];
-}) {
-  const { closePopover } = usePopoverContext();
-  const handlePress = useCallback(async () => {
-    await closePopover?.();
-    setTimeout(() => {
-      onHistory?.({ filterType: 'rebate' });
-    }, 50);
-  }, [closePopover, onHistory]);
-  const intl = useIntl();
-  return (
-    <YStack p="$5">
-      <XStack>
-        <SizableText size="$bodyLgMedium">
-          <NumberSizeableText
-            size="$bodyLgMedium"
-            formatter="balance"
-            formatterOptions={{ tokenSymbol }}
-          >
-            {waitingRebateRewardAmount}
-          </NumberSizeableText>
-          <SizableText size="$bodyLgMedium">
-            {` ${intl.formatMessage({
-              id: ETranslations.earn_referral_undistributed,
-            })}`}
-          </SizableText>
-        </SizableText>
-      </XStack>
-      <XStack pt="$2">
-        <SizableText size="$bodySm" color="$textSubdued">
-          {intl.formatMessage({
-            id: ETranslations.referral_earn_reward_tips,
-          })}
-        </SizableText>
-      </XStack>
-      <XStack jc="space-between" pt="$4">
-        <SizableText size="$bodyMdMedium">
-          <SizableText size="$bodyMdMedium">
-            {`${intl.formatMessage({
-              id: ETranslations.earn_referral_total_earned,
-            })} `}
-          </SizableText>
-          <NumberSizeableText
-            size="$bodyMdMedium"
-            formatter="balance"
-            formatterOptions={{ tokenSymbol }}
-          >
-            {totalRewardAmount}
-          </NumberSizeableText>
-        </SizableText>
-        <XStack gap="$0.5" cursor="pointer" onPress={handlePress}>
-          <SizableText size="$bodyMd" color="$textSubdued">
-            {intl.formatMessage({
-              id: ETranslations.global_history,
-            })}
-          </SizableText>
-          <Icon
-            name="ChevronRightSmallOutline"
-            color="$iconSubdued"
-            size="$5"
-          />
-        </XStack>
-      </XStack>
-    </YStack>
-  );
-}
+// function _RewardAmountPopoverContent({
+//   totalRewardAmount,
+//   waitingRebateRewardAmount: _waitingRebateRewardAmount,
+//   tokenSymbol,
+//   onHistory,
+// }: {
+//   totalRewardAmount: number;
+//   waitingRebateRewardAmount: number;
+//   tokenSymbol: string;
+//   onHistory?: IPortfolioInfoProps['onHistory'];
+// }) {
+//   const { closePopover } = usePopoverContext();
+//   const handlePress = useCallback(async () => {
+//     await closePopover?.();
+//     setTimeout(() => {
+//       onHistory?.({ filterType: 'rebate' });
+//     }, 50);
+//   }, [closePopover, onHistory]);
+//   const intl = useIntl();
+//   return (
+//     <YStack p="$5">
+//       <XStack>
+//         <SizableText size="$bodyLgMedium">
+//           <NumberSizeableText
+//             size="$bodyLgMedium"
+//             formatter="balance"
+//             formatterOptions={{ tokenSymbol }}
+//           >
+//             {_waitingRebateRewardAmount}
+//           </NumberSizeableText>
+//           <SizableText size="$bodyLgMedium">
+//             {` ${intl.formatMessage({
+//               id: ETranslations.earn_referral_undistributed,
+//             })}`}
+//           </SizableText>
+//         </SizableText>
+//       </XStack>
+//       <XStack pt="$2">
+//         <SizableText size="$bodySm" color="$textSubdued">
+//           {intl.formatMessage({
+//             id: ETranslations.referral_earn_reward_tips,
+//           })}
+//         </SizableText>
+//       </XStack>
+//       <XStack jc="space-between" pt="$4">
+//         <SizableText size="$bodyMdMedium">
+//           <SizableText size="$bodyMdMedium">
+//             {`${intl.formatMessage({
+//               id: ETranslations.earn_referral_total_earned,
+//             })} `}
+//           </SizableText>
+//           <NumberSizeableText
+//             size="$bodyMdMedium"
+//             formatter="balance"
+//             formatterOptions={{ tokenSymbol }}
+//           >
+//             {totalRewardAmount}
+//           </NumberSizeableText>
+//         </SizableText>
+//         <XStack gap="$0.5" cursor="pointer" onPress={handlePress}>
+//           <SizableText size="$bodyMd" color="$textSubdued">
+//             {intl.formatMessage({
+//               id: ETranslations.global_history,
+//             })}
+//           </SizableText>
+//           <Icon
+//             name="ChevronRightSmallOutline"
+//             color="$iconSubdued"
+//             size="$5"
+//           />
+//         </XStack>
+//       </XStack>
+//     </YStack>
+//   );
+// }
 
 function PortfolioInfo({
   details,
@@ -367,9 +371,8 @@ function PortfolioInfo({
   showDetailWithdrawalRequested,
   unbondingDelegationList,
 
-  waitingRebateRewardAmount,
-  totalRewardAmount,
-  onHistory,
+  totalRewardAmount: _totalRewardAmount,
+  onHistory: _onHistory,
 }: IPortfolioInfoProps) {
   const intl = useIntl();
 
@@ -475,7 +478,7 @@ function PortfolioInfo({
 
   return (
     <>
-      <YStack gap="$6">
+      <YStack gap="$6" testID={StakingTestIDs.portfolioSection}>
         <XStack justifyContent="space-between">
           <SizableText size="$headingLg">
             {intl.formatMessage({ id: ETranslations.earn_portfolio })}
@@ -485,6 +488,7 @@ function PortfolioInfo({
               variant="tertiary"
               iconAfter="ChevronRightOutline"
               onPress={onPortfolioDetails}
+              testID={StakingTestIDs.portfolioDetailsBtn}
             >
               {intl.formatMessage({ id: ETranslations.global_details })}
             </Button>
@@ -575,6 +579,7 @@ function PortfolioInfo({
                 id: ETranslations.earn_claim,
               })}
               tooltip={tooltipForClaimable}
+              testID={StakingTestIDs.portfolioClaimBtn}
             />
           ) : null}
           {rewards && Number(rewards) > 0 ? (
@@ -590,6 +595,7 @@ function PortfolioInfo({
               buttonText={intl.formatMessage({
                 id: ETranslations.earn_claim,
               })}
+              testID={StakingTestIDs.portfolioRewardsClaimBtn}
               tooltip={
                 isLessThanMinClaimable
                   ? intl.formatMessage(

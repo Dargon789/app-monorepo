@@ -1,3 +1,4 @@
+import type { ComponentType, ReactElement } from 'react';
 import { useCallback, useMemo, useState } from 'react';
 
 import { useIntl } from 'react-intl';
@@ -27,6 +28,14 @@ import type { NUMBER_FORMATTER } from '@onekeyhq/shared/src/utils/numberUtils';
 
 import { LetterAvatar } from '../LetterAvatar';
 
+export type ITokenSelectorPopoverProps = {
+  title: string;
+  content:
+    | ReactElement
+    | ComponentType<{ isOpen?: boolean; closePopover: () => void }>
+    | null;
+};
+
 export type IAmountInputFormItemProps = IFormFieldProps<
   string,
   {
@@ -34,6 +43,7 @@ export type IAmountInputFormItemProps = IFormFieldProps<
       loading?: boolean;
     };
     enableMaxAmount?: boolean;
+    maxAmountText?: string;
     valueProps?: {
       value?: string;
       color?: string;
@@ -51,6 +61,7 @@ export type IAmountInputFormItemProps = IFormFieldProps<
       onPress?: () => void;
       loading?: boolean;
       iconText?: string;
+      testID?: string;
     };
     balanceHelperProps?: {
       onPress?: () => void;
@@ -63,6 +74,7 @@ export type IAmountInputFormItemProps = IFormFieldProps<
       isCustomNetwork?: boolean;
       loading?: boolean;
       disabled?: boolean;
+      popover?: ITokenSelectorPopoverProps;
     } & IXStackProps;
     reversible?: boolean;
   } & IStackProps
@@ -71,6 +83,7 @@ export type IAmountInputFormItemProps = IFormFieldProps<
 export function AmountInput({
   inputProps,
   enableMaxAmount,
+  maxAmountText,
   tokenSelectorTriggerProps,
   reversible,
   onChange,
@@ -108,6 +121,11 @@ export function AmountInput({
 
     return (
       <Input
+        testID="amount-input-input-element-input"
+        autoCorrect={false}
+        spellCheck={false}
+        autoComplete="off"
+        textContentType="none"
         keyboardType="decimal-pad"
         height="$11"
         fontSize={getFontSize('$heading3xl')}
@@ -179,9 +197,22 @@ export function AmountInput({
   }, [valueProps, reversible]);
 
   const TokenSelectorTrigger = useMemo(() => {
-    if (tokenSelectorTriggerProps?.loading) {
+    const {
+      popover: popoverProps,
+      selectedTokenImageUri,
+      selectedNetworkImageUri,
+      selectedTokenSymbol,
+      selectedNetworkName,
+      isCustomNetwork,
+      loading,
+      disabled,
+      onPress,
+      ...triggerStackProps
+    } = tokenSelectorTriggerProps ?? {};
+
+    if (loading) {
       return (
-        <XStack p="$3.5" pb="$2" alignItems="center">
+        <XStack p="$3.5" pb="$2" alignItems="center" {...triggerStackProps}>
           <Skeleton w="$7" h="$7" radius="round" />
           <Stack pl="$2" py="$1.5">
             <Skeleton h="$4" w="$10" />
@@ -190,7 +221,10 @@ export function AmountInput({
       );
     }
 
-    return (
+    const hasPopover = !!popoverProps?.content;
+    const hasOnPress = !!onPress || hasPopover;
+
+    const triggerContent = (
       <XStack
         alignItems="center"
         m="$1.5"
@@ -198,10 +232,11 @@ export function AmountInput({
         p="$2"
         borderRadius="$2"
         userSelect="none"
-        {...(tokenSelectorTriggerProps?.selectedTokenSymbol && {
+        {...(selectedTokenSymbol && {
           maxWidth: '$44',
         })}
-        {...(tokenSelectorTriggerProps?.onPress && {
+        {...triggerStackProps}
+        {...(hasOnPress && {
           role: 'button',
           hoverStyle: {
             bg: '$bgHover',
@@ -210,15 +245,15 @@ export function AmountInput({
             bg: '$bgActive',
           },
         })}
-        disabled={tokenSelectorTriggerProps?.disabled}
-        onPress={tokenSelectorTriggerProps?.onPress}
+        disabled={disabled}
+        onPress={hasPopover ? undefined : onPress}
       >
         <Stack mr="$2">
           <Image
             size="$7"
             borderRadius="$full"
             source={{
-              uri: tokenSelectorTriggerProps?.selectedTokenImageUri,
+              uri: selectedTokenImageUri,
             }}
             fallback={
               <Image.Fallback
@@ -236,7 +271,7 @@ export function AmountInput({
               </Image.Fallback>
             }
           />
-          {tokenSelectorTriggerProps?.selectedNetworkImageUri ? (
+          {selectedNetworkImageUri ? (
             <Stack
               position="absolute"
               right="$-1"
@@ -250,7 +285,7 @@ export function AmountInput({
                 size="$3"
                 borderRadius="$full"
                 source={{
-                  uri: tokenSelectorTriggerProps?.selectedNetworkImageUri,
+                  uri: selectedNetworkImageUri,
                 }}
                 fallback={
                   <Image.Fallback bg="$gray5" delayMs={1000}>
@@ -264,8 +299,7 @@ export function AmountInput({
               />
             </Stack>
           ) : null}
-          {tokenSelectorTriggerProps?.isCustomNetwork &&
-          tokenSelectorTriggerProps?.selectedNetworkName ? (
+          {isCustomNetwork && selectedNetworkName ? (
             <Stack
               position="absolute"
               right="$-1"
@@ -275,19 +309,15 @@ export function AmountInput({
               flexShrink={1}
               bg="$bgApp"
             >
-              <LetterAvatar
-                size="$3"
-                letter={tokenSelectorTriggerProps.selectedNetworkName[0]}
-              />
+              <LetterAvatar size="$3" letter={selectedNetworkName[0]} />
             </Stack>
           ) : null}
         </Stack>
         <SizableText size="$headingXl" numberOfLines={1} flexShrink={1}>
-          {tokenSelectorTriggerProps?.selectedTokenSymbol ||
+          {selectedTokenSymbol ||
             intl.formatMessage({ id: ETranslations.token_selector_title })}
         </SizableText>
-        {tokenSelectorTriggerProps?.onPress &&
-        !tokenSelectorTriggerProps.disabled ? (
+        {hasOnPress && !disabled ? (
           <Icon
             flexShrink={0}
             name="ChevronDownSmallOutline"
@@ -298,17 +328,23 @@ export function AmountInput({
         ) : null}
       </XStack>
     );
-  }, [
-    intl,
-    tokenSelectorTriggerProps?.disabled,
-    tokenSelectorTriggerProps?.isCustomNetwork,
-    tokenSelectorTriggerProps?.loading,
-    tokenSelectorTriggerProps?.onPress,
-    tokenSelectorTriggerProps?.selectedNetworkImageUri,
-    tokenSelectorTriggerProps?.selectedNetworkName,
-    tokenSelectorTriggerProps?.selectedTokenImageUri,
-    tokenSelectorTriggerProps?.selectedTokenSymbol,
-  ]);
+
+    // Wrap with Popover if popover prop is provided
+    if (hasPopover && !disabled) {
+      return (
+        <Popover
+          title={popoverProps.title}
+          renderTrigger={triggerContent}
+          renderContent={popoverProps.content}
+          floatingPanelProps={{
+            w: '$72',
+          }}
+        />
+      );
+    }
+
+    return triggerContent;
+  }, [intl, tokenSelectorTriggerProps]);
 
   const BalanceElement = useMemo(() => {
     if (!balanceProps) {
@@ -330,6 +366,7 @@ export function AmountInput({
           py="$1"
           borderRadius={6}
           onPress={balanceProps.onPress}
+          testID={balanceProps.testID}
           {...(enableMaxAmount && {
             userSelect: 'none',
             hoverStyle: {
@@ -345,7 +382,7 @@ export function AmountInput({
           })}
         >
           {balanceProps.iconText ? (
-            <SizableText color="$textSubdued" size="$bodyMd" mr="$1">
+            <SizableText color="$textSubdued" size="$bodySm" mr="$1">
               {balanceProps.iconText}
             </SizableText>
           ) : (
@@ -362,7 +399,8 @@ export function AmountInput({
           </>
           {enableMaxAmount ? (
             <SizableText pl="$1" size="$bodySmMedium" color="$textInteractive">
-              {intl.formatMessage({ id: ETranslations.send_max })}
+              {maxAmountText ??
+                intl.formatMessage({ id: ETranslations.send_max })}
             </SizableText>
           ) : null}
         </XStack>
@@ -380,7 +418,7 @@ export function AmountInput({
       return contentComponent;
     }
     return null;
-  }, [balanceHelperProps, balanceProps, enableMaxAmount, intl]);
+  }, [balanceHelperProps, balanceProps, enableMaxAmount, intl, maxAmountText]);
 
   const balanceHelper = useMemo(() => {
     if (!balanceHelperProps) {

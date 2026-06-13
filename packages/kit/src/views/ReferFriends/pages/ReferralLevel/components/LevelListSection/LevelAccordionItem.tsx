@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { Fragment, useMemo } from 'react';
 
-import { useIntl } from 'react-intl';
+import { type IntlShape, useIntl } from 'react-intl';
 
 import {
   Accordion,
@@ -12,53 +12,143 @@ import {
   XStack,
   YStack,
 } from '@onekeyhq/components';
-import { useCurrency } from '@onekeyhq/kit/src/components/Currency';
+import { ANIMATE_ONLY_TRANSFORM } from '@onekeyhq/components/src/utils/animationConstants';
+import { sortCommissionRateItems } from '@onekeyhq/kit/src/views/ReferFriends/utils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type {
   IInviteLevelCommissionRate,
   IInviteLevelDetail,
+  IInviteLevelUpgradeCondition,
 } from '@onekeyhq/shared/src/referralCode/type';
 
 import { CommissionRateCard } from './CommissionRateCard';
+import { OrDivider } from './OrDivider';
+import { SubjectMilestoneCard } from './SubjectMilestoneCard';
+
+function getDisplayLabel(
+  intl: IntlShape,
+  labelKey?: string,
+  fallback?: string,
+): string {
+  if (labelKey) {
+    return intl.formatMessage({
+      id: labelKey as ETranslations,
+      defaultMessage: fallback,
+    });
+  }
+  return fallback ?? '';
+}
 
 export function LevelAccordionItem({
   level,
   isCurrent,
   isLast,
+  isHighestLevel,
+  isLowestLevel,
+  retentionConditions,
+  nextLevelLabel,
 }: {
   level: IInviteLevelDetail['levels'][0];
   isCurrent: boolean;
-  isFirst: boolean;
   isLast: boolean;
+  isHighestLevel: boolean;
+  isLowestLevel: boolean;
+  retentionConditions?: IInviteLevelUpgradeCondition[];
+  nextLevelLabel?: string;
 }) {
   const intl = useIntl();
-  const currencyInfo = useCurrency();
   const commissionRateItems = useMemo(() => {
     const rates = level.commissionRates;
     if (!rates) {
       return [] as { subject: string; rate: IInviteLevelCommissionRate }[];
     }
+    let items: { subject: string; rate: IInviteLevelCommissionRate }[];
     if (Array.isArray(rates)) {
-      return rates.map((rate, index) => ({
+      items = rates.map((rate, index) => ({
         subject: rate.labelKey ?? `${index}`,
         rate,
       }));
+    } else {
+      items = Object.entries(rates).map(([subject, rate]) => ({
+        subject,
+        rate,
+      }));
     }
-    return Object.entries(rates).map(([subject, rate]) => ({
-      subject,
-      rate,
-    }));
+    return sortCommissionRateItems(items);
   }, [level.commissionRates]);
-  const getDefaultSubjectLabel = (subject?: string) => subject ?? '';
-  const getDisplayLabel = (labelKey?: string, fallback?: string): string => {
-    if (labelKey) {
-      return intl.formatMessage({
-        id: labelKey as any,
-        defaultMessage: fallback,
-      });
+
+  const subjectGroups = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        upgrade?: IInviteLevelUpgradeCondition;
+        retention?: IInviteLevelUpgradeCondition;
+      }
+    >();
+    if (!isHighestLevel) {
+      for (const condition of level.upgradeConditions) {
+        map.set(condition.subject, {
+          ...map.get(condition.subject),
+          upgrade: condition,
+        });
+      }
     }
-    return fallback ?? '';
-  };
+    if (!isLowestLevel && retentionConditions) {
+      for (const condition of retentionConditions) {
+        map.set(condition.subject, {
+          ...map.get(condition.subject),
+          retention: condition,
+        });
+      }
+    }
+    const items = Array.from(map.entries()).map(([subject, milestones]) => {
+      const reference = milestones.upgrade ?? milestones.retention;
+      const subjectLabel = getDisplayLabel(
+        intl,
+        reference?.levelUpLabelKey,
+        reference?.levelUpLabel ?? reference?.label ?? subject,
+      );
+      return { subject, milestones, subjectLabel };
+    });
+    return sortCommissionRateItems(items);
+  }, [
+    intl,
+    level.upgradeConditions,
+    retentionConditions,
+    isHighestLevel,
+    isLowestLevel,
+  ]);
+
+  const isMultiSubject = subjectGroups.length > 1;
+  let headerNode: React.ReactNode = null;
+  if (isMultiSubject) {
+    headerNode = (
+      <YStack gap="$0.5">
+        <SizableText size="$bodyMdMedium" color="$text">
+          {intl.formatMessage(
+            { id: ETranslations.referral_level_complete_any_n_of_m },
+            { total: subjectGroups.length },
+          )}
+        </SizableText>
+        <SizableText size="$bodySm" color="$textSubdued">
+          {intl.formatMessage({
+            id: ETranslations.referral_level_complete_any_subtitle,
+          })}
+        </SizableText>
+      </YStack>
+    );
+  } else if (subjectGroups.length === 1) {
+    const only = subjectGroups[0];
+    const titleId =
+      only.milestones.retention && !only.milestones.upgrade
+        ? ETranslations.referral_level_maintenance_conditions
+        : ETranslations.referral_level_upgrade_conditions;
+    headerNode = (
+      <SizableText size="$bodyMdMedium" color="$text">
+        {intl.formatMessage({ id: titleId })}
+      </SizableText>
+    );
+  }
 
   return (
     <Accordion.Item value={`level-${level.level}`}>
@@ -78,7 +168,11 @@ export function LevelAccordionItem({
           >
             <XStack flex={1} gap="$3" ai="center">
               <Stack borderRadius="$2" w="$6" h="$6" ai="center" jc="center">
-                <Image w="$6" h="$6" src={level.icon} />
+                {level.icon ? (
+                  <Image w="$6" h="$6" src={level.icon} />
+                ) : (
+                  <SizableText size="$bodyLg">{level.emoji ?? ''}</SizableText>
+                )}
               </Stack>
               <XStack gap="$2" ai="center">
                 <SizableText size="$headingLg">{level.label}</SizableText>
@@ -91,7 +185,11 @@ export function LevelAccordionItem({
                 ) : null}
               </XStack>
             </XStack>
-            <Stack animation="quick" rotate={open ? '180deg' : '0deg'}>
+            <Stack
+              animation="quick"
+              animateOnly={ANIMATE_ONLY_TRANSFORM}
+              rotate={open ? '180deg' : '0deg'}
+            >
               <Icon
                 name="ChevronDownSmallOutline"
                 color={open ? '$iconActive' : '$iconSubdued'}
@@ -112,37 +210,28 @@ export function LevelAccordionItem({
           p="$4"
           bg="$bgSubdued"
         >
-          <YStack gap="$3">
-            {level.upgradeConditions.length > 0 ? (
-              <>
-                <YStack gap="$2">
-                  <SizableText size="$bodyMdMedium">
-                    {intl.formatMessage({
-                      id: ETranslations.referral_upgrade_condition,
-                    })}
-                  </SizableText>
-                  {level.upgradeConditions.map((condition, index) => (
-                    <XStack key={index} jc="space-between" ai="center">
-                      <SizableText size="$bodyMd" color="$textSubdued">
-                        {getDisplayLabel(
-                          condition.levelUpLabelKey,
-                          condition.levelUpLabel ??
-                            condition.label ??
-                            getDefaultSubjectLabel(condition.subject),
-                        )}
-                      </SizableText>
-                      <XStack gap="$1" ai="center" jc="flex-end">
-                        <SizableText size="$bodyMdMedium" color="$text">
-                          {`${condition.currentFiatValue} / ${condition.thresholdFiatValue}`}
-                        </SizableText>
-                        <SizableText size="$bodyMd" color="$textSubdued">
-                          {currencyInfo.id.toUpperCase()}
-                        </SizableText>
-                      </XStack>
-                    </XStack>
-                  ))}
-                </YStack>
-              </>
+          <YStack gap="$4">
+            {subjectGroups.length > 0 ? (
+              <YStack gap="$3">
+                {headerNode}
+                <XStack gap="$2" ai="stretch" $md={{ flexDirection: 'column' }}>
+                  {subjectGroups.map(
+                    ({ subject, milestones, subjectLabel }, index) => (
+                      <Fragment key={subject}>
+                        <SubjectMilestoneCard
+                          subjectLabel={subjectLabel}
+                          milestones={milestones}
+                          nextLevelLabel={nextLevelLabel}
+                          optionIndex={isMultiSubject ? index + 1 : undefined}
+                        />
+                        {index < subjectGroups.length - 1 ? (
+                          <OrDivider />
+                        ) : null}
+                      </Fragment>
+                    ),
+                  )}
+                </XStack>
+              </YStack>
             ) : null}
 
             <YStack gap="$2">
@@ -155,10 +244,9 @@ export function LevelAccordionItem({
               <XStack gap="$3" $md={{ flexDirection: 'column', gap: '$2' }}>
                 {commissionRateItems.map(({ subject, rate }, index) => {
                   const label = getDisplayLabel(
+                    intl,
                     rate.commissionRatesLabelKey || rate.labelKey,
-                    rate.commissionRatesLabel ??
-                      rate.label ??
-                      getDefaultSubjectLabel(subject),
+                    rate.commissionRatesLabel ?? rate.label ?? subject,
                   );
                   return (
                     <CommissionRateCard

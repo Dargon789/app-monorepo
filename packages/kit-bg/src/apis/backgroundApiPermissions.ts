@@ -1,4 +1,6 @@
 import { INTERNAL_METHOD_PREFIX } from '@onekeyhq/shared/src/background/backgroundDecorators';
+import { TRADING_VIEW_LOCALHOST_ORIGIN } from '@onekeyhq/shared/src/config/appConfig';
+import { KEYLESS_WEB_TAB_WHITE_LIST_ORIGIN } from '@onekeyhq/shared/src/keylessWallet/keylessWebTabUrlPatternsConstants';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import type {
@@ -38,6 +40,9 @@ export const WEB_EMBED_API_WHITE_LIST_ORIGIN = [
 export const PROVIDER_API_PRIVATE_WHITE_LIST_ORIGIN = [
   'https://1key.so',
   'https://onekey.so',
+  'https://onekeytest.com',
+  ...(platformEnv.isDev ? [TRADING_VIEW_LOCALHOST_ORIGIN] : []),
+  ...KEYLESS_WEB_TAB_WHITE_LIST_ORIGIN,
   ...WEB_EMBED_API_WHITE_LIST_ORIGIN,
 ].filter(Boolean);
 
@@ -54,39 +59,58 @@ export const PROVIDER_API_PRIVATE_WHITE_LIST_METHOD = [
   'wallet_lastFocusUrl',
   'wallet_closeCurrentBrowserTab',
   'wallet_addBrowserUrlToRiskWhiteList',
-  'tradingview_getKLineData',
-  'tradingview_layoutUpdate',
-  'tradingview_getMarks',
-  'tradingview_chartReady',
-  'tradingview_getHyperliquidPriceScale',
-  'tradingview_analytics_interval',
-  'tradingview_analytics_timeframe',
-  'tradingview_analytics_priceMC',
-  'tradingview_analytics_line',
-  'tradingview_analytics_studyCreated',
-  'tradingview_analytics_studyRemoved',
-  'btc_requestAccount',
-  'btc_signTransaction',
+  'wallet_requestClipboardPermission',
+];
+
+export const PROVIDER_API_PRIVATE_KEYLESS_METHOD = [
+  'wallet_keylessGetStatus',
+  'wallet_keylessOpenSidePanel',
+  'wallet_keylessStartLogin',
+  'wallet_keylessConfirmPin',
+  'wallet_keylessSelectAccount',
+  'wallet_keylessDisconnectSite',
 ];
 
 // white list method which can be called from any origin
 //      so these method should NOT return sensitive data
 export function isProviderApiPrivateAllowedMethod(method?: string) {
-  return (
-    method && PROVIDER_API_PRIVATE_WHITE_LIST_METHOD.includes(method || '')
+  return !!method && PROVIDER_API_PRIVATE_WHITE_LIST_METHOD.includes(method);
+}
+
+export function isProviderApiPrivateKeylessMethod(method?: string) {
+  return method && PROVIDER_API_PRIVATE_KEYLESS_METHOD.includes(method || '');
+}
+
+// Dev servers run on arbitrary ports (e.g. http://localhost:3000), but the
+// strict allow-lists only contain "http://localhost" without a port. Loosen
+// to a startsWith check in dev so the keyless RPCs are reachable locally.
+function isDevLocalhostOrigin(origin?: string): boolean {
+  return Boolean(
+    platformEnv.isDev &&
+    origin &&
+    (origin.startsWith('http://localhost') ||
+      origin.startsWith('http://127.0.0.1')),
   );
+}
+
+export function isProviderApiPrivateAllowedKeylessOrigin(origin?: string) {
+  if (!origin) return false;
+  if (KEYLESS_WEB_TAB_WHITE_LIST_ORIGIN.includes(origin)) return true;
+  return isDevLocalhostOrigin(origin);
 }
 
 export function isProviderApiPrivateAllowedOrigin(origin?: string) {
   return (
     origin &&
     (origin?.endsWith('.onekey.so') ||
+      origin?.endsWith('.onekeytest.com') ||
+      isDevLocalhostOrigin(origin) ||
       PROVIDER_API_PRIVATE_WHITE_LIST_ORIGIN.includes(origin))
   );
 }
 
 export function isWebEmbedApiAllowedOrigin(origin?: string) {
-  return origin && WEB_EMBED_API_WHITE_LIST_ORIGIN.includes(origin);
+  return !!origin && WEB_EMBED_API_WHITE_LIST_ORIGIN.includes(origin);
 }
 
 export function isExtensionInternalCall(payload: IJsBridgeMessagePayload) {

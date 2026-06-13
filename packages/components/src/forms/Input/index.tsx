@@ -1,9 +1,4 @@
-import type {
-  ComponentType,
-  CompositionEventHandler,
-  ForwardedRef,
-  RefObject,
-} from 'react';
+import type { CompositionEventHandler, ForwardedRef, RefObject } from 'react';
 import {
   forwardRef,
   useCallback,
@@ -29,7 +24,6 @@ import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 
 import { useClipboard, useSelectionColor } from '../../hooks';
-import { useScrollToLocation } from '../../layouts/ScrollView';
 import { Icon } from '../../primitives';
 
 import { Input as TMInput } from './Input';
@@ -65,7 +59,7 @@ export type {
 } from '@onekeyfe/react-native-text-input';
 
 export type IInputProps = {
-  InputComponent?: ComponentType;
+  InputComponent?: typeof TMInput;
   InputComponentStyle?: IStackStyle;
   addOnsContainerProps?: IStackProps;
   addOnsItemProps?: IStackProps;
@@ -104,6 +98,7 @@ export type IInputProps = {
 export type IInputRef = {
   focus: () => void;
   blur: () => void;
+  setNativeProps?: (props: Record<string, unknown>) => void;
 };
 
 const SIZE_MAPPINGS = {
@@ -128,7 +123,7 @@ export const useAutoScrollToTop = platformEnv.isNativeAndroid
   ? (ref: RefObject<TextInput | null>, waitMs = 250) => {
       useEffect(() => {
         setTimeout(() => {
-          ref.current?.setSelection(0, 0);
+          ref.current?.setSelection?.(0, 0);
         }, waitMs);
       }, [ref, waitMs]);
     }
@@ -274,6 +269,7 @@ function BaseInput(
     autoScrollTopDelayMs,
     secureTextEntry,
     onSecureTextEntryChange,
+    children: _children,
     ...props
   } = useProps(inputProps) as IInputProps;
   const { paddingLeftWithIcon, height, iconLeftPosition } = SIZE_MAPPINGS[size];
@@ -328,7 +324,7 @@ function BaseInput(
           /*
           const result = await start({
             handlers: [],
-            autoHandleResult: false,
+            autoExecuteParsedAction: false,
           });
           form.setValue('input', result.raw);
           */
@@ -337,7 +333,7 @@ function BaseInput(
           }
           const result = await startScanQrCode?.({
             handlers: [],
-            autoHandleResult: false,
+            autoExecuteParsedAction: false,
           });
           if (result?.raw) {
             onChangeText?.(result.raw || '');
@@ -391,7 +387,6 @@ function BaseInput(
   useAutoScrollToTop(inputRef, autoScrollTopDelayMs);
 
   useImperativeHandle(forwardedRef, () => ({
-    ...inputRef.current,
     focus: () => {
       inputRef.current?.focus();
     },
@@ -412,6 +407,10 @@ function BaseInput(
       ),
     measure: (callback: MeasureOnSuccessCallback) =>
       inputRef.current?.measure(callback),
+    // NOTE: setNativeProps is deprecated in Fabric and may be removed in
+    // future React Native versions.
+    setNativeProps: (nativeProps: Record<string, unknown>) =>
+      inputRef.current?.setNativeProps?.(nativeProps),
   }));
 
   const selectionColor = useSelectionColor();
@@ -421,7 +420,6 @@ function BaseInput(
   }
 
   const shownValue = useFixAndroidInputValueDisplay(value);
-  const { scrollToView } = useScrollToLocation(inputRef);
   // workaround for selectTextOnFocus={true} not working on Native App
   const handleFocus = useCallback(
     (e: NativeSyntheticEvent<TextInputFocusEventData>) => {
@@ -434,9 +432,8 @@ function BaseInput(
           });
         });
       }
-      scrollToView();
     },
-    [onFocus, scrollToView, selectTextOnFocus],
+    [onFocus, selectTextOnFocus],
   );
 
   const onNumberPadChangeText = useCallback(
@@ -513,7 +510,6 @@ function BaseInput(
           {...readOnlyStyle}
           {...InputComponentStyle}
           {...props}
-          // @ts-expect-error
           onPaste={platformEnv.isNative ? onPaste : undefined}
           onChangeText={
             isNumberKeyboardType ? onNumberPadChangeText : onChangeText
@@ -557,6 +553,7 @@ function BaseInput(
                   testID = '',
                   renderContent,
                   tooltipProps,
+                  ...addOnRest
                 },
                 index,
               ) => {
@@ -585,6 +582,7 @@ function BaseInput(
                         onPress={onPress}
                         tooltipProps={tooltipProps}
                         {...addOnsItemProps}
+                        {...addOnRest}
                       />
                     )}
                   </Group.Item>
@@ -628,6 +626,8 @@ function BaseInputUnControlled(
   );
 
   return (
+    // testID flows through {...inputProps}; caller supplies it via the page registry.
+    // oxlint-disable-next-line onekey/require-testid
     <Input
       ref={inputRef}
       allowFontScaling={false}

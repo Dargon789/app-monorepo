@@ -2,13 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { BigNumber } from 'bignumber.js';
+import { useIntl } from 'react-intl';
 
 import {
   Button,
   Checkbox,
   Dialog,
   Divider,
-  IconButton,
   Page,
   SizableText,
   Toast,
@@ -17,33 +17,42 @@ import {
   getFontSize,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
-import {
-  useHyperliquidActions,
-  usePerpsActivePositionAtom,
-} from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
 import { usePerpsActiveOpenOrdersAtom } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid/atoms';
+import { usePerpsActiveAccountAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
-import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import {
   type EModalPerpRoutes,
   type IModalPerpParamList,
 } from '@onekeyhq/shared/src/routes/perp';
 import {
   calculateProfitLoss,
-  formatWithPrecision,
+  formatHlSize,
   parseDexCoin,
   validateSizeInput,
 } from '@onekeyhq/shared/src/utils/perpsUtils';
 import type { IPerpsFrontendOrder } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
+import { usePerpsAccountScopedActivePositions } from '../../hooks/usePerpsAccountScopedActivePositions';
+import { usePerpsAccountScopedCacheAddress } from '../../hooks/usePerpsAccountScopedCacheAddress';
 import { usePerpsMidPrice } from '../../hooks/usePerpsMidPrice';
+import { PerpsAccountSelectorProviderMirror } from '../../PerpsAccountSelectorProviderMirror';
 import { PerpsProviderMirror } from '../../PerpsProviderMirror';
+import {
+  getPerpsAccountScopedListData,
+  isPerpsAccountAddressMatched,
+} from '../../utils/accountScopedData';
+import {
+  PERP_DIALOG_BUTTON_SIZE,
+  PERP_MOBILE_DIALOG_CONTENT_CONTAINER_PROPS,
+} from '../PerpDialogLayout';
 import { PerpsSlider } from '../PerpsSlider';
 import { TradingGuardWrapper } from '../TradingGuardWrapper';
 import { TpslInput } from '../TradingPanel/inputs/TpslInput';
 import { TradingFormInput } from '../TradingPanel/inputs/TradingFormInput';
 
 import type { RouteProp } from '@react-navigation/core';
+import type { IntlShape } from 'react-intl';
 
 export interface ISetTpslParams {
   coin: string;
@@ -52,7 +61,7 @@ export interface ISetTpslParams {
   isMobile?: boolean;
 }
 
-interface ISetTpslFormProps extends ISetTpslParams {
+interface ISetTpslFormProps extends Omit<ISetTpslParams, 'isMobile'> {
   onClose: () => void;
 }
 
@@ -64,18 +73,29 @@ function MarkPrice({ coin }: { coin: string }) {
 }
 
 const SetTpslForm = memo(
-  ({
-    coin,
-    szDecimals,
-    assetId,
-    isMobile,
-    onClose = () => {},
-  }: ISetTpslFormProps) => {
+  ({ coin, szDecimals, assetId, onClose = () => {} }: ISetTpslFormProps) => {
+    const intl = useIntl();
     const hyperliquidActions = useHyperliquidActions();
     const { mid: midPrice } = usePerpsMidPrice({ coin });
 
-    const [{ activePositions }] = usePerpsActivePositionAtom();
-    const [{ openOrders }] = usePerpsActiveOpenOrdersAtom();
+    const activePositions = usePerpsAccountScopedActivePositions();
+    const [activeAccount] = usePerpsActiveAccountAtom();
+    const accountScopedAddress = usePerpsAccountScopedCacheAddress();
+    const canSubmitForScopedAccount = isPerpsAccountAddressMatched({
+      activeAccountAddress: activeAccount?.accountAddress,
+      dataAccountAddress: accountScopedAddress,
+    });
+    const [{ accountAddress: openOrdersAccountAddress, openOrders }] =
+      usePerpsActiveOpenOrdersAtom();
+    const accountScopedOpenOrders = useMemo(
+      () =>
+        getPerpsAccountScopedListData({
+          activeAccountAddress: accountScopedAddress,
+          dataAccountAddress: openOrdersAccountAddress,
+          data: openOrders,
+        }),
+      [accountScopedAddress, openOrders, openOrdersAccountAddress],
+    );
 
     const currentPosition = useMemo(() => {
       return activePositions.find((p) => p.position.coin === coin)?.position;
@@ -83,12 +103,12 @@ const SetTpslForm = memo(
 
     const currentTpslOrders = useMemo(() => {
       if (!currentPosition) return [];
-      return openOrders.filter(
+      return accountScopedOpenOrders.filter(
         (o) =>
           o.coin === currentPosition.coin &&
           (o.orderType.startsWith('Take') || o.orderType.startsWith('Stop')),
       );
-    }, [openOrders, currentPosition]);
+    }, [accountScopedOpenOrders, currentPosition]);
 
     useEffect(() => {
       if (!currentPosition || new BigNumber(currentPosition.szi || '0').eq(0)) {
@@ -148,6 +168,9 @@ const SetTpslForm = memo(
 
     const handleCancelOrder = useCallback(
       async (order: IPerpsFrontendOrder) => {
+        if (!canSubmitForScopedAccount) {
+          return;
+        }
         await hyperliquidActions.current.ensureTradingEnabled();
         const symbolMeta =
           await backgroundApiProxy.serviceHyperliquid.getSymbolMeta({
@@ -167,7 +190,7 @@ const SetTpslForm = memo(
           ],
         });
       },
-      [hyperliquidActions],
+      [canSubmitForScopedAccount, hyperliquidActions],
     );
 
     const entryPrice = useMemo(() => {
@@ -207,7 +230,8 @@ const SetTpslForm = memo(
         ? 0
         : formData.percentage;
       const amount = positionSize.multipliedBy(percentage).dividedBy(100);
-      return formatWithPrecision(amount.toNumber(), szDecimals, true);
+      // Floor-truncate to szDecimals to match HL lot-size rule (no over-rounding).
+      return formatHlSize(amount, szDecimals) || '0';
     }, [positionSize, formData.percentage, szDecimals]);
 
     const handleTpslChange = useCallback(
@@ -223,14 +247,11 @@ const SetTpslForm = memo(
 
     const handlePercentageChange = useCallback(
       (percentage: number) => {
-        const amount = positionSize
-          .multipliedBy(percentage)
-          .dividedBy(100)
-          .toFixed(szDecimals);
+        const amount = positionSize.multipliedBy(percentage).dividedBy(100);
         setFormData((prev) => ({
           ...prev,
           percentage,
-          amount,
+          amount: formatHlSize(amount, szDecimals) || '0',
         }));
       },
       [positionSize, szDecimals],
@@ -284,6 +305,9 @@ const SetTpslForm = memo(
 
     const handleSubmit = useCallback(async () => {
       try {
+        if (!canSubmitForScopedAccount) {
+          return;
+        }
         setIsSubmitting(true);
 
         const tpslAmount = configureAmount
@@ -294,7 +318,7 @@ const SetTpslForm = memo(
         if (configureAmount) {
           if (!tpOrder && !slOrder && (!tpslAmount || tpslAmountBN.lte(0))) {
             Toast.error({
-              title: appLocale.intl.formatMessage({
+              title: intl.formatMessage({
                 id: ETranslations.perp_tp_sl_error_enter,
               }),
             });
@@ -303,7 +327,7 @@ const SetTpslForm = memo(
 
           if (tpslAmountBN.gt(positionSize)) {
             Toast.error({
-              title: appLocale.intl.formatMessage({
+              title: intl.formatMessage({
                 id: ETranslations.perp_tp_sl_error_amount,
               }),
             });
@@ -313,7 +337,7 @@ const SetTpslForm = memo(
 
         if (!isValidForm) {
           Toast.error({
-            title: appLocale.intl.formatMessage({
+            title: intl.formatMessage({
               id: ETranslations.perp_tp_sl_error_price,
             }),
           });
@@ -338,12 +362,18 @@ const SetTpslForm = memo(
             let errorMessage = '';
             if (isLongPosition) {
               // Long + above
-              errorMessage = appLocale.intl.formatMessage({
+              errorMessage = intl.formatMessage({
+                // invalid => invalid
+
+                // oxlint-disable-next-line @cspell/spellchecker
                 id: ETranslations.perp_invaild_tp_desc_1,
               });
             } else {
               // Short + below
-              errorMessage = appLocale.intl.formatMessage({
+              errorMessage = intl.formatMessage({
+                // invalid => invalid
+
+                // oxlint-disable-next-line @cspell/spellchecker
                 id: ETranslations.perp_invaild_tp_desc_2,
               });
             }
@@ -368,12 +398,18 @@ const SetTpslForm = memo(
             let errorMessage = '';
             if (isLongPosition) {
               // Long + below
-              errorMessage = appLocale.intl.formatMessage({
+              errorMessage = intl.formatMessage({
+                // invalid => invalid
+
+                // oxlint-disable-next-line @cspell/spellchecker
                 id: ETranslations.perp_invaild_sl_desc_1,
               });
             } else {
               // Short + above
-              errorMessage = appLocale.intl.formatMessage({
+              errorMessage = intl.formatMessage({
+                // invalid => invalid
+
+                // oxlint-disable-next-line @cspell/spellchecker
                 id: ETranslations.perp_invaild_sl_desc_2,
               });
             }
@@ -415,6 +451,8 @@ const SetTpslForm = memo(
       tpOrder,
       midPrice,
       isValidForm,
+      intl,
+      canSubmitForScopedAccount,
     ]);
 
     // Early return if position doesn't exist to prevent accessing undefined properties
@@ -428,7 +466,7 @@ const SetTpslForm = memo(
           <YStack gap="$3">
             <XStack justifyContent="space-between" alignItems="center">
               <SizableText size="$bodyMd" color="$textSubdued">
-                {appLocale.intl.formatMessage({
+                {intl.formatMessage({
                   id: ETranslations.perp_token_selector_asset,
                 })}
               </SizableText>
@@ -437,7 +475,7 @@ const SetTpslForm = memo(
 
             <XStack justifyContent="space-between" alignItems="center">
               <SizableText size="$bodyMd" color="$textSubdued">
-                {appLocale.intl.formatMessage({
+                {intl.formatMessage({
                   id: ETranslations.perp_position_position_size,
                 })}
               </SizableText>
@@ -448,7 +486,7 @@ const SetTpslForm = memo(
 
             <XStack justifyContent="space-between" alignItems="center">
               <SizableText size="$bodyMd" color="$textSubdued">
-                {appLocale.intl.formatMessage({
+                {intl.formatMessage({
                   id: ETranslations.perp_position_entry_price,
                 })}
               </SizableText>
@@ -457,7 +495,7 @@ const SetTpslForm = memo(
 
             <XStack justifyContent="space-between" alignItems="center">
               <SizableText size="$bodyMd" color="$textSubdued">
-                {appLocale.intl.formatMessage({
+                {intl.formatMessage({
                   id: ETranslations.perp_position_mark_price,
                 })}
               </SizableText>
@@ -468,14 +506,14 @@ const SetTpslForm = memo(
           {!tpOrder ? null : (
             <XStack justifyContent="space-between">
               <SizableText size="$bodyMd" color="$textSubdued">
-                {appLocale.intl.formatMessage({
+                {intl.formatMessage({
                   id: ETranslations.perp_trade_tp_price,
                 })}
               </SizableText>
               <YStack gap="$1">
                 <XStack gap="$1">
                   <SizableText size="$bodyMdMedium">
-                    {appLocale.intl.formatMessage({
+                    {intl.formatMessage({
                       id: ETranslations.perp_tp_sl_above,
                     })}
                     {': '}
@@ -483,12 +521,17 @@ const SetTpslForm = memo(
                   </SizableText>
                   <SizableText
                     size="$bodyMd"
-                    color="$green9"
+                    color={
+                      canSubmitForScopedAccount ? '$green9' : '$textDisabled'
+                    }
                     ml="$2"
-                    cursor="pointer"
-                    onPress={() => handleCancelOrder(tpOrder)}
+                    onPress={
+                      canSubmitForScopedAccount
+                        ? () => handleCancelOrder(tpOrder)
+                        : undefined
+                    }
                   >
-                    {appLocale.intl.formatMessage({
+                    {intl.formatMessage({
                       id: ETranslations.perp_open_orders_cancel,
                     })}
                   </SizableText>
@@ -499,7 +542,7 @@ const SetTpslForm = memo(
                     alignSelf="flex-end"
                     color="$textSubdued"
                   >
-                    {appLocale.intl.formatMessage({
+                    {intl.formatMessage({
                       id: ETranslations.perp_tp_sl_profit,
                     })}
                     {': '}
@@ -537,14 +580,14 @@ const SetTpslForm = memo(
           {!slOrder ? null : (
             <XStack justifyContent="space-between">
               <SizableText size="$bodyMd" color="$textSubdued">
-                {appLocale.intl.formatMessage({
+                {intl.formatMessage({
                   id: ETranslations.perp_trade_sl_price,
                 })}
               </SizableText>
               <YStack gap="$1">
                 <XStack gap="$1">
                   <SizableText size="$bodyMdMedium">
-                    {appLocale.intl.formatMessage({
+                    {intl.formatMessage({
                       id: ETranslations.perp_tp_sl_below,
                     })}
                     {': '}
@@ -552,12 +595,17 @@ const SetTpslForm = memo(
                   </SizableText>
                   <SizableText
                     size="$bodyMd"
-                    color="$green9"
+                    color={
+                      canSubmitForScopedAccount ? '$green9' : '$textDisabled'
+                    }
                     ml="$2"
-                    cursor="pointer"
-                    onPress={() => handleCancelOrder(slOrder)}
+                    onPress={
+                      canSubmitForScopedAccount
+                        ? () => handleCancelOrder(slOrder)
+                        : undefined
+                    }
                   >
-                    {appLocale.intl.formatMessage({
+                    {intl.formatMessage({
                       id: ETranslations.perp_open_orders_cancel,
                     })}
                   </SizableText>
@@ -568,7 +616,7 @@ const SetTpslForm = memo(
                     alignSelf="flex-end"
                     color="$textSubdued"
                   >
-                    {appLocale.intl.formatMessage({
+                    {intl.formatMessage({
                       id: ETranslations.perp_tp_sl_loss,
                     })}
                     {': '}
@@ -590,9 +638,10 @@ const SetTpslForm = memo(
 
           <YStack alignItems="flex-start" gap="$2" width="100%">
             <Checkbox
+              testID="perp-checkbox"
               value={configureAmount}
               onChange={(checked) => setConfigureAmount(Boolean(checked))}
-              label={appLocale.intl.formatMessage({
+              label={intl.formatMessage({
                 id: ETranslations.perp_tp_sl_partial_position,
               })}
               labelProps={{
@@ -608,7 +657,7 @@ const SetTpslForm = memo(
               <YStack width="100%" gap="$5">
                 <YStack width="100%">
                   <TradingFormInput
-                    label={appLocale.intl.formatMessage({
+                    label={intl.formatMessage({
                       id: ETranslations.dexmarket_details_history_amount,
                     })}
                     value={
@@ -638,15 +687,18 @@ const SetTpslForm = memo(
             ) : null}
           </YStack>
         </YStack>
-        <TradingGuardWrapper>
+        <TradingGuardWrapper buttonSize={PERP_DIALOG_BUTTON_SIZE}>
           <Button
-            size={isMobile ? 'large' : 'medium'}
+            testID="perp-processed-value-btn"
+            size={PERP_DIALOG_BUTTON_SIZE}
             variant="primary"
             onPress={handleSubmit}
-            disabled={!isValidForm || isSubmitting}
+            disabled={
+              !canSubmitForScopedAccount || !isValidForm || isSubmitting
+            }
             loading={isSubmitting}
           >
-            {appLocale.intl.formatMessage({
+            {intl.formatMessage({
               id: ETranslations.perp_confirm_order,
             })}
           </Button>{' '}
@@ -659,10 +711,11 @@ const SetTpslForm = memo(
 SetTpslForm.displayName = 'SetTpslForm';
 
 function SetTpslModal() {
+  const intl = useIntl();
   const route =
     useRoute<RouteProp<IModalPerpParamList, EModalPerpRoutes.MobileSetTpsl>>();
 
-  const { coin, szDecimals, assetId, isMobile = true } = route.params;
+  const { coin, szDecimals, assetId } = route.params;
   const navigation = useNavigation();
   const handleClose = useCallback(() => {
     navigation.goBack();
@@ -670,22 +723,23 @@ function SetTpslModal() {
   return (
     <Page>
       <Page.Header
-        title={appLocale.intl.formatMessage({
+        title={intl.formatMessage({
           id: ETranslations.perp_tp_sl_position,
         })}
       />
       <Page.Body>
-        <PerpsProviderMirror>
-          <YStack px="$4" flex={1}>
-            <SetTpslForm
-              coin={coin}
-              szDecimals={szDecimals}
-              assetId={assetId}
-              onClose={handleClose}
-              isMobile={isMobile}
-            />
-          </YStack>
-        </PerpsProviderMirror>
+        <PerpsAccountSelectorProviderMirror>
+          <PerpsProviderMirror>
+            <YStack px="$4" flex={1}>
+              <SetTpslForm
+                coin={coin}
+                szDecimals={szDecimals}
+                assetId={assetId}
+                onClose={handleClose}
+              />
+            </YStack>
+          </PerpsProviderMirror>
+        </PerpsAccountSelectorProviderMirror>
       </Page.Body>
     </Page>
   );
@@ -696,26 +750,30 @@ export function showSetTpslDialog({
   coin,
   szDecimals,
   assetId,
-}: ISetTpslParams) {
+  intl,
+}: ISetTpslParams & { intl: IntlShape }) {
   const dialogInstance = Dialog.show({
-    title: appLocale.intl.formatMessage({
+    title: intl.formatMessage({
       id: ETranslations.perp_tp_sl_position,
     }),
-    description: appLocale.intl.formatMessage({
+    description: intl.formatMessage({
       id: ETranslations.perp_tp_sl_position_desc,
     }),
     renderContent: (
-      <PerpsProviderMirror>
-        <SetTpslForm
-          coin={coin}
-          szDecimals={szDecimals}
-          assetId={assetId}
-          onClose={() => {
-            void dialogInstance.close();
-          }}
-        />
-      </PerpsProviderMirror>
+      <PerpsAccountSelectorProviderMirror>
+        <PerpsProviderMirror>
+          <SetTpslForm
+            coin={coin}
+            szDecimals={szDecimals}
+            assetId={assetId}
+            onClose={() => {
+              void dialogInstance.close();
+            }}
+          />
+        </PerpsProviderMirror>
+      </PerpsAccountSelectorProviderMirror>
     ),
+    contentContainerProps: PERP_MOBILE_DIALOG_CONTENT_CONTAINER_PROPS,
     showFooter: false,
     onClose: () => {
       void dialogInstance.close();

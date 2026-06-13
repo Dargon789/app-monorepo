@@ -57,6 +57,9 @@ const shouldLocalDbDebuggerRule: Record<string, number> = {
 let IS_ENABLED = false;
 
 function updateIsEnabled() {
+  if (platformEnv.isExtensionBackground) {
+    return;
+  }
   IS_ENABLED =
     platformEnv.isDev ||
     Boolean(
@@ -70,6 +73,9 @@ updateIsEnabled();
 
 let settings: IOneKeyDBPerfMonitorSettings | undefined = (() => {
   if (!IS_ENABLED) {
+    return undefined;
+  }
+  if (platformEnv.isExtensionBackground) {
     return undefined;
   }
   const savedSettings = syncStorage?.getObject(
@@ -95,6 +101,9 @@ function getSettings() {
 
 function updateSettings(newSettings: Partial<IOneKeyDBPerfMonitorSettings>) {
   if (!IS_ENABLED) {
+    return undefined;
+  }
+  if (platformEnv.isExtensionBackground) {
     return undefined;
   }
   settings = merge(settings, newSettings, {
@@ -135,6 +144,19 @@ let localDbCallDetails: {
 } = {};
 
 let globalRecentCalls: Array<[string, string, any[]] | [string, string]> = [];
+
+// Bounded push for globalRecentCalls. Previously the array was only trimmed
+// inside the IDBDatabase.transaction wrapper, so simpleDb/appStorage calls (and
+// localDb reads between transactions) accumulated unbounded — each logLocalDbCall
+// entry retains a full captured call stack. On account switches over large
+// wallet sets this leaked millions of stack-trace objects and froze the renderer
+// (GC thrash). Trim on every push with a little headroom to amortize the splice.
+function pushRecentCall(entry: [string, string, any[]] | [string, string]) {
+  globalRecentCalls.push(entry);
+  if (globalRecentCalls.length > maxRecentCallsSize + 512) {
+    globalRecentCalls.splice(0, globalRecentCalls.length - maxRecentCallsSize);
+  }
+}
 
 let indexedDBResult: {
   [key: string]: number;
@@ -186,7 +208,7 @@ function sortMapData(data: { [key: string]: number }) {
     [key: string]: number;
   }> = {};
   Object.keys(data)
-    .sort()
+    .toSorted()
     .forEach((key) => {
       sortedResult[key] = data[key];
     });
@@ -248,9 +270,12 @@ function logResult({ autoReset, isWarning, muteLog }: ILogResultParams = {}) {
         resetData();
       } else {
         clearTimeout(resetTimer);
-        resetTimer = setTimeout(() => {
-          resetData();
-        }, resetThreshold - (now - resetStartTime));
+        resetTimer = setTimeout(
+          () => {
+            resetData();
+          },
+          resetThreshold - (now - resetStartTime),
+        );
       }
     }
   }
@@ -310,13 +335,13 @@ function toastWarningAndReset(key: string) {
       indexedDBResult[key] >= generalDebuggerRule[key]
     ) {
       if (settings?.debuggerEnabled) {
-        debugger;
+        // debugger;
       }
     }
 
     if (shouldDbTxCreatedDebuggerRule[key]) {
       if (settings?.debuggerEnabled) {
-        debugger;
+        // debugger;
       }
     }
     resetData();
@@ -355,7 +380,7 @@ function logLocalDbCall(method: string, table: string, params: any[]) {
     }
     localDbCallDetails[method][table].total += 1;
 
-    globalRecentCalls.push([getNowString(), `${method}__${table}`, params]);
+    pushRecentCall([getNowString(), `${method}__${table}`, params]);
 
     if (
       shouldLocalDbDebuggerRule[`${method}__${table}`] &&
@@ -364,7 +389,7 @@ function logLocalDbCall(method: string, table: string, params: any[]) {
     ) {
       logResult();
       if (settings?.debuggerEnabled) {
-        debugger;
+        // debugger;
       }
     }
   }
@@ -386,7 +411,7 @@ function logSimpleDbCall(method: string, entity: string) {
     simpleDbCallDetails[method].details[entity] += 1;
     simpleDbCallDetails[method].total += 1;
 
-    globalRecentCalls.push([getNowString(), `${method}__${entity}`]);
+    pushRecentCall([getNowString(), `${method}__${entity}`]);
   }
 }
 
@@ -406,7 +431,7 @@ function logAppStorageCall(method: string, key: string) {
     appStorageCallDetails[method].details[key] += 1;
     appStorageCallDetails[method].total += 1;
 
-    globalRecentCalls.push([getNowString(), `${method}__${key}`]);
+    pushRecentCall([getNowString(), `${method}__${key}`]);
 
     if (
       shouldLocalDbDebuggerRule[`${method}__${key}`] &&
@@ -415,7 +440,7 @@ function logAppStorageCall(method: string, key: string) {
     ) {
       logResult();
       if (settings?.debuggerEnabled) {
-        debugger;
+        // debugger;
       }
     }
   }
@@ -477,7 +502,7 @@ function logIndexedDBCreateTx() {
         );
       };
     }
-  } catch (e) {
+  } catch (_e) {
     //
   }
 }

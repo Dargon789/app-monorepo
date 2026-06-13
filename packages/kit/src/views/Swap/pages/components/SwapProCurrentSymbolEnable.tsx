@@ -6,7 +6,13 @@ import { Checkbox, SizableText, XStack } from '@onekeyhq/components';
 import { useSwapProEnableCurrentSymbolAtom } from '@onekeyhq/kit/src/states/jotai/contexts/swap';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
-const SwapProCurrentSymbolEnable = () => {
+interface ISwapProCurrentSymbolEnableProps {
+  isFocusSwapPro?: boolean;
+}
+
+const SwapProCurrentSymbolEnable = ({
+  isFocusSwapPro = true,
+}: ISwapProCurrentSymbolEnableProps) => {
   const [swapProEnableCurrentSymbol, setSwapProEnableCurrentSymbol] =
     useSwapProEnableCurrentSymbolAtom();
   const intl = useIntl();
@@ -22,11 +28,16 @@ const SwapProCurrentSymbolEnable = () => {
       cursor="pointer"
     >
       <Checkbox
+        testID="swap-toggle-swap-pro-enable-current-symbol-checkbox"
         value={swapProEnableCurrentSymbol}
         onChange={toggleSwapProEnableCurrentSymbol}
       />
       <SizableText>
-        {intl.formatMessage({ id: ETranslations.dexmarket_pro_current_symbol })}
+        {intl.formatMessage({
+          id: isFocusSwapPro
+            ? ETranslations.dexmarket_pro_current_symbol
+            : ETranslations.swap_current_token,
+        })}
       </SizableText>
     </XStack>
   );
