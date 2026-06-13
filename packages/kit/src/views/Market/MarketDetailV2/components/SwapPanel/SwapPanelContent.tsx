@@ -18,6 +18,10 @@ import type {
 import { ESwapSlippageSegmentKey } from '@onekeyhq/shared/types/swap/types';
 
 import { ActionButton } from './components/ActionButton';
+import {
+  type IEstimateMarketPresetPriorityFeeFiatValues,
+  MarketPresetSelector,
+} from './components/MarketPresetSelector';
 import { RateDisplay } from './components/RateDisplay';
 import SellForSelector from './components/SellForSelector';
 import { SlippageSetting } from './components/SlippageSetting';
@@ -30,9 +34,12 @@ import { TradeTypeSelector } from './components/TradeTypeSelector';
 import { useSwapAnalytics } from './hooks/useSwapAnalytics';
 import { ESwapDirection } from './hooks/useTradeType';
 
+import type { IMarketPresetSettingsState } from './hooks/useMarketPresetSettings';
+
 export type ISwapPanelContentProps = {
   swapPanel: ReturnType<typeof useSwapPanel>;
   isLoading: boolean;
+  isActionDisabled?: boolean;
   balanceLoading: boolean;
   slippageAutoValue?: number;
   supportSpeedSwap: {
@@ -48,7 +55,7 @@ export type ISwapPanelContentProps = {
   balanceToken?: IToken;
   onSwap: () => void;
   onWrappedSwap: () => void;
-  swapMevNetConfig: string[];
+  swapMevNetConfig?: string[];
   swapNativeTokenReserveGas: ISwapNativeTokenReserveGas[];
   isWrapped: boolean;
   onCloseDialog?: () => void;
@@ -64,6 +71,8 @@ export type ISwapPanelContentProps = {
   activeAccount: IAccountSelectorActiveAccountInfo;
   speedCheckError?: string;
   disableNativeToken?: boolean;
+  marketPresetSettings?: IMarketPresetSettingsState;
+  estimatePriorityFeeFiatValues?: IEstimateMarketPresetPriorityFeeFiatValues;
 };
 
 export function SwapPanelContent(props: ISwapPanelContentProps) {
@@ -72,6 +81,7 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
     enableAddressTypeSelector,
     swapPanel,
     isLoading,
+    isActionDisabled,
     balanceLoading,
     slippageAutoValue,
     supportSpeedSwap,
@@ -88,12 +98,16 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
     currentMarketToken,
     speedCheckError,
     disableNativeToken,
+    marketPresetSettings,
+    estimatePriorityFeeFiatValues,
+    onCloseDialog,
   } = props;
 
   const {
     paymentAmount,
     paymentToken,
     sellAmount,
+    resetAmounts,
     setSellAmount,
     setPaymentAmount,
     setPaymentToken,
@@ -102,12 +116,25 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
     setSlippage,
     networkId,
   } = swapPanel;
+  const isMEV = useMemo(
+    () =>
+      Array.isArray(swapMevNetConfig)
+        ? swapMevNetConfig.includes(swapPanel.networkId ?? '')
+        : undefined,
+    [swapMevNetConfig, swapPanel.networkId],
+  );
   const tokenBuyInputRef = useRef<ITokenInputSectionRef>(null);
   const tokenSellInputRef = useRef<ITokenInputSectionRef>(null);
   const paymentAmountRef = useRef(paymentAmount);
   const sellAmountRef = useRef(sellAmount);
-  // Initialize analytics hook
-  const swapAnalytics = useSwapAnalytics();
+  const hasInitializedMarketTokenRef = useRef(false);
+  const {
+    logSwapAction,
+    resetAnalytics,
+    setAmountEnterType,
+    setSlippageSetting,
+  } = useSwapAnalytics();
+  const resetSwapAmounts = resetAmounts as () => void;
   const intl = useIntl();
   if (paymentAmount !== paymentAmountRef.current) {
     paymentAmountRef.current = paymentAmount;
@@ -115,6 +142,10 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
   if (sellAmount !== sellAmountRef.current) {
     sellAmountRef.current = sellAmount;
   }
+  const showMarketPresetSelector =
+    !isWrapped && !!marketPresetSettings?.enabled;
+  const suppressStandaloneSlippage =
+    isWrapped || showMarketPresetSelector || !!marketPresetSettings?.isLoading;
 
   const currentInputAmount = useMemo(() => {
     return tradeType === ESwapDirection.BUY ? paymentAmount : sellAmount;
@@ -214,9 +245,21 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
   }, [tradeType, balanceToken?.decimals, setPaymentAmount, setSellAmount]);
 
   useEffect(() => {
+    if (!hasInitializedMarketTokenRef.current) {
+      hasInitializedMarketTokenRef.current = true;
+      return;
+    }
+
+    resetSwapAmounts();
+    resetAnalytics();
     tokenBuyInputRef.current?.setValue('');
     tokenSellInputRef.current?.setValue('');
-  }, [currentMarketToken?.networkId, currentMarketToken?.contractAddress]);
+  }, [
+    currentMarketToken?.networkId,
+    currentMarketToken?.contractAddress,
+    resetSwapAmounts,
+    resetAnalytics,
+  ]);
 
   return (
     <YStack gap="$4">
@@ -243,7 +286,7 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
           selectableTokens={defaultTokens}
           onTokenChange={(token) => setPaymentToken(token)}
           balance={balance}
-          onAmountEnterTypeChange={swapAnalytics.setAmountEnterType}
+          onAmountEnterTypeChange={setAmountEnterType}
           disableNativeToken={disableNativeToken}
         />
         <TokenInputSection
@@ -256,7 +299,7 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
           selectableTokens={defaultTokens}
           onTokenChange={(token) => setPaymentToken(token)}
           balance={balance}
-          onAmountEnterTypeChange={swapAnalytics.setAmountEnterType}
+          onAmountEnterTypeChange={setAmountEnterType}
         />
 
         {/* Rate display */}
@@ -285,6 +328,15 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
         </SizableText>
       ) : null}
 
+      {showMarketPresetSelector && marketPresetSettings ? (
+        <MarketPresetSelector
+          antiMEV={isMEV}
+          estimatePriorityFeeFiatValues={estimatePriorityFeeFiatValues}
+          presetSettings={marketPresetSettings}
+          variant={onCloseDialog ? 'compact' : 'full'}
+        />
+      ) : null}
+
       <ActionButton
         supportSpeedSwap={!!supportSpeedSwap?.enabled}
         onlySupportCrossChain={!!supportSpeedSwap?.onlySupportCrossChain}
@@ -295,12 +347,13 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
         onPress={isWrapped ? onWrappedSwap : onSwap}
         amount={currentInputAmount.toFixed()}
         token={balanceToken}
+        paymentToken={paymentToken}
         balance={balance}
         isWrapped={isWrapped}
         networkId={networkId}
-        disabled={!!speedCheckError || isLoading}
+        disabled={!!speedCheckError || isLoading || !!isActionDisabled}
         onSwapAction={() =>
-          swapAnalytics.logSwapAction({
+          logSwapAction({
             tradeType,
             networkId,
             paymentToken,
@@ -310,15 +363,13 @@ export function SwapPanelContent(props: ISwapPanelContentProps) {
       />
 
       {/* Slippage setting */}
-      {isWrapped ? null : (
+      {suppressStandaloneSlippage ? null : (
         <SlippageSetting
           autoDefaultValue={slippageAutoValue}
-          isMEV={swapMevNetConfig?.includes(swapPanel.networkId ?? '')}
+          isMEV={!!isMEV}
           onSlippageChange={(item) => {
             setSlippage(item.value);
-            swapAnalytics.setSlippageSetting(
-              item.key === ESwapSlippageSegmentKey.CUSTOM,
-            );
+            setSlippageSetting(item.key === ESwapSlippageSegmentKey.CUSTOM);
           }}
         />
       )}

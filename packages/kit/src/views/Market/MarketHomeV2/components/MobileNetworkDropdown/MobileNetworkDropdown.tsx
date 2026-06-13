@@ -7,75 +7,23 @@ import {
   Image,
   Popover,
   SizableText,
-  Stack,
   XStack,
 } from '@onekeyhq/components';
-import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
-import { NetworkAvatarBase } from '@onekeyhq/kit/src/components/NetworkAvatar';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import type { IServerNetwork } from '@onekeyhq/shared/types';
 
 import { useMarketNetworks } from '../../../hooks/useMarketNetworks';
+import {
+  NETWORKS_SEARCH_PANEL_FOCUSED_HEIGHT_REDUCTION,
+  NETWORKS_SEARCH_PANEL_MAX_HEIGHT,
+  NetworksSearchPanel,
+} from '../MarketTokenListNetworkSelector/NetworksSearchPanel';
 
 interface IMobileNetworkDropdownProps {
   selectedNetworkId?: string;
   onNetworkIdChange?: (id: string) => void;
-}
-
-function NetworkDropdownContent({
-  networks,
-  selectedNetworkId,
-  onSelect,
-  closePopover,
-}: {
-  networks: IServerNetwork[];
-  selectedNetworkId?: string;
-  onSelect: (network: IServerNetwork) => void;
-  closePopover: () => void;
-}) {
-  const intl = useIntl();
-
-  return (
-    <Stack pt="$4">
-      {networks.map((item) => {
-        const { isAllNetworks } = item;
-        return (
-          <ListItem
-            key={item.id}
-            h={48}
-            renderAvatar={
-              <NetworkAvatarBase
-                logoURI={item.logoURI}
-                isCustomNetwork={item.isCustomNetwork}
-                networkName={item.name}
-                isAllNetworks={isAllNetworks}
-                allNetworksIconProps={{
-                  color: '$iconActive',
-                }}
-                size="$8"
-              />
-            }
-            title={
-              isAllNetworks
-                ? intl.formatMessage({
-                    id: ETranslations.global_all_networks,
-                  })
-                : item.name
-            }
-            onPress={() => {
-              onSelect(item);
-              closePopover();
-            }}
-          >
-            {selectedNetworkId === item.id ? (
-              <ListItem.CheckMark key="checkmark" />
-            ) : null}
-          </ListItem>
-        );
-      })}
-    </Stack>
-  );
 }
 
 function MobileNetworkDropdownImpl({
@@ -84,6 +32,9 @@ function MobileNetworkDropdownImpl({
 }: IMobileNetworkDropdownProps) {
   const intl = useIntl();
   const { marketNetworks } = useMarketNetworks();
+  const focusedPanelHeightReduction = platformEnv.isNative
+    ? NETWORKS_SEARCH_PANEL_FOCUSED_HEIGHT_REDUCTION
+    : 0;
 
   const selectedNetwork = useMemo(
     () => marketNetworks.find((n) => n.id === selectedNetworkId),
@@ -126,15 +77,30 @@ function MobileNetworkDropdownImpl({
   );
 
   const RenderContent = useCallback(
-    ({ closePopover }: { isOpen?: boolean; closePopover: () => void }) => (
-      <NetworkDropdownContent
+    ({
+      isOpen,
+      closePopover,
+    }: {
+      isOpen?: boolean;
+      closePopover: () => void;
+    }) => (
+      <NetworksSearchPanel
+        isOpen={isOpen}
         networks={marketNetworks}
-        selectedNetworkId={selectedNetworkId}
-        onSelect={handleNetworkSelect}
-        closePopover={closePopover}
+        networkId={selectedNetworkId}
+        focusedPanelHeightReduction={focusedPanelHeightReduction}
+        onNetworkSelect={(network) => {
+          handleNetworkSelect(network);
+          closePopover();
+        }}
       />
     ),
-    [marketNetworks, selectedNetworkId, handleNetworkSelect],
+    [
+      focusedPanelHeightReduction,
+      marketNetworks,
+      selectedNetworkId,
+      handleNetworkSelect,
+    ],
   );
 
   return (
@@ -143,10 +109,11 @@ function MobileNetworkDropdownImpl({
       placement="bottom-start"
       floatingPanelProps={{
         maxWidth: 384,
+        maxHeight: NETWORKS_SEARCH_PANEL_MAX_HEIGHT,
       }}
       sheetProps={{
-        snapPoints: [60],
-        snapPointsMode: 'percent',
+        dismissOnSnapToBottom: false,
+        disableDrag: true,
       }}
       renderTrigger={renderTrigger}
       renderContent={RenderContent}

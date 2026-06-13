@@ -50,6 +50,7 @@ interface IMobileMarketWatchlistFlatListProps {
   listContainerProps: {
     paddingBottom: number;
   };
+  shouldSuppressItemPress?: () => boolean;
 }
 
 const EMPTY_DATA: IMarketToken[] = [];
@@ -63,6 +64,7 @@ const SECOND_LEVEL_MENU_ANCHOR_Y_OFFSET = 4;
 function MobileMarketWatchlistFlatListImpl({
   selectedFilter = 'all',
   listContainerProps,
+  shouldSuppressItemPress,
 }: IMobileMarketWatchlistFlatListProps) {
   const intl = useIntl();
   const toMarketDetailPage = useToDetailPage();
@@ -253,11 +255,16 @@ function MobileMarketWatchlistFlatListImpl({
         <TokenListItem
           item={item}
           onPress={() => {
+            clearMenuTimer();
+            if (shouldSuppressItemPress?.()) {
+              gestureRef.current.consumeNextPress = false;
+              resetGestureSession();
+              return;
+            }
             if (gestureRef.current.consumeNextPress) {
               gestureRef.current.consumeNextPress = false;
               return;
             }
-            clearMenuTimer();
             if (item.perpsCoin) {
               navigateToPerps(item.perpsCoin);
               return;
@@ -354,6 +361,7 @@ function MobileMarketWatchlistFlatListImpl({
       handleShowContextMenu,
       navigateToPerps,
       resetGestureSession,
+      shouldSuppressItemPress,
       toMarketDetailPage,
     ],
   );
@@ -382,7 +390,7 @@ function MobileMarketWatchlistFlatListImpl({
   const tabBarHeight = useScrollContentTabBarOffset();
   const contentContainerStyle = useMemo(
     () => ({
-      ...(platformEnv.isNative ? {} : { paddingTop: 8 }),
+      ...(platformEnv.isNative ? {} : { paddingTop: 4 }),
       paddingBottom: platformEnv.isNativeAndroid
         ? listContainerProps.paddingBottom
         : tabBarHeight,
@@ -396,28 +404,15 @@ function MobileMarketWatchlistFlatListImpl({
   }
 
   if (watchlist.length === 0 && !showSkeleton) {
-    let bottomValue: string | undefined;
-    if (platformEnv.isNativeIOS) {
-      bottomValue = '$24';
-    } else if (platformEnv.isNativeAndroid) {
-      bottomValue = '$4';
-    }
-
     return (
       <Tabs.ScrollView>
         <Stack
-          {...(platformEnv.isNative
-            ? {
-                position: 'absolute' as const,
-                bottom: bottomValue,
-                left: 0,
-                right: 0,
-              }
-            : { paddingTop: '$8', justifyContent: 'center' })}
+          {...(platformEnv.isNative ? null : { justifyContent: 'center' })}
           alignItems="center"
+          paddingTop="$8"
         >
           <MarketRecommendList
-            maxSize={platformEnv.isNativeAndroid ? 6 : 8}
+            maxSize={8}
             recommendedTokens={recommendedTokens}
           />
         </Stack>

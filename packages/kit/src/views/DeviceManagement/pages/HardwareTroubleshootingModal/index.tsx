@@ -40,6 +40,8 @@ import {
   openUrlInDiscovery,
 } from '@onekeyhq/shared/src/utils/openUrlUtils';
 
+import { DeviceManagementTestIDs } from '../../testIDs';
+
 import type { RouteProp } from '@react-navigation/core';
 
 function HardwareTroubleshootingModal() {
@@ -60,7 +62,7 @@ function HardwareTroubleshootingModal() {
 
   const defaultInfo = useMemo(
     () => ({
-      firmwareVersion: '-',
+      firmwareVersion: undefined,
       walletAvatarBadge: undefined,
       serialNumber: '--',
     }),
@@ -79,7 +81,11 @@ function HardwareTroubleshootingModal() {
       });
 
       return {
-        firmwareVersion: versions?.firmwareVersion ?? '-',
+        firmwareVersion: deviceUtils.isValidDeviceVersion(
+          versions?.firmwareVersion,
+        )
+          ? versions.firmwareVersion
+          : undefined,
         walletAvatarBadge: undefined,
         serialNumber:
           deviceUtils.getDeviceSerialNoFromFeatures(device.featuresInfo) ??
@@ -162,12 +168,16 @@ function HardwareTroubleshootingModal() {
           </XStack>
           {isQrWallet ? null : (
             <XStack mt="$1.5" gap="$2" ai="center" flexShrink={1}>
-              <Badge badgeSize="sm" badgeType="default">
-                {`v${deviceInfo.firmwareVersion}`}
-              </Badge>
-              <SizableText size="$bodySmMedium" color="$textSubdued">
-                •
-              </SizableText>
+              {deviceInfo.firmwareVersion ? (
+                <>
+                  <Badge badgeSize="sm" badgeType="default">
+                    {`v${deviceInfo.firmwareVersion}`}
+                  </Badge>
+                  <SizableText size="$bodySmMedium" color="$textSubdued">
+                    •
+                  </SizableText>
+                </>
+              ) : null}
               <SizableText
                 size="$bodyMd"
                 color="$textSubdued"
@@ -181,6 +191,7 @@ function HardwareTroubleshootingModal() {
                 variant="tertiary"
                 icon="Copy3Outline"
                 onPress={onCopyPress}
+                testID={DeviceManagementTestIDs.copySerialBtn}
               />
             </XStack>
           )}
@@ -211,6 +222,7 @@ function HardwareTroubleshootingModal() {
             <Button
               variant="tertiary"
               size="small"
+              testID={DeviceManagementTestIDs.moreFaqsBtn}
               onPress={() => {
                 if (platformEnv.isDesktop || platformEnv.isNative) {
                   openUrlInDiscovery({ url: HELP_CENTER_HARDWARE_FAQ_URL });
@@ -253,6 +265,7 @@ function HardwareTroubleshootingModal() {
                   ai="center"
                   jc="center"
                   gap="$2"
+                  testID={`${DeviceManagementTestIDs.faqItem}-${i}`}
                   onPress={() =>
                     handleFaqItemPress(hardwareTroubleshootingQuestions[i].link)
                   }

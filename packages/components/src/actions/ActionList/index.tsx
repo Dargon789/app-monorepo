@@ -44,6 +44,7 @@ export interface IActionListItemProps {
   icon?: IKeyOfIcons;
   iconProps?: IIconProps;
   label: string;
+  renderLabel?: () => ReactNode;
   extra?: ReactNode;
   description?: string;
   descriptionNumberOfLines?: number;
@@ -51,6 +52,8 @@ export interface IActionListItemProps {
   onPress?: (close: () => void) => void | Promise<boolean | void>;
   onClose?: () => void;
   disabled?: boolean;
+  allowPressWhenDisabled?: boolean;
+  extraInteractiveWhenDisabled?: boolean;
   testID?: string;
   trackID?: string;
   shortcutKeys?: string[] | EShortcutEvents;
@@ -105,17 +108,32 @@ export function ActionListItem(
     icon,
     iconProps,
     label,
+    renderLabel,
     extra,
     description,
     descriptionNumberOfLines,
     onPress,
     destructive,
     disabled,
+    allowPressWhenDisabled,
+    extraInteractiveWhenDisabled,
     onClose,
     testID,
     shortcutKeys,
     isLoading,
   } = props;
+  const isActionDisabled = Boolean(disabled);
+  const shouldKeepExtraInteractive = Boolean(
+    isActionDisabled && extraInteractiveWhenDisabled,
+  );
+  const shouldAllowPressWhenDisabled = Boolean(
+    isActionDisabled && allowPressWhenDisabled,
+  );
+  const shouldSetAriaDisabled = Boolean(
+    isActionDisabled &&
+    !shouldAllowPressWhenDisabled &&
+    !shouldKeepExtraInteractive,
+  );
 
   const handlePress = useCallback(
     async (event: GestureResponderEvent) => {
@@ -140,6 +158,7 @@ export function ActionListItem(
 
   const { onPress: sharedOnPress } = useSharedPress({
     ...props,
+    disabled: isActionDisabled && !shouldAllowPressWhenDisabled,
     onPress: handlePress,
   });
 
@@ -154,10 +173,18 @@ export function ActionListItem(
       $md={ACTION_LIST_ITEM_MD}
       borderCurve="continuous"
       opacity={disabled ? 0.5 : 1}
-      disabled={disabled}
-      aria-disabled={disabled}
+      disabled={
+        shouldKeepExtraInteractive || shouldAllowPressWhenDisabled
+          ? false
+          : disabled
+      }
+      aria-disabled={shouldSetAriaDisabled}
       {...(!disabled && ACTION_LIST_ENABLED_STYLE)}
-      onPress={isLoading ? undefined : sharedOnPress}
+      onPress={
+        isLoading || (isActionDisabled && !allowPressWhenDisabled)
+          ? undefined
+          : sharedOnPress
+      }
       testID={testID}
     >
       <XStack jc="space-between" flex={1} alignItems="center">
@@ -173,17 +200,21 @@ export function ActionListItem(
         ) : null}
         <YStack gap="$0.5" flex={1}>
           <XStack>
-            <SizableText
-              flex={1}
-              textAlign="left"
-              size="$bodyMd"
-              width="100%"
-              flexShrink={1}
-              $md={ACTION_LIST_TEXT_MD}
-              color={destructive ? '$textCritical' : '$text'}
-            >
-              {label}
-            </SizableText>
+            {renderLabel ? (
+              renderLabel()
+            ) : (
+              <SizableText
+                flex={1}
+                textAlign="left"
+                size="$bodyMd"
+                width="100%"
+                flexShrink={1}
+                $md={ACTION_LIST_TEXT_MD}
+                color={destructive ? '$textCritical' : '$text'}
+              >
+                {label}
+              </SizableText>
+            )}
 
             {platformEnv.isDesktop && keys?.length ? (
               <Shortcut>
@@ -348,6 +379,8 @@ function BasicActionList({
 
   const trigger = useMemo(() => {
     return (
+      // testID is carried by renderTrigger from the caller.
+      // oxlint-disable-next-line onekey/require-testid
       <Trigger onPress={handleActionListOpen} disabled={disabled}>
         {renderTrigger}
       </Trigger>
@@ -571,6 +604,8 @@ function ActionListFrame(props: IActionListProps) {
     return <BasicActionList {...props} />;
   }
   return (
+    // testID is carried by renderTrigger from the caller.
+    // oxlint-disable-next-line onekey/require-testid
     <Trigger onPress={handleActionListOpen} disabled={disabled}>
       {renderTrigger}
     </Trigger>

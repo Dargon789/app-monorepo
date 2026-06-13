@@ -78,6 +78,12 @@ export enum EEarnLabels {
   Buy = 'Buy',
 }
 
+export interface IEarnOrderTrackingInfo {
+  stakingLabel?: EEarnLabels;
+  stakingProtocol?: string;
+  stakingTags?: IStakeTag[];
+}
+
 export type IStakingInfo = {
   protocol: string;
   protocolLogoURI?: string;
@@ -92,6 +98,27 @@ export enum EApproveType {
   Permit = 'permit',
   Legacy = 'legacy',
 }
+
+export enum EManagePositionType {
+  Staking = 'staking',
+  Supply = 'supply',
+  Borrow = 'borrow',
+  Withdraw = 'withdraw',
+  Repay = 'repay',
+}
+
+export type IEarnStakeType = 'wrap' | 'normal';
+
+export type IEarnWithdrawType = 'instant' | 'queued' | 'cancel';
+
+export type IEarnClaimType = 'normal' | 'airdrop';
+
+export type IEarnWithdrawApproveInfo = {
+  approveType?: EApproveType;
+  approveTarget?: string;
+  tokenAddress?: string;
+  allowance?: string;
+};
 
 export type IStakeProviderInfo = {
   name: string;
@@ -146,6 +173,11 @@ export type IStakeProviderInfo = {
 
   liquidity?: string;
   totalTVL?: string;
+  receiptTokenRate?: string;
+  morphoTokenRate?: string;
+  instantDiscount?: string;
+  withdrawalWindow?: string;
+  instantEnabled?: boolean;
   tradingVolume?: string;
   ptAddress?: string;
   syAddress?: string;
@@ -195,6 +227,7 @@ export type IStakeBaseParams = {
 
   // Stakefish ETH validator
   validatorPublicKey?: string; // validator pubkey from selector
+  stakeType?: IEarnStakeType;
 };
 
 export type IWithdrawBaseParams = {
@@ -217,6 +250,7 @@ export type IWithdrawBaseParams = {
   ethenaPath?: boolean;
   // Stakefish: original message for withdraw all signature
   message?: string;
+  withdrawType?: IEarnWithdrawType;
 };
 
 export type IUnstakePushParams = {
@@ -245,6 +279,7 @@ export type IStakeClaimBaseParams = {
   amount?: string;
   identity?: string;
   claimTokenAddress?: string;
+  claimType?: IEarnClaimType;
   key?: string;
 };
 
@@ -323,7 +358,7 @@ export type IStakeTxStakefishExitBroadcast = {
 
 export type IStakeTxResponse = {
   tx: IStakeTx;
-  orderId: string;
+  orderId?: string;
 };
 
 // Babylon
@@ -497,6 +532,7 @@ export type IProtocolInfo = {
     approveType: EApproveType;
     approveTarget: string;
   };
+  withdrawApprove?: IEarnWithdrawApproveInfo;
   providerDetail: {
     name: string;
     logoURI: string;
@@ -512,7 +548,10 @@ export type IProtocolInfo = {
   minUnstakeAmount?: string;
   claimable?: string;
   remainingCap?: string;
-  withdrawAction?: IEarnWithdrawActionIcon;
+  withdrawAction?:
+    | IEarnWithdrawActionIcon
+    | IEarnWithdrawOrderActionIcon
+    | IEarnCancelWithdrawalActionIcon;
   // Max decimal places allowed for amount input (UI restriction)
   // If undefined, defaults to token decimals
   protocolInputDecimals?: number;
@@ -524,6 +563,8 @@ export type IProtocolInfo = {
   needsSetupLut?: boolean;
   // Max supply balance for supply max button
   maxSupplyBalance?: string;
+  receiptTokenRate?: string;
+  morphoTokenRate?: string;
 };
 
 export interface IEarnToken {
@@ -599,8 +640,167 @@ export interface IEarnIcon {
   size?: string;
 }
 
+export type IEarnProtocolIntroText = IEarnText | string;
+
+export interface IEarnProtocolIntroLooseIcon {
+  icon?: string;
+  color?: string;
+  size?: string;
+}
+
+export interface IEarnProtocolIntroLinkData {
+  link?: string;
+  icon?: IEarnProtocolIntroLooseIcon;
+}
+
+export interface IEarnProtocolIntroSocialLink {
+  type?:
+    | 'website'
+    | 'twitter'
+    | 'x'
+    | 'discord'
+    | 'linkedin'
+    | 'telegram'
+    | 'link';
+  title?: IEarnProtocolIntroText;
+  url?: string;
+  icon?: IEarnProtocolIntroLooseIcon;
+  disabled?: boolean;
+  data?: IEarnProtocolIntroLinkData;
+}
+
+export interface IEarnProtocolIntroMetric {
+  title?: IEarnProtocolIntroText;
+  value?: IEarnProtocolIntroText;
+  description?: IEarnProtocolIntroText;
+}
+
+export type IEarnProtocolIntroTag =
+  | IEarnProtocolIntroText
+  | {
+      tag?: IEarnProtocolIntroText;
+      title?: IEarnProtocolIntroText;
+      badge?: IBadgeType | string;
+    };
+
+export interface IEarnProtocolIntroTeamMember {
+  name?: IEarnProtocolIntroText;
+  title?: IEarnProtocolIntroText;
+  role?: IEarnProtocolIntroText;
+  position?: IEarnProtocolIntroText;
+  description?: IEarnProtocolIntroText;
+  avatarUrl?: string | null;
+  avatar?: string;
+  logoURI?: string;
+  links?: IEarnProtocolIntroSocialLink[];
+  socialLinks?: IEarnProtocolIntroSocialLink[];
+}
+
+export interface IEarnProtocolIntroTeam {
+  title?: IEarnProtocolIntroText;
+  items?: IEarnProtocolIntroTeamMember[];
+  button?: {
+    type?: 'popup' | string;
+    data?: {
+      title?: IEarnProtocolIntroText;
+      members?: IEarnProtocolIntroTeamMember[];
+    };
+  };
+}
+
+export interface IEarnProtocolIntroInvestorRound {
+  title?: IEarnProtocolIntroText;
+  round?: IEarnProtocolIntroText;
+  date?: IEarnProtocolIntroText;
+  amount?: IEarnProtocolIntroText;
+  valuation?: IEarnProtocolIntroText;
+  investors?: IEarnProtocolIntroText;
+  items?: IEarnProtocolIntroMetric[];
+}
+
+export interface IEarnProtocolIntroInvestors {
+  title?: IEarnProtocolIntroText;
+  items?: IEarnProtocolIntroInvestorRound[];
+  button?: {
+    type?: 'popup' | string;
+    data?: {
+      title?: IEarnProtocolIntroText;
+      fundingRounds?: IEarnProtocolIntroInvestorRound[];
+    };
+  };
+}
+
+export interface IEarnProtocolIntroAudit {
+  title?: IEarnProtocolIntroText;
+  name?: IEarnProtocolIntroText;
+  auditor?: IEarnProtocolIntroText;
+  date?: IEarnProtocolIntroText;
+  scope?: IEarnProtocolIntroText;
+  description?: IEarnProtocolIntroText;
+  data?: {
+    date?: IEarnProtocolIntroText;
+    scope?: IEarnProtocolIntroText;
+  };
+  auditorLogoUrl?: string;
+  logoURI?: string;
+  url?: string;
+  button?: IEarnProtocolIntroSocialLink;
+}
+
+export interface IEarnProtocolIntroAudits {
+  title?: IEarnProtocolIntroText;
+  updatedAt?: IEarnProtocolIntroText;
+  items?: IEarnProtocolIntroAudit[];
+  button?: {
+    type?: 'popup' | string;
+    data?: {
+      title?: IEarnProtocolIntroText;
+      description?: IEarnProtocolIntroText[];
+      auditItems?: IEarnProtocolIntroAudit[];
+    };
+  };
+}
+
+export interface IEarnProtocolIntroItem {
+  title?: IEarnProtocolIntroText;
+  displayName?: IEarnProtocolIntroText;
+  name?: IEarnProtocolIntroText;
+  role?: IEarnProtocolIntroText;
+  provider?: string;
+  slug?: string;
+  type?: string;
+  logoURI?: string;
+  logoUrl?: string;
+  logoUri?: string;
+  providerLogoURI?: string;
+  providerLogoUrl?: string;
+  providerLogoUri?: string;
+  icon?: IEarnIcon;
+  description?: IEarnProtocolIntroText;
+  tags?: IEarnProtocolIntroTag[];
+  metrics?: IEarnProtocolIntroMetric[];
+  stats?: IEarnProtocolIntroMetric[];
+  tvl?: IEarnProtocolIntroText;
+  fdv?: IEarnProtocolIntroText;
+  establishment?: IEarnProtocolIntroText;
+  establishmentDate?: IEarnProtocolIntroText;
+  socialLinks?: IEarnProtocolIntroSocialLink[];
+  links?: IEarnProtocolIntroSocialLink[];
+  team?: IEarnProtocolIntroTeam;
+  teamMembers?: IEarnProtocolIntroTeam;
+  investors?: IEarnProtocolIntroInvestors;
+  audits?: IEarnProtocolIntroAudits;
+}
+
+export interface IEarnProtocolIntroInfo {
+  title?: IEarnProtocolIntroText;
+  notice?: IEarnProtocolIntroText;
+  items?: IEarnProtocolIntroItem[];
+}
+
 export interface IEarnPopupActionIcon {
   type: 'popup';
+  text?: IEarnText;
   data: {
     title?: IEarnText;
     bulletList?: IEarnText[];
@@ -619,6 +819,11 @@ export interface IEarnPopupActionIcon {
       title: IEarnText;
       value: string;
     }[];
+    platformBonusInfos?: {
+      title: IEarnText;
+      description: IEarnText;
+    }[];
+    button?: IEarnActionIcon;
   };
 }
 
@@ -913,7 +1118,18 @@ export type IEarnActionIcon =
   | IEarnReceiveActionIcon
   | IEarnTradeActionIcon
   | IEarnCloseActionIcon
+  | IEarnCancelWithdrawalActionIcon
   | IEarnListaCheckActionIcon;
+
+export interface IEarnPlatformBonus {
+  icon: IEarnIcon;
+  title: IEarnText;
+  period: IEarnText;
+  summary: IEarnText[];
+  button: IEarnPopupActionIcon & {
+    text: IEarnText;
+  };
+}
 
 interface IEarnGridItem {
   title: IEarnText;
@@ -972,6 +1188,7 @@ export enum EStakingActionType {
   Activate = 'activate',
   Receive = 'receive',
   Trade = 'trade',
+  CancelWithdrawal = 'cancelWithdrawal',
 
   Supply = 'supply',
   Borrow = 'borrow',
@@ -979,7 +1196,7 @@ export enum EStakingActionType {
 }
 
 export interface IEarnWithdrawActionIcon {
-  type: EStakingActionType;
+  type: EStakingActionType.Withdraw;
   disabled: boolean;
   text: IEarnText;
   data: {
@@ -989,11 +1206,24 @@ export interface IEarnWithdrawActionIcon {
 }
 
 export interface IEarnWithdrawOrderActionIcon {
-  type: EStakingActionType;
+  type: EStakingActionType.WithdrawOrder;
   disabled: boolean;
   text: IEarnText;
   data?: {
     text: IEarnText;
+  };
+}
+
+export interface IEarnCancelWithdrawalActionIcon {
+  type: EStakingActionType.CancelWithdrawal;
+  disabled: boolean;
+  text: IEarnText;
+  data?: {
+    balance?: string;
+    token?: {
+      price: string;
+      info: IEarnToken;
+    };
   };
 }
 
@@ -1083,7 +1313,7 @@ export interface IEarnSupplyActionData {
 }
 
 export interface IEarnWithdrawActionData {
-  type: 'withdraw' | 'withdrawOrder';
+  type: 'withdraw' | 'withdrawOrder' | 'cancelWithdrawal';
   disabled: boolean;
   text: IEarnText;
   data?: {
@@ -1157,6 +1387,7 @@ export interface IEarnManagePageResponse {
     approveType?: string;
     approveTarget?: string;
   };
+  withdrawApprove?: IEarnWithdrawApproveInfo;
   nums?: {
     overflow?: string;
     minStakeAmount?: string;
@@ -1203,8 +1434,11 @@ export type IEarnDetailActions =
   | IEarnWithdrawActionIcon
   | IEarnHistoryActionIcon
   | IEarnWithdrawOrderActionIcon
+  | IEarnCancelWithdrawalActionIcon
   | IEarnClaimWithKycActionIcon
-  | IEarnActivateActionIcon;
+  | IEarnActivateActionIcon
+  | IEarnReceiveActionIcon
+  | IEarnTradeActionIcon;
 
 export interface IEarnAlert {
   alert: string;
@@ -1244,8 +1478,11 @@ export interface IStakeEarnDetail {
   };
   actions?: IEarnDetailActions[];
   subscriptionValue?: ISubscriptionValue;
+  platformBonus?: IEarnPlatformBonus;
   tags?: IStakeBadgeTag[];
   protocol?: IProtocolInfo;
+  withdrawApprove?: IEarnWithdrawApproveInfo;
+  protocolInfo?: IEarnProtocolIntroInfo | IEarnProtocolIntroItem[];
   countDownAlert?: {
     title?: IEarnText;
     description: IEarnText;
@@ -1373,11 +1610,18 @@ export interface IEarnProvider {
   approveType?: string;
 }
 
+export type IEarnTransactionTip = {
+  type: string;
+  text: IEarnText;
+  button?: IEarnActionIcon;
+};
+
 export interface IStakeTransactionConfirmation {
   title?: IEarnText;
   tooltip?: IEarnTooltip;
   apyDetail?: IStakeEarnDetail['apyDetail'];
   effectiveApy?: string | number;
+  platformBonus?: IEarnPlatformBonus;
   rewards?: Array<{
     title: IEarnText;
     description: IEarnText;
@@ -1431,14 +1675,14 @@ export interface IStakeTransactionConfirmation {
         description: IEarnText;
         subtitle?: IEarnText;
         subtitleDescription?: IEarnText;
+        withdrawType?: IEarnWithdrawType;
+        disabled?: boolean;
+        tip?: IEarnTransactionTip;
       }>;
+      tip?: IEarnTransactionTip;
     };
   };
-  tip?: {
-    type: string;
-    text: IEarnText;
-    button?: IEarnActionIcon;
-  };
+  tip?: IEarnTransactionTip;
 }
 
 export type IStakeProtocolDetails = {
@@ -1822,6 +2066,7 @@ export interface IEarnAirdropInvestmentItemV2 {
       title: IEarnText;
       tooltip: IEarnTooltip;
       button: IEarnClaimActionIcon | IEarnListaCheckActionIcon;
+      claimType?: IEarnClaimType;
       description: IEarnText;
       swapButton?: IEarnManagePageSwapActions;
       badge?: IEarnBadge;
@@ -1973,6 +2218,11 @@ export type IApproveConfirmFnParams = {
   effectiveApy?: string | number;
   // Stakefish ETH validator
   validatorPubkey?: string;
+  stakeType?: IEarnStakeType;
+  onStepChange?: (
+    step: number,
+    options?: { shouldShowPostWrapApproveStep?: boolean },
+  ) => void;
 };
 
 export interface IEarnSummary {

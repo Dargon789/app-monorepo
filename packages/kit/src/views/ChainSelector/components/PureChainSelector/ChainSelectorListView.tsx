@@ -1,4 +1,11 @@
-import { type FC, useCallback, useMemo, useState } from 'react';
+import {
+  type FC,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
@@ -9,7 +16,9 @@ import {
   SearchBar,
   Stack,
   useSafeAreaInsets,
+  useSafelyScrollIntoIndex,
 } from '@onekeyhq/components';
+import type { IListViewRef } from '@onekeyhq/components';
 import { Currency } from '@onekeyhq/kit/src/components/Currency';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { NetworkAvatarBase } from '@onekeyhq/kit/src/components/NetworkAvatar';
@@ -18,8 +27,8 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 
 import { useFuseSearch } from '../../hooks/useFuseSearch';
-
-import type { IServerNetworkMatch } from '../../types';
+import { ChainSelectorTestIDs } from '../../testIDs';
+import { CELL_HEIGHT, type IServerNetworkMatch } from '../../types';
 
 const ListEmptyComponent = () => {
   const intl = useIntl();
@@ -36,7 +45,9 @@ const ListEmptyComponent = () => {
 type IChainSelectorListViewProps = {
   networks: IServerNetworkMatch[];
   networkId?: string;
+  isOpen?: boolean;
   onPressItem?: (network: IServerNetworkMatch) => void;
+  onSearchFocusChange?: (isFocused: boolean) => void;
   accountNetworkValues?: Record<string, string>;
   accountNetworkValueCurrency?: string;
   hideLowValueNetworkValue?: boolean;
@@ -46,15 +57,50 @@ const ChainSelectorListViewContent = ({
   networks,
   onPressItem,
   networkId,
+  selectedIndex,
+  shouldAutoScrollToSelected,
   accountNetworkValues,
   accountNetworkValueCurrency,
   hideLowValueNetworkValue,
-}: IChainSelectorListViewProps) => {
+}: IChainSelectorListViewProps & {
+  selectedIndex: number;
+  shouldAutoScrollToSelected: boolean;
+}) => {
   const { bottom } = useSafeAreaInsets();
   const intl = useIntl();
+  const listViewRef = useRef<IListViewRef<IServerNetworkMatch>>(null);
+  const { scrollIntoIndex, onLayout } = useSafelyScrollIntoIndex(listViewRef);
+
+  useEffect(() => {
+    if (!shouldAutoScrollToSelected || selectedIndex <= 0) {
+      return;
+    }
+
+    if (platformEnv.isNative) {
+      scrollIntoIndex({
+        index: selectedIndex,
+        animated: false,
+        viewPosition: 0.3,
+      });
+      return;
+    }
+
+    const timerId = setTimeout(() => {
+      listViewRef.current?.scrollToOffset?.({
+        offset: Math.max((selectedIndex - 2) * CELL_HEIGHT, 0),
+        animated: false,
+      });
+    }, 80);
+
+    return () => clearTimeout(timerId);
+  }, [scrollIntoIndex, selectedIndex, shouldAutoScrollToSelected]);
 
   return (
     <ListView
+      flex={1}
+      minHeight={0}
+      ref={listViewRef}
+      onLayout={onLayout}
       ListEmptyComponent={ListEmptyComponent}
       ListFooterComponent={<Stack h={bottom || '$2'} />}
       estimatedItemSize={48}
@@ -125,7 +171,9 @@ const ChainSelectorListViewContent = ({
 export const ChainSelectorListView: FC<IChainSelectorListViewProps> = ({
   networks,
   networkId,
+  isOpen,
   onPressItem,
+  onSearchFocusChange,
   accountNetworkValues,
   accountNetworkValueCurrency,
   hideLowValueNetworkValue,
@@ -135,6 +183,12 @@ export const ChainSelectorListView: FC<IChainSelectorListViewProps> = ({
   const onChangeText = useCallback((value: string) => {
     setText(value);
   }, []);
+  const handleSearchFocus = useCallback(() => {
+    onSearchFocusChange?.(true);
+  }, [onSearchFocusChange]);
+  const handleSearchBlur = useCallback(() => {
+    onSearchFocusChange?.(false);
+  }, [onSearchFocusChange]);
 
   const networkFuseSearch = useFuseSearch(networks);
 
@@ -144,23 +198,40 @@ export const ChainSelectorListView: FC<IChainSelectorListViewProps> = ({
     }
     return networkFuseSearch(text);
   }, [networkFuseSearch, text, networks]);
+
+  const shouldAutoScrollToSelected = !text && (isOpen ?? true);
+  const selectedIndex = useMemo(() => {
+    if (!shouldAutoScrollToSelected || !networkId) {
+      return -1;
+    }
+
+    return data.findIndex((network) => network.id === networkId);
+  }, [data, networkId, shouldAutoScrollToSelected]);
+
   return (
-    <Stack flex={1}>
-      <Stack px="$5" pb="$2">
+    <Stack flex={1} minHeight={0}>
+      <Stack px="$5" pb="$2" flexShrink={0}>
         <SearchBar
+          testID={ChainSelectorTestIDs.listViewSearchBar}
           placeholder={intl.formatMessage({ id: ETranslations.global_search })}
           value={text}
           onChangeText={onChangeText}
+          onFocus={handleSearchFocus}
+          onBlur={handleSearchBlur}
         />
       </Stack>
-      <ChainSelectorListViewContent
-        networkId={networkId}
-        networks={data}
-        onPressItem={onPressItem}
-        accountNetworkValues={accountNetworkValues}
-        accountNetworkValueCurrency={accountNetworkValueCurrency}
-        hideLowValueNetworkValue={hideLowValueNetworkValue}
-      />
+      <Stack flex={1} minHeight={0}>
+        <ChainSelectorListViewContent
+          networkId={networkId}
+          networks={data}
+          selectedIndex={selectedIndex}
+          shouldAutoScrollToSelected={shouldAutoScrollToSelected}
+          onPressItem={onPressItem}
+          accountNetworkValues={accountNetworkValues}
+          accountNetworkValueCurrency={accountNetworkValueCurrency}
+          hideLowValueNetworkValue={hideLowValueNetworkValue}
+        />
+      </Stack>
     </Stack>
   );
 };

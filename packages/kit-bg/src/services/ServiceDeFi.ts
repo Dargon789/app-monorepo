@@ -1,7 +1,6 @@
 import BigNumber from 'bignumber.js';
 import { debounce, isEmpty, isUndefined } from 'lodash';
 
-import type { ICurrencyItem } from '@onekeyhq/kit/src/views/Setting/pages/Currency';
 import {
   backgroundClass,
   backgroundMethod,
@@ -10,22 +9,34 @@ import { getNetworkIdsMap } from '@onekeyhq/shared/src/config/networkIds';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import defiUtils from '@onekeyhq/shared/src/utils/defiUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
+import type { ICurrencyItem } from '@onekeyhq/shared/types/currency';
 import type {
   IFetchAccountDeFiPositionsParams,
   IFetchAccountDeFiPositionsResp,
 } from '@onekeyhq/shared/types/defi';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 
+import { currencyPersistAtom } from '../states/jotai/atoms/currency';
+
 import ServiceBase from './ServiceBase';
 
 import type { IDeFiDBStruct } from '../dbs/simple/entity/SimpleDbEntityDeFi';
+
+type IDeFiEnabledNetworksMapState = {
+  enabledNetworksMap: Record<string, boolean>;
+  isReady: boolean;
+};
+
+type IGetDeFiEnabledNetworksMapStateOptions = {
+  syncIfEmpty?: boolean;
+};
 
 @backgroundClass()
 class ServiceDeFi extends ServiceBase {
   private enabledNetworksMapEmptyCacheExpiresAt = 0;
 
   private ensureEnabledNetworksMapPromise:
-    | Promise<Record<string, boolean>>
+    | Promise<IDeFiEnabledNetworksMapState>
     | undefined
     | null = null;
 
@@ -296,22 +307,47 @@ class ServiceDeFi extends ServiceBase {
 
   @backgroundMethod()
   public async getDeFiEnabledNetworksMap() {
+    const { enabledNetworksMap } = await this.getDeFiEnabledNetworksMapState();
+    return enabledNetworksMap;
+  }
+
+  @backgroundMethod()
+  public async getDeFiEnabledNetworksMapState(
+    options?: IGetDeFiEnabledNetworksMapStateOptions,
+  ): Promise<IDeFiEnabledNetworksMapState> {
     const existing =
       (await this.backgroundApi.simpleDb.deFi.getEnabledNetworksMap()) ?? {};
     if (!isEmpty(existing)) {
       this.enabledNetworksMapEmptyCacheExpiresAt = 0;
-      return existing;
+      return {
+        enabledNetworksMap: existing,
+        isReady: true,
+      };
     }
 
     const now = Date.now();
     if (this.enabledNetworksMapEmptyCacheExpiresAt > now) {
-      return existing;
+      return {
+        enabledNetworksMap: existing,
+        isReady: false,
+      };
     }
 
+    if (options?.syncIfEmpty === false) {
+      void this._syncDeFiEnabledNetworksMapState();
+      return {
+        enabledNetworksMap: existing,
+        isReady: false,
+      };
+    }
+
+    return this._syncDeFiEnabledNetworksMapState();
+  }
+
+  private _syncDeFiEnabledNetworksMapState(): Promise<IDeFiEnabledNetworksMapState> {
     if (this.ensureEnabledNetworksMapPromise) {
       return this.ensureEnabledNetworksMapPromise;
     }
-
     this.ensureEnabledNetworksMapPromise = (async () => {
       try {
         await this.syncDeFiEnabledNetworks();
@@ -320,13 +356,17 @@ class ServiceDeFi extends ServiceBase {
       }
       const refreshed =
         await this.backgroundApi.simpleDb.deFi.getEnabledNetworksMap();
-      const result = refreshed ?? {};
-      if (isEmpty(result)) {
+      const enabledNetworksMap = refreshed ?? {};
+      const isReady = !isEmpty(enabledNetworksMap);
+      if (!isReady) {
         this.enabledNetworksMapEmptyCacheExpiresAt = Date.now() + 30_000;
       } else {
         this.enabledNetworksMapEmptyCacheExpiresAt = 0;
       }
-      return result;
+      return {
+        enabledNetworksMap,
+        isReady,
+      };
     })().finally(() => {
       this.ensureEnabledNetworksMapPromise = null;
     });
@@ -431,6 +471,68 @@ class ServiceDeFi extends ServiceBase {
       accounts,
       deFiRawData,
     });
+  }
+
+  /**
+   * Total DeFi netWorth for an account in `targetCurrency`, summed across
+   * networks. Pass `networkId: getNetworkIdsMap().onekeyall` for the
+   * cross-network total.
+   *
+   * Reads only from `simpleDb.deFi` — no network call. `hasCache: false`
+   * means no DeFi entries; callers should silently fall back to tokens-only.
+   */
+  @backgroundMethod()
+  async getAccountTotalDeFiNetWorth(params: {
+    accountId: string;
+    networkId: string;
+    targetCurrency: string;
+    enabledNetworkIds?: string[];
+  }): Promise<{ netWorth: string; hasCache: boolean }> {
+    const { accountId, networkId, targetCurrency, enabledNetworkIds } = params;
+    const enabledNetworkIdSet = enabledNetworkIds?.length
+      ? new Set(enabledNetworkIds)
+      : undefined;
+
+    const indexedAccountId = accountUtils.isOthersAccount({ accountId })
+      ? undefined
+      : accountId;
+
+    const entries = await this.getAccountsLocalDeFiOverview({
+      accounts: [{ accountId, networkId, indexedAccountId }],
+    });
+
+    if (!entries || !entries.some((e) => e?.overview)) {
+      return { netWorth: '0', hasCache: false };
+    }
+
+    const { currencyMap } = await currencyPersistAtom.get();
+    const targetInfo = currencyMap[targetCurrency] ?? currencyMap.usd;
+
+    let total = new BigNumber(0);
+    let hasCache = false;
+    for (const entry of entries) {
+      if (entry?.overview) {
+        for (const [entryNetworkId, overview] of Object.entries(
+          entry.overview,
+        )) {
+          const shouldIncludeNetwork =
+            !enabledNetworkIdSet || enabledNetworkIdSet.has(entryNetworkId);
+          if (overview && shouldIncludeNetwork) {
+            hasCache = true;
+            const sourceInfo =
+              currencyMap[overview.currency] ?? currencyMap.usd;
+            const converted = this._fixCurrencyValue({
+              sourceCurrencyInfo: sourceInfo,
+              targetCurrencyInfo: targetInfo,
+              value: overview.netWorth ?? 0,
+            });
+            total = total.plus(converted);
+          }
+        }
+      }
+    }
+
+    return { netWorth: total.toFixed(), hasCache };
   }
 
   @backgroundMethod()

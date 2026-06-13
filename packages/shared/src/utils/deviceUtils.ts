@@ -148,6 +148,15 @@ async function getDeviceVersionStr(params: IGetDeviceVersionParams) {
   return `${bootloaderVersion}--${bleVersion}--${firmwareVersion}`;
 }
 
+function isValidDeviceVersion(version?: string) {
+  if (!version || version === '0.0.0') {
+    return false;
+  }
+
+  const cleanVersion = semver.clean(version);
+  return Boolean(cleanVersion && semver.valid(cleanVersion));
+}
+
 function isTouchDevice(deviceType: IDeviceType) {
   return [EDeviceType.Touch, EDeviceType.Pro].includes(deviceType);
 }
@@ -341,6 +350,7 @@ async function buildDeviceLabel({
     [EDeviceType.Mini]: 'OneKey Mini',
     [EDeviceType.Touch]: 'OneKey Touch',
     [EDeviceType.Pro]: 'OneKey Pro',
+    [EDeviceType.Pro2]: 'OneKey Pro2',
     [EDeviceType.Unknown]: '',
   };
   const deviceType = await getDeviceTypeFromFeatures({
@@ -378,6 +388,28 @@ function buildDeviceBleName({
   return features.ble_name;
 }
 
+async function getFirmwareType({
+  features,
+}: {
+  features:
+    | (IOneKeyDeviceFeatures & { $app_firmware_type?: EFirmwareType })
+    | undefined;
+}) {
+  if (!features) {
+    return EFirmwareType.Universal;
+  }
+
+  if (
+    features.$app_firmware_type &&
+    features.$app_firmware_type === EFirmwareType.BitcoinOnly
+  ) {
+    return EFirmwareType.BitcoinOnly;
+  }
+
+  const { getFirmwareType: sdkGetFirmwareType } = await CoreSDKLoader();
+  return sdkGetFirmwareType(features);
+}
+
 async function getDeviceVerifyVersionsFromFeatures({
   deviceType,
   features,
@@ -395,7 +427,6 @@ async function getDeviceVerifyVersionsFromFeatures({
     return null;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-use-before-define
   const firmwareType = await getFirmwareType({
     features: features as IOneKeyDeviceFeatures,
   });
@@ -617,28 +648,6 @@ function getFirmwareTypeByCachedFeatures({
   return features.$app_firmware_type;
 }
 
-async function getFirmwareType({
-  features,
-}: {
-  features:
-    | (IOneKeyDeviceFeatures & { $app_firmware_type?: EFirmwareType })
-    | undefined;
-}) {
-  if (!features) {
-    return EFirmwareType.Universal;
-  }
-
-  if (
-    features.$app_firmware_type &&
-    features.$app_firmware_type === EFirmwareType.BitcoinOnly
-  ) {
-    return EFirmwareType.BitcoinOnly;
-  }
-
-  const { getFirmwareType: sdkGetFirmwareType } = await CoreSDKLoader();
-  return sdkGetFirmwareType(features);
-}
-
 function getFirmwareTypeLabelByFirmwareType({
   firmwareType,
   returnUniversal,
@@ -783,6 +792,7 @@ function supportSettings({
 export default {
   dbDeviceToSearchDevice,
   getDeviceVersion,
+  isValidDeviceVersion,
   getDeviceSerialNoFromFeatures,
   getDeviceVersionStr,
   getDeviceTypeFromFeatures,

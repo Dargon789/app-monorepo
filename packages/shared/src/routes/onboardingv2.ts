@@ -1,7 +1,10 @@
 import type { IKeylessWalletDetailsInfo } from '@onekeyhq/kit-bg/src/dbs/local/types';
 
 import type { EConnectDeviceChannel } from '../../types/connectDevice';
-import type { IConnectYourDeviceItem } from '../../types/device';
+import type {
+  EHardwareVendor,
+  IConnectYourDeviceItem,
+} from '../../types/device';
 import type { EOAuthSocialLoginProvider } from '../consts/authConsts';
 import type { EKeylessFinalizeAction } from '../keylessWallet/keylessWalletConsts';
 import type { IDetectedNetworkGroupItem } from '../utils/networkDetectUtils';
@@ -31,7 +34,7 @@ export enum EOnboardingV2OneKeyIDLoginMode {
 
 export enum EOnboardingPagesV2 {
   GetStarted = 'GetStarted',
-  AddExistingWallet = 'AddExistingWallet',
+  CreateNewWallet = 'CreateNewWallet',
   CreateOrImportWallet = 'CreateOrImportWallet',
   FinalizeWalletSetup = 'FinalizeWalletSetup',
   PickYourDevice = 'PickYourDevice',
@@ -69,16 +72,14 @@ interface IVerifyRecoveryPhraseParams {
 export type IOnboardingAutoConnectOrigin = string;
 
 export type IOnboardingParamListV2 = {
-  [EOnboardingPagesV2.GetStarted]: {
+  [EOnboardingPagesV2.GetStarted]: undefined;
+  [EOnboardingPagesV2.CreateNewWallet]: {
     fromExt?: boolean;
     autoConnectOrigin?: IOnboardingAutoConnectOrigin;
     autoLoginKeylessProvider?: EOAuthSocialLoginProvider;
     autoConnectNonce?: string;
   };
-  [EOnboardingPagesV2.AddExistingWallet]: undefined;
-  [EOnboardingPagesV2.CreateOrImportWallet]: {
-    fullOptions?: boolean;
-  };
+  [EOnboardingPagesV2.CreateOrImportWallet]: undefined;
   [EOnboardingPagesV2.FinalizeWalletSetup]: {
     mnemonic?: string;
     mnemonicType?: EMnemonicType;
@@ -87,6 +88,12 @@ export type IOnboardingParamListV2 = {
     shouldAutoResetKeylessPinAfterRestore?: boolean;
     isFirmwareVerified?: boolean;
     deviceData?: IConnectYourDeviceItem;
+    // User-selected connection channel for this session. Carried forward from
+    // the Ledger entry points (ConnectionFlowLedger / ConnectYourDevice Ledger
+    // branch) so the analytics `walletAdded` event can attribute the actual
+    // per-session transport (via getForceTransportType) rather than the stale
+    // persisted hardwareTransportType setting.
+    tabValue?: EConnectDeviceChannel;
     keylessPackSetId?: string;
     keylessOwnerId?: string;
     keylessDetailsInfo?: IKeylessWalletDetailsInfo;
@@ -94,6 +101,7 @@ export type IOnboardingParamListV2 = {
   [EOnboardingPagesV2.PickYourDevice]: undefined;
   [EOnboardingPagesV2.ConnectYourDevice]: {
     deviceType: EDeviceType[];
+    vendor?: EHardwareVendor;
   };
   [EOnboardingPagesV2.ConnectQRCode]: undefined;
   [EOnboardingPagesV2.CheckAndUpdate]: {
@@ -148,7 +156,9 @@ export type IOnboardingParamListV2 = {
     action?: EKeylessFinalizeAction;
   };
   [EOnboardingPagesV2.CreatePasscode]: {
-    action: EKeylessFinalizeAction;
+    action?: EKeylessFinalizeAction;
+    mnemonic?: string;
+    isWalletBackedUp?: boolean;
   };
   [EOnboardingPagesV2.VerifyPin]: {
     mode?: EOnboardingV2OneKeyIDLoginMode;

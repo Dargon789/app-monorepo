@@ -8,6 +8,7 @@ import {
   YStack,
   popModalPages,
   popToTabRootScreen,
+  rootNavigationRef,
   switchTab,
 } from '@onekeyhq/components';
 import type { IUnsignedTxPro } from '@onekeyhq/core/src/types';
@@ -22,6 +23,8 @@ import {
   EModalBulkSendRoutes,
   EModalRoutes,
   EModalSignatureConfirmRoutes,
+  ERootRoutes,
+  ETabHomeRoutes,
   ETabRoutes,
   type IModalBulkSendParamList,
 } from '@onekeyhq/shared/src/routes';
@@ -38,6 +41,7 @@ import type { ISendTxOnSuccessData } from '@onekeyhq/shared/types/tx';
 import { usePreCheckFeeInfo } from '../../../SignatureConfirm/hooks/usePreCheckFeeInfo';
 import BulkSendTxDetails from '../../components/BulkSendTxDetails';
 import { useRedirectToBulkSendAddressesInput } from '../../hooks/useRedirectToBulkSendAddressesInput';
+import { BulkSendTestIDs } from '../../testIDs';
 
 import BulkSendApprovalCard from './components/BulkSendApprovalCard';
 import BulkSendReviewAlert from './components/BulkSendReviewAlert';
@@ -87,6 +91,20 @@ function BaseBulkSendReview({
   const isMultiTxs = unsignedTxs.length > 1;
   const transferTxCount = unsignedTxs.length - approvesInfo.length;
   const isTransferSplit = transferTxCount > 1;
+
+  const receiverGroups = useMemo(() => {
+    if (
+      bulkSendMode !== EBulkSendMode.OneToMany ||
+      !isTransferSplit ||
+      unsignedTxs.length === 0
+    ) {
+      return undefined;
+    }
+    const txBatches = unsignedTxs
+      .map((tx) => tx.transfersInfo ?? [])
+      .filter((batch) => batch.length > 0);
+    return txBatches.length > 1 ? txBatches : undefined;
+  }, [bulkSendMode, isTransferSplit, unsignedTxs]);
 
   // Use fee estimation hook
   const { feeLabel, handleFeeChange, vaultSettings, forceRefreshFee } =
@@ -279,6 +297,7 @@ function BaseBulkSendReview({
                 unsignedTxs: [unsignedTx],
                 popStack: false,
                 useFeeInTx: true, // Use the fee info we set on unsignedTx
+                gasAccountScenario: 'send',
                 onSuccess: (data: ISendTxOnSuccessData[]) => {
                   resolve(data);
                 },
@@ -310,6 +329,7 @@ function BaseBulkSendReview({
   const navigateAfterSuccess = useCallback(async () => {
     if (accountUtils.isQrAccount({ accountId: accountId ?? '' })) {
       navigation.popStack();
+      return;
     }
 
     // ext popup/sidebar && native
@@ -479,9 +499,12 @@ function BaseBulkSendReview({
         navigation.push(EModalBulkSendRoutes.BulkSendProcess, processParams);
       } else {
         await popModalPages();
-        navigation.pushModal(EModalRoutes.BulkSendModal, {
-          screen: EModalBulkSendRoutes.BulkSendProcess,
-          params: processParams,
+        rootNavigationRef.current?.navigate(ERootRoutes.Main, {
+          screen: ETabRoutes.Home,
+          params: {
+            screen: ETabHomeRoutes.TabHomeBulkSendProcess,
+            params: processParams,
+          },
         });
       }
       return;
@@ -679,6 +702,7 @@ function BaseBulkSendReview({
             tokenInfo={tokenInfo}
             transfersInfo={transfersInfo}
             bulkSendMode={bulkSendMode}
+            receiverGroups={receiverGroups}
             containerProps={{
               px: '$5',
             }}
@@ -686,14 +710,17 @@ function BaseBulkSendReview({
         </YStack>
       </Page.Body>
       <Page.Footer>
-        <Page.FooterActions
-          onConfirmText={confirmButtonText}
-          confirmButtonProps={{
-            onPress: handleConfirm,
-            disabled: isConfirmDisabled,
-            loading: isSubmitting || isRecheckingApproval,
-          }}
-        />
+        <YStack $md={{ pb: '$5' }}>
+          <Page.FooterActions
+            onConfirmText={confirmButtonText}
+            confirmButtonProps={{
+              testID: BulkSendTestIDs.reviewConfirmBtn,
+              onPress: handleConfirm,
+              disabled: isConfirmDisabled,
+              loading: isSubmitting || isRecheckingApproval,
+            }}
+          />
+        </YStack>
       </Page.Footer>
     </Page>
   );

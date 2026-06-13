@@ -42,6 +42,14 @@ const RiskWhiteListModal = LazyLoadPage(
   () => import('../pages/RiskWhiteListModal'),
 );
 
+const ClipboardPermissionModal = LazyLoadPage(
+  () => import('../pages/ClipboardPermissionModal'),
+);
+
+const DeriveContextHashModal = LazyLoadPage(
+  () => import('../pages/DeriveContextHashModal'),
+);
+
 // Custom Network
 const SettingCustomNetworkModal = LazyLoadPage(
   () => import('@onekeyhq/kit/src/views/Setting/pages/CustomNetwork'),
@@ -104,5 +112,13 @@ export const DAppConnectionRouter: IModalFlowNavigatorConfig<
   {
     name: EDAppConnectionModal.RiskWhiteListModal,
     component: RiskWhiteListModal,
+  },
+  {
+    name: EDAppConnectionModal.ClipboardPermissionModal,
+    component: ClipboardPermissionModal,
+  },
+  {
+    name: EDAppConnectionModal.DeriveContextHashModal,
+    component: DeriveContextHashModal,
   },
 ];

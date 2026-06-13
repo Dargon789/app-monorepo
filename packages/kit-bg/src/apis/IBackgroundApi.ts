@@ -1,9 +1,6 @@
 // import type only here to avoid cycle-deps error
 
-import type {
-  EAppEventBusNames,
-  IAppEventBusPayload,
-} from '@onekeyhq/shared/src/eventBus/appEventBus';
+import type { IAppEventBusPayload } from '@onekeyhq/shared/src/eventBus/appEventBus';
 
 import type { LocalDbBase } from '../dbs/local/LocalDbBase';
 import type { SimpleDb } from '../dbs/simple/base/SimpleDb';
@@ -44,6 +41,7 @@ import type ServiceHardware from '../services/ServiceHardware';
 import type ServiceHardwareUI from '../services/ServiceHardwareUI';
 import type ServiceHistory from '../services/ServiceHistory';
 import type ServiceHyperliquid from '../services/ServiceHyperLiquid/ServiceHyperliquid';
+import type ServiceHyperliquidCache from '../services/ServiceHyperLiquid/ServiceHyperliquidCache';
 import type ServiceHyperliquidExchange from '../services/ServiceHyperLiquid/ServiceHyperliquidExchange';
 import type ServiceHyperliquidReferral from '../services/ServiceHyperLiquid/ServiceHyperliquidReferral';
 import type ServiceHyperliquidSubscription from '../services/ServiceHyperLiquid/ServiceHyperliquidSubscription';
@@ -126,16 +124,17 @@ export interface IBackgroundApiBridge {
   getAtomStates: () => Promise<{ states: Record<EAtomNames, any> }>;
 
   // **** eventBus
-  emitEvent<T extends EAppEventBusNames>(
+  emitEvent<T extends keyof IAppEventBusPayload>(
     type: T,
     payload: IAppEventBusPayload[T],
+    originNodeId?: string,
   ): Promise<boolean>;
 
   // **** webview bridge
   bridge: JsBridgeBase | null;
   bridgeExtBg: JsBridgeExtBackground | null;
-  connectBridge(bridge: JsBridgeBase): void;
-  connectWebEmbedBridge(bridge: JsBridgeBase): void;
+  connectBridge(bridge: JsBridgeBase | null): void;
+  connectWebEmbedBridge(bridge: JsBridgeBase | null): void;
   bridgeReceiveHandler: IJsBridgeReceiveHandler;
 
   // **** dapp provider api
@@ -228,6 +227,7 @@ export interface IBackgroundApi extends IBackgroundApiBridge {
   serviceMasterPassword: ServiceMasterPassword;
   servicePrimeTransfer: ServicePrimeTransfer;
   serviceHyperliquid: ServiceHyperliquid;
+  serviceHyperliquidCache: ServiceHyperliquidCache;
   serviceHyperliquidExchange: ServiceHyperliquidExchange;
   serviceHyperliquidReferral: ServiceHyperliquidReferral;
   serviceHyperliquidWallet: ServiceHyperliquidWallet;

@@ -1,3 +1,5 @@
+import { createElement } from 'react';
+
 import type {
   IModalFlowNavigatorConfig,
   ITabSubNavigatorConfig,
@@ -10,7 +12,14 @@ import {
   LazyLoadPage,
   LazyLoadRootTabPage,
 } from '../../../components/LazyLoadPage';
-import PerpTradersHistoryList from '../components/OrderInfoPanel/PerpTradersHistoryListModal';
+import {
+  getLoadedPerpsMobileTokenSelectorPage,
+  loadPerpsMobileTokenSelectorPage,
+} from '../utils/preloadPerpsTokenSelector';
+
+const PerpTradersHistoryList = LazyLoadPage(
+  () => import('../components/OrderInfoPanel/PerpTradersHistoryListModal'),
+);
 
 const PagePerp = LazyLoadRootTabPage(
   () => import(/* webpackPrefetch: true */ '../pages/Perp'),
@@ -19,9 +28,17 @@ const MobilePerpMarketPage = LazyLoadPage(
   () => import('../pages/MobilePerpMarket'),
 );
 
-const MobileTokenSelectorPage = LazyLoadPage(
-  () => import('../components/TokenSelector/MoblieTokenSelector'),
+const MobileTokenSelectorLazyPage = LazyLoadPage(
+  loadPerpsMobileTokenSelectorPage,
 );
+
+function MobileTokenSelectorPage() {
+  const LoadedMobileTokenSelectorPage =
+    getLoadedPerpsMobileTokenSelectorPage()?.default;
+  return createElement(
+    LoadedMobileTokenSelectorPage ?? MobileTokenSelectorLazyPage,
+  );
+}
 
 const MobileSetTpslModal = LazyLoadPage(
   () => import('../components/OrderInfoPanel/SetTpslModal'),

@@ -20,7 +20,10 @@ import { PriceChangeBadge } from '../../../PriceChangeBadge';
 import { TokenIdentityItem } from '../../components/TokenIdentityItem';
 import { type IMarketToken } from '../../MarketTokenData';
 
-export const useColumnsMobile = (): ITableColumn<IMarketToken>[] => {
+export const useColumnsMobile = (
+  showStockSubtitle?: boolean,
+  useStockMetadataColumns?: boolean,
+): ITableColumn<IMarketToken>[] => {
   const intl = useIntl();
 
   return [
@@ -29,11 +32,17 @@ export const useColumnsMobile = (): ITableColumn<IMarketToken>[] => {
       renderTitle: (sortIcon) => (
         <XStack alignItems="center" py="$2" paddingLeft="$5">
           <SizableText color="$textSubdued" size="$bodySmMedium">
-            {`${intl.formatMessage({
-              id: ETranslations.global_name,
-            })} / ${intl.formatMessage({
-              id: ETranslations.dexmarket_turnover,
-            })}`}
+            {useStockMetadataColumns
+              ? `${intl.formatMessage({
+                  id: ETranslations.global_name,
+                })} / ${intl.formatMessage({
+                  id: ETranslations.global_market_cap,
+                })}`
+              : `${intl.formatMessage({
+                  id: ETranslations.global_name,
+                })} / ${intl.formatMessage({
+                  id: ETranslations.dexmarket_turnover,
+                })}`}
           </SizableText>
           {sortIcon}
         </XStack>
@@ -101,9 +110,12 @@ export const useColumnsMobile = (): ITableColumn<IMarketToken>[] => {
               symbol={record.symbol}
               address={record.address}
               showVolume
-              volume={record.turnover}
+              volume={
+                useStockMetadataColumns ? record.marketCap : record.turnover
+              }
               communityRecognized={record.communityRecognized}
               stock={record.stock}
+              showStockSubtitle={showStockSubtitle}
             />
           </XStack>
         );

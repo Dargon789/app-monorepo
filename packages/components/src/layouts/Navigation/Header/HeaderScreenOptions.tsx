@@ -20,6 +20,7 @@ export type IOnekeyStackHeaderProps = {
   isRootScreen?: boolean;
   isFlowModelScreen?: boolean;
   isOnboardingScreen?: boolean;
+  isWebViewScreen?: boolean;
 };
 
 export function makeHeaderScreenOptions({
@@ -27,6 +28,7 @@ export function makeHeaderScreenOptions({
   isModelScreen = false,
   isRootScreen = false,
   isOnboardingScreen = false,
+  isWebViewScreen = false,
   bgColor,
   titleColor,
 }: IOnekeyStackHeaderProps & {
@@ -47,7 +49,7 @@ export function makeHeaderScreenOptions({
         color: titleColor as string,
       },
       headerShadowVisible: false,
-      /* Although the default value of `headerTransparent` is `false` too, 
+      /* Although the default value of `headerTransparent` is `false` too,
          we still cannot remove it here.
          because RNSSearchBar seems will read an incorrect default value.
       */
@@ -60,6 +62,7 @@ export function makeHeaderScreenOptions({
           isModelScreen={isModelScreen}
           isRootScreen={isRootScreen}
           isOnboardingScreen={isOnboardingScreen}
+          isWebViewScreen={isWebViewScreen}
           {...props}
           canGoBack={isCanGoBack}
         />
@@ -78,6 +81,7 @@ export function makeHeaderScreenOptions({
         isModelScreen={isModelScreen}
         isRootScreen={isRootScreen}
         isOnboardingScreen={isOnboardingScreen}
+        isWebViewScreen={isWebViewScreen}
       />
     ),
   };

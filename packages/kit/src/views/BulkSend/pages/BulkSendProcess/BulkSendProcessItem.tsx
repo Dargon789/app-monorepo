@@ -117,6 +117,7 @@ function BulkSendProcessItem(props: IProps) {
               })}
             </SizableText>
             <IconButton
+              testID="bulk-send-render-status-text-icon-btn"
               icon="OpenOutline"
               variant="tertiary"
               size="small"
@@ -130,6 +131,7 @@ function BulkSendProcessItem(props: IProps) {
               }
             />
             <IconButton
+              testID="bulk-send-icon-btn"
               icon="Copy3Outline"
               variant="tertiary"
               size="small"
@@ -158,6 +160,7 @@ function BulkSendProcessItem(props: IProps) {
                 })}
                 renderTrigger={
                   <IconButton
+                    testID="bulk-send-icon-btn"
                     size="small"
                     icon="InfoCircleOutline"
                     variant="tertiary"
@@ -171,6 +174,7 @@ function BulkSendProcessItem(props: IProps) {
                     </SizableText>
                     {status.isInsufficientFunds && onFillUp ? (
                       <Button
+                        testID="bulk-send-btn"
                         variant="tertiary"
                         size="large"
                         color="$textInfo"
@@ -210,6 +214,7 @@ function BulkSendProcessItem(props: IProps) {
                 })}
                 renderTrigger={
                   <IconButton
+                    testID="bulk-send-icon-btn"
                     size="small"
                     icon="InfoCircleOutline"
                     variant="tertiary"
@@ -239,22 +244,28 @@ function BulkSendProcessItem(props: IProps) {
   }, [status, networkId, copyText, intl, onFillUp]);
 
   return (
-    <XStack py="$4" px="$5" justifyContent="space-between" alignItems="center">
+    <XStack
+      py="$2.5"
+      px="$5"
+      $gtMd={{ px: '$0' }}
+      justifyContent="space-between"
+      alignItems="center"
+    >
       {/* Left: sender + receiver */}
-      <YStack gap="$1.5" flex={1} mr="$5" justifyContent="center" minWidth={0}>
-        <SizableText size="$bodyMdMedium" numberOfLines={1}>
+      <YStack flex={1} mr="$5" justifyContent="center" minWidth={0}>
+        <SizableText size="$bodyLgMedium" numberOfLines={1}>
           {shortenedFromAddress}
         </SizableText>
         <XStack alignItems="center" gap="$2">
           <Icon name="ArrowRightCircleOutline" size="$4" color="$iconSubdued" />
-          <SizableText size="$bodySm" color="$textSubdued" numberOfLines={1}>
+          <SizableText size="$bodyMd" color="$textSubdued" numberOfLines={1}>
             {shortenedToAddress}
           </SizableText>
         </XStack>
       </YStack>
 
       {/* Right: amount + status */}
-      <YStack alignItems="flex-end" gap="$1.5" justifyContent="center">
+      <YStack alignItems="flex-end" justifyContent="center">
         <XStack alignItems="center" gap="$1" justifyContent="flex-end">
           <NumberSizeableText
             size="$bodyMdMedium"
@@ -281,7 +292,12 @@ function BulkSendProcessItem(props: IProps) {
             </SizableText>
           ) : null}
         </XStack>
-        <XStack alignItems="center" gap="$2" justifyContent="flex-end">
+        <XStack
+          alignItems="center"
+          gap="$2"
+          justifyContent="flex-end"
+          minHeight="$7"
+        >
           {renderStatusIcon()}
           {renderStatusText()}
         </XStack>

@@ -224,18 +224,18 @@ function AssetSelectorTrigger({
       for (let index = 0; index < nonEmptyLines.length; index += 1) {
         const address = nonEmptyLines[index].split(',')[0]?.trim();
         if (address) {
-          const resolvedAccountId = resolvedSenderAccountIds[index];
+          const resolvedEntry = resolvedSenderAccountIds[index];
           const resolved = await resolveAccountContextForAddress({
             address,
             networkId,
-            skipValidation: Boolean(resolvedAccountId),
+            skipValidation: Boolean(resolvedEntry),
           });
 
           if (resolved) {
-            return resolvedAccountId
+            return resolvedEntry
               ? {
-                  ...resolved,
-                  accountId: resolvedAccountId,
+                  accountId: resolvedEntry.accountId,
+                  indexedAccountId: resolvedEntry.indexedAccountId,
                 }
               : resolved;
           }
@@ -532,7 +532,7 @@ function AssetSelectorTrigger({
         onPress={handleSelectAsset}
       >
         {media.gtMd ? (
-          <Button size="small" variant="secondary">
+          <Button size="small" variant="secondary" testID="bulk-send-btn">
             {intl.formatMessage({
               id: ETranslations.send_to_contacts_selector_account_title,
             })}

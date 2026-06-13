@@ -1,10 +1,6 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo } from 'react';
 
 import { useIntl } from 'react-intl';
-import Animated, {
-  useAnimatedStyle,
-  withTiming,
-} from 'react-native-reanimated';
 
 import {
   ActionList,
@@ -22,6 +18,8 @@ import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { useDebounce } from '@onekeyhq/kit/src/hooks/useDebounce';
 import useFormatDate from '@onekeyhq/kit/src/hooks/useFormatDate';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { isAddressOwnedByDeactivatedBotWallet } from '@onekeyhq/kit/src/utils/botWalletAccountUtils';
+import { showBotWalletDisabledToast } from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
 import type { IDBWallet } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
@@ -52,6 +50,7 @@ interface IRecentRecipientsProps {
   isSearchMode?: boolean;
   compact?: boolean;
   onMatchStatusChange?: (hasMatches: boolean, matchCount: number) => void;
+  onLastUsedDeriveTypeChange?: (deriveType: string | undefined) => void;
   refreshKey?: number;
 }
 
@@ -83,12 +82,6 @@ function QuickSelectListItemBase({
   networkId: string;
 }) {
   const navigation = useAppNavigation();
-  const [isHovered, setIsHovered] = useState(false);
-
-  // Animated style for hover menu opacity
-  const menuAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(isHovered ? 1 : 0, { duration: 150 }),
-  }));
 
   // Determine display mode based on available info
   const hasName = !!item.name;
@@ -129,7 +122,7 @@ function QuickSelectListItemBase({
   const handleLongPress = useCallback(() => {
     if (!showAddToAddressBook) return;
     ActionList.show({
-      title: item.address,
+      title: primaryText,
       sections: [
         {
           items: [
@@ -144,7 +137,7 @@ function QuickSelectListItemBase({
     });
   }, [
     showAddToAddressBook,
-    item.address,
+    primaryText,
     addToAddressBookLabel,
     handleAddToAddressBook,
   ]);
@@ -156,8 +149,6 @@ function QuickSelectListItemBase({
       wallet={item.wallet}
       onPress={onPress}
       onLongPress={platformEnv.isNative ? handleLongPress : undefined}
-      onHoverIn={() => setIsHovered(true)}
-      onHoverOut={() => setIsHovered(false)}
       testID={`recent-item-${item.address}`}
       primary={
         <XStack gap="$2" alignItems="center">
@@ -169,7 +160,7 @@ function QuickSelectListItemBase({
           >
             {primaryText}
           </SizableText>
-          {item.isAddressBook ? (
+          {item.isAddressBook && isEvmNetwork ? (
             <SizableText
               size="$bodySm"
               color="$textSubdued"
@@ -177,12 +168,7 @@ function QuickSelectListItemBase({
               maxWidth="$32"
               numberOfLines={1}
             >
-              {isEvmNetwork
-                ? 'EVM'
-                : (item.lastTransferNetworkName ??
-                  intl.formatMessage({
-                    id: ETranslations.address_book_title,
-                  }))}
+              EVM
             </SizableText>
           ) : null}
           {showNetworkBadge ? (
@@ -200,7 +186,7 @@ function QuickSelectListItemBase({
             <SizableText
               size="$bodySm"
               color="$textDisabled"
-              flexShrink={2}
+              flexShrink={0}
               numberOfLines={1}
             >
               {formatRelativeTime(item.lastTransferTime)}
@@ -214,29 +200,33 @@ function QuickSelectListItemBase({
           color="$textSubdued"
           wordWrap="break-word"
         >
-          {item.memo ? `${item.address} · ${item.memo}` : item.address}
+          {item.memo || item.note
+            ? `${item.address} · ${accountUtils.shortenAddress({
+                address: item.memo || item.note,
+                leadingLength: 6,
+                trailingLength: 4,
+              })}`
+            : item.address}
         </MatchSizeableText>
       }
       trailing={
-        showAddToAddressBook && !platformEnv.isNative ? (
-          <Animated.View style={[{ marginLeft: 8 }, menuAnimatedStyle]}>
-            <ActionList
-              title={item.address}
-              items={[
-                {
-                  label: addToAddressBookLabel,
-                  icon: 'BookOpenOutline',
-                  onPress: handleAddToAddressBook,
-                },
-              ]}
-              renderTrigger={
-                <ListItem.IconButton
-                  icon="DotVerSolid"
-                  testID={`recent-menu-${item.address}`}
-                />
-              }
-            />
-          </Animated.View>
+        showAddToAddressBook ? (
+          <ActionList
+            title={primaryText}
+            items={[
+              {
+                label: addToAddressBookLabel,
+                icon: 'BookOpenOutline',
+                onPress: handleAddToAddressBook,
+              },
+            ]}
+            renderTrigger={
+              <ListItem.IconButton
+                icon="DotVerSolid"
+                testID={`recent-menu-${item.address}`}
+              />
+            }
+          />
         ) : null
       }
     />
@@ -273,6 +263,7 @@ function RecentRecipients(props: IRecentRecipientsProps) {
     onSelect,
     compact = false,
     onMatchStatusChange,
+    onLastUsedDeriveTypeChange,
     refreshKey,
   } = props;
 
@@ -307,12 +298,20 @@ function RecentRecipients(props: IRecentRecipientsProps) {
     [intl.locale, formatDistanceToNowStrict],
   );
 
-  const { recentRecipients, isLoadingRecent, isLoadingMore } =
-    useRecentRecipientsData({
-      accountId,
-      networkId,
-      refreshKey,
-    });
+  const {
+    recentRecipients,
+    isLoadingRecent,
+    isLoadingMore,
+    lastUsedDeriveType,
+  } = useRecentRecipientsData({
+    accountId,
+    networkId,
+    refreshKey,
+  });
+
+  useEffect(() => {
+    onLastUsedDeriveTypeChange?.(lastUsedDeriveType);
+  }, [lastUsedDeriveType, onLastUsedDeriveTypeChange]);
 
   const debouncedSearchKey = useDebounce(rawSearchKey, 300);
   const trimmedSearchKey = normalizeSearchKey(debouncedSearchKey);
@@ -381,9 +380,38 @@ function RecentRecipients(props: IRecentRecipientsProps) {
       { initResult: new Map(), undefinedResultIfError: true },
     );
 
-  // Notify parent of match status and count
+  // Pre-compute deactivated-bot-wallet status for every recent recipient so
+  // the per-tap check is a sync map lookup instead of an IPC round-trip.
+  // Recipients without a walletId are external addresses and can't belong
+  // to a bot wallet — they default to false.
+  const { result: deactivatedRecipientWalletIds = new Set<string>() } =
+    usePromiseResult<Set<string>>(
+      async () => {
+        if (recentWalletIds.length === 0) {
+          return new Set();
+        }
+        try {
+          const statusMap =
+            await backgroundApiProxy.serviceAccount.getBotWalletDeactivationStatusMap(
+              { walletIds: recentWalletIds },
+            );
+          return new Set(
+            Object.entries(statusMap)
+              .filter(([, isDeactivated]) => isDeactivated)
+              .map(([walletId]) => walletId),
+          );
+        } catch {
+          return new Set();
+        }
+      },
+      [recentWalletIds],
+      { initResult: new Set(), undefinedResultIfError: true },
+    );
+
+  // Notify parent of match status and count.
+  // Skip during debounce — parent resets tabMatchStatus to null on
+  // searchKey change, so allReported stays false until we re-report.
   useEffect(() => {
-    // Skip reporting stale counts during debounce gap to prevent badge flickering
     if (isDebouncing) return;
     onMatchStatusChange?.(
       filteredRecentRecipients.length > 0,
@@ -407,8 +435,7 @@ function RecentRecipients(props: IRecentRecipientsProps) {
               name:
                 recipient.addressBookName ?? recipient.walletAccountName ?? '',
               address: canonicalAddress,
-              memo: recipient.addressMemo || recipient.recipientMemo,
-              note: recipient.addressNote,
+              memo: recipient.recipientMemo,
               lastTransferTime: recipient.lastTransferTime,
               lastTransferNetworkName: recipient.lastTransferNetworkName,
               isAddressBook: recipient.isAddressBook,
@@ -421,11 +448,31 @@ function RecentRecipients(props: IRecentRecipientsProps) {
             intl={intl}
             networkId={networkId}
             formatRelativeTime={formatCompactTime}
-            onPress={() => {
+            onPress={async () => {
+              // Recents may include addresses that belong to a bot wallet
+              // which has since been deactivated. Block selection so we
+              // don't paste a dead address into the recipient input — show
+              // a toast so the user understands why the row is rejected.
+              // Fast path: recipients with a known walletId resolve via the
+              // precomputed set (no IPC). Recipients without a walletId
+              // (e.g. BTC fresh addresses) still need the async lookup.
+              if (recipient.walletId) {
+                if (deactivatedRecipientWalletIds.has(recipient.walletId)) {
+                  showBotWalletDisabledToast('beReceiver');
+                  return;
+                }
+              } else if (
+                await isAddressOwnedByDeactivatedBotWallet({
+                  networkId,
+                  address: canonicalAddress,
+                })
+              ) {
+                showBotWalletDisabledToast('beReceiver');
+                return;
+              }
               onSelect?.({
                 address: canonicalAddress,
-                memo: recipient.addressMemo || recipient.recipientMemo,
-                note: recipient.addressNote,
+                memo: recipient.recipientMemo,
               });
             }}
           />
@@ -464,6 +511,7 @@ function RecentRecipients(props: IRecentRecipientsProps) {
     networkId,
     onSelect,
     recentWalletMap,
+    deactivatedRecipientWalletIds,
   ]);
 
   return (

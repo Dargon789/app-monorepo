@@ -1,10 +1,13 @@
 import {
+  formatError as formatCliError,
+  formatOk as formatCliOk,
+} from './format';
+import {
   formatHumanError,
   formatHumanInfo,
   formatHumanSuccess,
   formatHumanWarning,
 } from './human-formatter';
-import { formatError, formatSuccess } from './json-formatter';
 
 import type { IErrorDetail } from '../errors';
 import type { IOutputMetadata, IOutputMode } from '../types';
@@ -13,7 +16,12 @@ export class OutputFormatter {
   // eslint-disable-next-line no-useless-constructor, no-empty-function
   constructor(private mode: IOutputMode) {}
 
-  success<T>(data: T, metadata?: Partial<IOutputMetadata>): void {
+  raw(message: string, stream: 'stdout' | 'stderr' = 'stdout'): void {
+    const target = stream === 'stderr' ? process.stderr : process.stdout;
+    target.write(message.endsWith('\n') ? message : `${message}\n`);
+  }
+
+  success<T>(data: T, _metadata?: Partial<IOutputMetadata>): void {
     if (this.mode === 'quiet') {
       if (data && typeof data === 'object') {
         const values = Object.values(data as Record<string, unknown>);
@@ -27,8 +35,14 @@ export class OutputFormatter {
     }
 
     if (this.mode === 'agent') {
-      const response = formatSuccess(data, metadata);
-      process.stdout.write(`${JSON.stringify(response)}\n`);
+      process.stdout.write(`${formatCliOk(data, 'json')}\n`);
+      return;
+    }
+
+    if (this.mode === 'text') {
+      process.stdout.write(
+        `${formatCliOk(data, 'text', { isTTY: process.stdout.isTTY })}\n`,
+      );
       return;
     }
 
@@ -43,8 +57,18 @@ export class OutputFormatter {
     }
 
     if (this.mode === 'agent') {
-      const response = formatError(error);
-      process.stdout.write(`${JSON.stringify(response)}\n`);
+      process.stdout.write(
+        `${formatCliError(error.code, error.message, 'json')}\n`,
+      );
+      return;
+    }
+
+    if (this.mode === 'text') {
+      process.stdout.write(
+        `${formatCliError(error.code, error.message, 'text', {
+          isTTY: process.stdout.isTTY,
+        })}\n`,
+      );
       return;
     }
 

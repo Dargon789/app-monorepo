@@ -3,12 +3,7 @@ import { useCallback, useLayoutEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 
 import type { IPageScreenProps } from '@onekeyhq/components';
-import {
-  Page,
-  isNativeTablet,
-  useIsSplitView,
-  useMedia,
-} from '@onekeyhq/components';
+import { Page, useMedia } from '@onekeyhq/components';
 import { EJotaiContextStoreNames } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
   EAppEventBusNames,
@@ -25,9 +20,10 @@ import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 import { AccountSelectorProviderMirror } from '../../../components/AccountSelector';
 import { useMarketEnterAnalytics } from '../hooks';
 import { MarketWatchListProviderMirrorV2 } from '../MarketWatchListProviderMirrorV2';
+import { MarketTestIDs } from '../testIDs';
 
 import { MarketDetailHeader } from './components/MarketDetailHeader';
-import { useAutoRefreshTokenDetail } from './hooks';
+import { BtcMetadataProvider, useAutoRefreshTokenDetail } from './hooks';
 import { DesktopLayout } from './layouts/DesktopLayout';
 import { MobileLayout } from './layouts/MobileLayout';
 
@@ -68,17 +64,19 @@ function MarketDetail({
   const media = useMedia();
 
   return (
-    <Page>
-      <MarketDetailHeader />
+    <BtcMetadataProvider>
+      <Page>
+        <MarketDetailHeader />
 
-      <Page.Body>
-        {media.gtLg && !platformEnv.isNative ? (
-          <DesktopLayout />
-        ) : (
-          <MobileLayout disableTrade={disableTrade} />
-        )}
-      </Page.Body>
-    </Page>
+        <Page.Body testID={MarketTestIDs.detailPage}>
+          {media.gtLg && !platformEnv.isNative ? (
+            <DesktopLayout />
+          ) : (
+            <MobileLayout disableTrade={disableTrade} />
+          )}
+        </Page.Body>
+      </Page>
+    </BtcMetadataProvider>
   );
 }
 
@@ -89,8 +87,7 @@ function MarketDetailV2(
   >,
 ) {
   const { navigation } = props;
-  const isLandscape = useIsSplitView();
-  const isTablet = isNativeTablet();
+  const media = useMedia();
 
   useLayoutEffect(() => {
     if (!platformEnv.isNativeIOS) {
@@ -107,7 +104,10 @@ function MarketDetailV2(
 
   useFocusEffect(
     useCallback(() => {
-      if (platformEnv.isExtension || (isTablet && isLandscape)) {
+      const shouldHideTabBar =
+        platformEnv.isNative || (!platformEnv.isExtension && media.md);
+
+      if (!shouldHideTabBar) {
         return;
       }
 
@@ -116,7 +116,7 @@ function MarketDetailV2(
       return () => {
         appEventBus.emit(EAppEventBusNames.HideTabBar, false);
       };
-    }, [isLandscape, isTablet]),
+    }, [media.md]),
   );
 
   return (

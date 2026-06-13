@@ -34,7 +34,7 @@ export const HYPER_LIQUID_CUSTOM_LOCAL_STORAGE_V2_PRESET = {
 export const FALLBACK_BUILDER_ADDRESS =
   '0x9b12E858dA780a96876E3018780CF0D83359b0bb' as IHex;
 
-export const FALLBACK_MAX_BUILDER_FEE = 40;
+export const FALLBACK_MAX_BUILDER_FEE = 50;
 
 export const PERPS_EMPTY_ADDRESS =
   '0x0000000000000000000000000000000000000000' as IHex;
@@ -58,6 +58,7 @@ export const PERPS_USER_FILLS_TIME_RANGE = timerUtils.getTimeDurationMs({
 });
 
 export const PERPS_HISTORY_FILLS_URL = 'https://hypurrscan.io/address/';
+export const PERPS_TWAP_HISTORY_URL = `${HYPER_LIQUID_ORIGIN}/twapHistory/`;
 
 /**
  * Filtered transaction types in account ledger history

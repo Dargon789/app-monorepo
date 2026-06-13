@@ -56,6 +56,10 @@ This is a React Native project targeting iOS, Android, and Web. Always consider 
 
 When fixing bugs, do NOT remove existing code/components that weren't part of the request. Only modify what is explicitly asked for. If you believe something should be removed, ask first.
 
+## Database Schema Changes
+
+When modifying local database schema-related code, always keep Realm DB and IndexedDB definitions in sync and bump `LOCAL_DB_VERSION` in `packages/kit-bg/src/dbs/local/consts.ts` in the same change. This includes Realm schema properties, Realm `record` getters that convert objects to plain JSON records, IndexedDB store names or bucket assignments, local DB schema maps, and persisted model fields. Verify that neither the Realm schema files nor the IndexedDB schema/type maps are missing the corresponding update. Do not rely on optional fields or default values to skip the version bump.
+
 ## Dependencies & Patching
 
 When working with patch-package, never edit .patch files directly. Instead, modify the source files in node_modules/ and run `npx patch-package <package-name>` to regenerate the patch. Always verify the generated patch excludes build artifacts (e.g., android/build/).
@@ -98,5 +102,20 @@ For detailed guidance, use these skills (invoke with `/skill-name`):
 - **1k-git-workflow** - Git branching and commit conventions
 - **1k-i18n** - Internationalization guidelines
 - **1k-cross-platform** - Platform-specific development
+- **1k-trade-swap-market** - Trade/Swap/Market domain workflow, pitfalls, code map, and validation
 - **1k-adding-chains** - Adding new blockchain support
 - **1k-bundle-release** - Bundle hot update release management (cherry-pick, diff-check, publish)
+
+## CLI Skills (external plugin)
+
+The `onekey` CLI (`apps/cli/`) supports App Bot Wallet login (`onekey auth
+login --app-transfer`) and hardware wallet login (`onekey auth login
+--hardware`). Skill packs live in the external repo
+<https://github.com/OneKeyHQ/onekey-wallet-skills> and are installed via
+`/plugin install onekey-wallet-skills`; do not re-add them to this monorepo.
+
+After `onekey auth login --hardware`, the active session is hardware-backed,
+so normal `onekey balance`, `onekey transfer`, `onekey swap …` run against the
+device automatically — no `--hardware` flag on those commands. Device
+lifecycle commands live under `onekey device <subcommand>` (search, verify,
+change-pin, toggle-passphrase, settings).

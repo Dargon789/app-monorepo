@@ -1,17 +1,12 @@
 import type { ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { usePreventRemove } from '@react-navigation/core';
 import { useIntl } from 'react-intl';
 
 import type { IPageScreenProps } from '@onekeyhq/components';
-import {
-  Markdown,
-  Page,
-  ScrollView,
-  SizableText,
-  YStack,
-} from '@onekeyhq/components';
+import { Page, ScrollView, SizableText, YStack } from '@onekeyhq/components';
+import { Markdown } from '@onekeyhq/components/src/content/Markdown';
 import { useAppUpdatePersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
   type IAppUpdateInfo,
@@ -26,7 +21,7 @@ import type {
 } from '@onekeyhq/shared/src/routes';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
-import { isForceUpdateStrategy } from '../../../components/UpdateReminder/hooks';
+import { isForceUpdateStrategy } from '../../../components/AppUpdate';
 import { UpdatePreviewActionButton } from '../components/UpdatePreviewActionButton';
 import { ViewUpdateHistory } from '../components/ViewUpdateHistory';
 
@@ -65,25 +60,26 @@ function UpdatePreview({
       .fetchAppUpdateInfo(true)
       .then((response) => {
         setUpdateInfo(response);
+        if (response?.latestVersion) {
+          defaultLogger.app.appUpdate.changelogViewed({
+            toVersion: response.latestVersion,
+            isForceUpdate: isForceUpdateStrategy(response.updateStrategy),
+          });
+        }
       });
   }, []);
 
-  const isForceUpdate = updateInfo
-    ? isForceUpdateStrategy(updateInfo?.updateStrategy)
-    : isForceUpdateParam;
+  // `updateInfo` is seeded from the useAppUpdatePersistAtom() snapshot, which
+  // during the jotai hydration race is still the non-force placeholder on the
+  // first paint. Deriving the lock purely from it would leave a mandatory
+  // update briefly dismissible until fetchAppUpdateInfo() resolves. The route
+  // param is derived from authoritative state at navigation time, so a force
+  // param must win on the first frame (fail-safe toward locked).
+  const isForceUpdate =
+    Boolean(isForceUpdateParam) ||
+    isForceUpdateStrategy(updateInfo?.updateStrategy);
   const changeLog = updateInfo?.changeLog;
   usePreventRemove(!!isForceUpdate, () => {});
-
-  const hasLoggedRef = useRef(false);
-  useEffect(() => {
-    if (updateInfo?.latestVersion && !hasLoggedRef.current) {
-      hasLoggedRef.current = true;
-      defaultLogger.app.appUpdate.changelogViewed({
-        toVersion: updateInfo.latestVersion,
-        isForceUpdate: !!isForceUpdate,
-      });
-    }
-  }, [updateInfo?.latestVersion, isForceUpdate]);
 
   const headerProps = useMemo(() => {
     const props: { title: string; headerLeft?: () => ReactNode } = {

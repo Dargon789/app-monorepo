@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { noop } from 'lodash';
 import { useIntl } from 'react-intl';
@@ -28,6 +28,7 @@ import {
 import { dismissKeyboardWithDelay } from '@onekeyhq/shared/src/keyboard';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
+import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 import type { ISwapToken } from '@onekeyhq/shared/types/swap/types';
 
@@ -52,13 +53,41 @@ function MobileTradingViewTouchBridge({
   networkId,
   tokenSymbol,
   dataSource,
+  pageWidth,
+  onIndicatorsDialogOpenChange,
 }: {
   tokenAddress: string;
   networkId: string;
   tokenSymbol: string;
   dataSource: 'websocket' | 'polling';
+  pageWidth?: number;
+  onIndicatorsDialogOpenChange: (isOpen: boolean) => void;
 }) {
+  const indicatorsDialogOpenRef = useRef(false);
   const handleTouchScroll = useMobileTabTouchScrollBridge();
+  const handleTouchScrollWhenEnabled = useCallback(
+    (deltaY: number) => {
+      if (indicatorsDialogOpenRef.current) {
+        return;
+      }
+      handleTouchScroll(deltaY);
+    },
+    [handleTouchScroll],
+  );
+  const handleIndicatorsDialogOpenChange = useCallback(
+    (isOpen: boolean) => {
+      indicatorsDialogOpenRef.current = isOpen;
+      onIndicatorsDialogOpenChange(isOpen);
+    },
+    [onIndicatorsDialogOpenChange],
+  );
+
+  useEffect(() => {
+    return () => {
+      indicatorsDialogOpenRef.current = false;
+      onIndicatorsDialogOpenChange(false);
+    };
+  }, [onIndicatorsDialogOpenChange]);
 
   return (
     <MarketTradingView
@@ -66,7 +95,9 @@ function MobileTradingViewTouchBridge({
       networkId={networkId}
       tokenSymbol={tokenSymbol}
       dataSource={dataSource}
-      onTouchScroll={handleTouchScroll}
+      pageWidth={pageWidth}
+      onTouchScroll={handleTouchScrollWhenEnabled}
+      onIndicatorsDialogOpenChange={handleIndicatorsDialogOpenChange}
     />
   );
 }
@@ -81,6 +112,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
   } = useTokenDetail();
   const tokenSymbol = tokenDetail?.symbol;
   const intl = useIntl();
+  const isBTCMainnet = networkUtils.isBTCMainnet(networkId);
 
   const { accountAddress, xpub } = useNetworkAccount(networkId);
 
@@ -117,9 +149,23 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
   }, [bottom, top, isIOSModalPage]);
 
   const width = usePageWidth();
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  const effectivePageWidth = useMemo(() => {
+    if (containerWidth > 0) {
+      return containerWidth;
+    }
+    if (typeof width === 'number' && width > 0) {
+      return width;
+    }
+    return Dimensions.get('window').width;
+  }, [containerWidth, width]);
 
   const scrollViewRef = useRef<IScrollViewRef>(null);
   const focusedTab = useSharedValue(tabNames[0]);
+  const [
+    isTradingViewIndicatorsDialogOpen,
+    setIsTradingViewIndicatorsDialogOpen,
+  ] = useState(false);
   const secondTabTouchStartRef = useRef<{
     pageX: number;
     pageY: number;
@@ -129,12 +175,49 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
     (tabName: string) => {
       focusedTab.value = tabName;
       scrollViewRef.current?.scrollTo({
-        x: width * tabNames.indexOf(tabName),
+        x: effectivePageWidth * tabNames.indexOf(tabName),
         animated: true,
       });
     },
-    [focusedTab, tabNames, width],
+    [focusedTab, tabNames, effectivePageWidth],
   );
+
+  const handleContainerLayout = useCallback(
+    (event: { nativeEvent: { layout: { width: number } } }) => {
+      const nextWidth = Math.round(event.nativeEvent.layout.width);
+      if (nextWidth > 0) {
+        setContainerWidth((prevWidth) =>
+          prevWidth === nextWidth ? prevWidth : nextWidth,
+        );
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    const activeTabIndex = tabNames.indexOf(focusedTab.value);
+    if (activeTabIndex < 0 || effectivePageWidth <= 0) {
+      return;
+    }
+
+    // Keep horizontal pages aligned after fold/unfold or split-width changes.
+    const alignTimer = setTimeout(() => {
+      scrollViewRef.current?.scrollTo({
+        x: effectivePageWidth * activeTabIndex,
+        animated: false,
+      });
+    }, 0);
+
+    return () => clearTimeout(alignTimer);
+  }, [effectivePageWidth, focusedTab, tabNames]);
+
+  useEffect(() => {
+    setIsTradingViewIndicatorsDialogOpen(false);
+  }, [networkId, tokenAddress, tokenSymbol]);
+
+  const handleIndicatorsDialogOpenChange = useCallback((isOpen: boolean) => {
+    setIsTradingViewIndicatorsDialogOpen(isOpen);
+  }, []);
 
   const handleHeaderHorizontalSwipe = useCallback(
     (direction: 'left' | 'right') => {
@@ -216,6 +299,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
         </HeaderScrollGestureWrapper>
         <Stack position="relative">
           <HeaderScrollGestureWrapper
+            disabled={isTradingViewIndicatorsDialogOpen}
             panActiveOffsetY={[-4, 4]}
             panFailOffsetX={chartAreaPanFailOffsetX}
             excludeRightEdgeRatio={chartAreaExcludeRightEdgeRatio}
@@ -234,11 +318,16 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
                 if (platformEnv.isNativeAndroid || platformEnv.isNativeIOS) {
                   return (
                     <MobileTradingViewTouchBridge
+                      key={`${networkId}:${tokenAddress}:${tokenSymbol}`}
                       tokenAddress={tokenAddress}
                       networkId={networkId}
                       tokenSymbol={tokenSymbol}
                       dataSource={
                         websocketConfig?.kline ? 'websocket' : 'polling'
+                      }
+                      pageWidth={effectivePageWidth}
+                      onIndicatorsDialogOpenChange={
+                        handleIndicatorsDialogOpenChange
                       }
                     />
                   );
@@ -251,6 +340,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
                     dataSource={
                       websocketConfig?.kline ? 'websocket' : 'polling'
                     }
+                    pageWidth={effectivePageWidth}
                   />
                 );
               })()}
@@ -272,7 +362,10 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
       </YStack>
     );
   }, [
+    effectivePageWidth,
     handleHeaderHorizontalSwipe,
+    handleIndicatorsDialogOpenChange,
+    isTradingViewIndicatorsDialogOpen,
     networkId,
     tokenAddress,
     tokenSymbol,
@@ -311,7 +404,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
             ) : (
               <>
                 <TokenOverview />
-                <TokenActivityOverview />
+                {isBTCMainnet ? null : <TokenActivityOverview />}
               </>
             )}
             <Stack h={100} w="100%" />
@@ -328,6 +421,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
       handleSecondTabTouchStart,
       handleSecondTabTouchEnd,
       isStockToken,
+      isBTCMainnet,
     ],
   );
 
@@ -386,7 +480,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
   };
 
   return (
-    <YStack flex={1} position="relative">
+    <YStack flex={1} position="relative" onLayout={handleContainerLayout}>
       <Tabs.TabBar
         divider={false}
         onTabPress={handleTabChange}
@@ -395,7 +489,12 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
       />
       <ScrollView horizontal ref={scrollViewRef} flex={1} scrollEnabled={false}>
         {tabNames.map((_, index) => (
-          <YStack key={index} h={height} w={width}>
+          <YStack
+            key={index}
+            h={height}
+            overflow="hidden"
+            w={effectivePageWidth}
+          >
             {renderItem({ index })}
           </YStack>
         ))}

@@ -1,5 +1,9 @@
 import {
+  COMPACT_SPOT_HIDDEN_DESKTOP_COLUMNS,
+  isMarketStockCategory,
+  isMarketStockCategoryById,
   parseValueToNumber,
+  shouldHideSpotExtendedStats,
   validateLiquidityInput,
   validateMaximumMinLiquidity,
 } from './utils';
@@ -321,5 +325,85 @@ describe('Maximum Minimum Liquidity Validation Tests', () => {
       const result = validateMaximumMinLiquidity(input);
       expect(result).toBe(should);
     });
+  });
+});
+
+describe('Spot Category Extended Stats Visibility Tests', () => {
+  test('keep extended stats for trending', () => {
+    expect(shouldHideSpotExtendedStats('trending')).toBe(false);
+  });
+
+  test('keep extended stats for x mentioned', () => {
+    expect(shouldHideSpotExtendedStats('x_mentioned')).toBe(false);
+  });
+
+  test('hide extended stats for AI and other thematic categories', () => {
+    expect(shouldHideSpotExtendedStats('ai')).toBe(true);
+    expect(shouldHideSpotExtendedStats('stock')).toBe(true);
+    expect(shouldHideSpotExtendedStats('metal')).toBe(true);
+  });
+
+  test('default category keeps extended stats visible', () => {
+    expect(shouldHideSpotExtendedStats()).toBe(false);
+  });
+
+  test('empty string category keeps extended stats visible', () => {
+    expect(shouldHideSpotExtendedStats('')).toBe(false);
+  });
+
+  test('compact spot columns match watchlist-oriented desktop fields', () => {
+    expect(COMPACT_SPOT_HIDDEN_DESKTOP_COLUMNS).toEqual([
+      'transactions',
+      'uniqueTraders',
+      'holders',
+      'tokenAge',
+    ]);
+  });
+});
+
+describe('Market Stock Category Detection Tests', () => {
+  test('detects stock category from explicit metadata', () => {
+    expect(
+      isMarketStockCategory({
+        id: 'equities',
+        name: 'Equities',
+        isStockCategory: true,
+      }),
+    ).toBe(true);
+  });
+
+  test('detects stock category from API id or name', () => {
+    expect(isMarketStockCategory({ id: 'stock', name: 'Stocks' })).toBe(true);
+    expect(
+      isMarketStockCategory({ id: 'tokenized_stocks', name: 'Tokenized' }),
+    ).toBe(true);
+    expect(isMarketStockCategory({ id: 'equities', name: 'Stocks' })).toBe(
+      true,
+    );
+  });
+
+  test('detects stock category from Chinese category name', () => {
+    expect(isMarketStockCategory({ id: 'equities', name: '股票' })).toBe(true);
+  });
+
+  test('does not mark regular spot categories as stock', () => {
+    expect(isMarketStockCategory({ id: 'trending', name: 'Trending' })).toBe(
+      false,
+    );
+    expect(
+      isMarketStockCategory({ id: 'x_mentioned', name: 'X Mentioned' }),
+    ).toBe(false);
+  });
+
+  test('resolves stock category by id from category list', () => {
+    const categories = [
+      { id: 'trending', name: 'Trending' },
+      { id: 'stock', name: 'Stocks' },
+    ];
+
+    expect(isMarketStockCategoryById(categories, 'stock')).toBe(true);
+    expect(isMarketStockCategoryById(categories, 'trending')).toBe(false);
+    expect(isMarketStockCategoryById(categories, 'missing')).toBe(false);
+    expect(isMarketStockCategoryById(undefined, 'stock')).toBe(false);
   });
 });

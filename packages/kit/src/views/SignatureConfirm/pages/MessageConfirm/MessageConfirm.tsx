@@ -25,7 +25,6 @@ import {
 } from '@onekeyhq/shared/src/utils/txActionUtils';
 import { EDAppModalPageStatus } from '@onekeyhq/shared/types/dappConnection';
 import { EHostSecurityLevel } from '@onekeyhq/shared/types/discovery';
-import { EMessageTypesEth } from '@onekeyhq/shared/types/message';
 import {
   EParseTxComponentType,
   type IParseMessageResp,
@@ -45,6 +44,7 @@ import { MessageConfirmDetails } from '../../components/SignatureConfirmDetails'
 import { SignatureConfirmLoading } from '../../components/SignatureConfirmLoading';
 import { SignatureConfirmProviderMirror } from '../../components/SignatureConfirmProvider/SignatureConfirmProviderMirror';
 import SwapInfo from '../../components/SwapInfo';
+import { SignatureConfirmTestIDs } from '../../testIDs';
 
 import type { RouteProp } from '@react-navigation/core';
 
@@ -99,13 +99,11 @@ function MessageConfirm() {
     setContinueOperate,
     urlSecurityInfo,
     isRiskSignMethod,
-  } = useRiskDetection({ origin: sourceInfo?.origin ?? '', unsignedMessage });
-
-  const isSignTypedDataV3orV4Method =
-    unsignedMessage.type === EMessageTypesEth.TYPED_DATA_V3 ||
-    unsignedMessage.type === EMessageTypesEth.TYPED_DATA_V4;
-
-  const typedData = JSON.stringify(unsignedMessage);
+  } = useRiskDetection({
+    origin: sourceInfo?.origin ?? '',
+    unsignedMessage,
+    walletConnectVerifyContext: sourceInfo?.walletConnectVerifyContext,
+  });
 
   const { result, isLoading } = usePromiseResult(
     async () => {
@@ -115,37 +113,17 @@ function MessageConfirm() {
           accountId,
         });
 
-      const requests:
-        | [Promise<IParseMessageResp | null>, Promise<void>]
-        | [Promise<IParseMessageResp | null>] = isSignTypedDataV3orV4Method
-        ? [
-            backgroundApiProxy.serviceSignatureConfirm.parseMessage({
-              networkId,
-              accountId,
-              accountAddress,
-              message: unsignedMessage.message,
-              swapInfo,
-            }),
-            backgroundApiProxy.serviceDiscovery.postSignTypedDataMessage({
-              networkId,
-              accountId,
-              origin: sourceInfo?.origin ?? '',
-              typedData,
-            }),
-          ]
-        : [
-            backgroundApiProxy.serviceSignatureConfirm.parseMessage({
-              networkId,
-              accountId,
-              accountAddress,
-              message: unsignedMessage.message,
-              swapInfo,
-            }),
-          ];
-
       const resp = await promiseAllSettledEnhanced(
-        // @ts-ignore
-        requests,
+        [
+          backgroundApiProxy.serviceSignatureConfirm.parseMessage({
+            networkId,
+            accountId,
+            accountAddress,
+            message: unsignedMessage.message,
+            swapInfo,
+            origin: sourceInfo?.origin,
+          }),
+        ],
         {
           continueOnError: true,
         },
@@ -194,11 +172,9 @@ function MessageConfirm() {
     [
       networkId,
       accountId,
-      isSignTypedDataV3orV4Method,
       unsignedMessage.message,
       swapInfo,
       sourceInfo?.origin,
-      typedData,
     ],
     {
       watchLoading: true,
@@ -318,6 +294,18 @@ function MessageConfirm() {
     );
   }, []);
 
+  // Pre-warm the device while the user reviews, so Sign can skip Initialize.
+  // Fire-and-forget; the service no-ops for non-hardware wallets.
+  useEffect(() => {
+    if (!accountId) {
+      return;
+    }
+    const walletId = accountUtils.getWalletIdFromAccountId({ accountId });
+    void backgroundApiProxy.serviceHardware.preInitializeDeviceForSign({
+      walletId,
+    });
+  }, [accountId]);
+
   useEffect(() => {
     if (sourceInfo) {
       const walletId = accountUtils.getWalletIdFromAccountId({
@@ -332,14 +320,21 @@ function MessageConfirm() {
   }, [sourceInfo, accountId, skipBackupCheck]);
 
   return (
-    <Page scrollEnabled onClose={handleOnClose} safeAreaEnabled>
+    <Page
+      scrollEnabled
+      onClose={handleOnClose}
+      safeAreaEnabled
+      testID={SignatureConfirmTestIDs.MessageConfirmPage}
+    >
       <Page.Header
         title={
           parsedMessage?.title ||
           intl.formatMessage({ id: ETranslations.sig_signature_request_label })
         }
       />
-      <Page.Body px="$5">{renderMessageConfirmContent()}</Page.Body>
+      <Page.Body testID={SignatureConfirmTestIDs.MessageConfirmBody} px="$5">
+        {renderMessageConfirmContent()}
+      </Page.Body>
       <MessageConfirmActions
         accountId={accountId}
         networkId={networkId}

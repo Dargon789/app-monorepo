@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 
 import type { IIconProps } from '@onekeyhq/components';
 import { Icon, Image, SizableText, XStack } from '@onekeyhq/components';
@@ -9,7 +9,9 @@ import {
   type IHostSecurity,
 } from '@onekeyhq/shared/types/discovery';
 
-function DAppSiteMark({
+import { DAppConnectionTestIDs } from '../../testIDs';
+
+function DAppSiteMarkInner({
   origin,
   urlSecurityInfo,
   favicon,
@@ -71,7 +73,12 @@ function DAppSiteMark({
   }, [urlSecurityInfo?.level]);
 
   return (
-    <XStack alignItems="center" alignSelf="flex-start" gap="$1.5">
+    <XStack
+      testID={DAppConnectionTestIDs.SiteMark}
+      alignItems="center"
+      alignSelf="flex-start"
+      gap="$1.5"
+    >
       <Image
         size="$5"
         bg="$bgSubdued"
@@ -103,5 +110,7 @@ function DAppSiteMark({
     </XStack>
   );
 }
+
+const DAppSiteMark = memo(DAppSiteMarkInner);
 
 export { DAppSiteMark };

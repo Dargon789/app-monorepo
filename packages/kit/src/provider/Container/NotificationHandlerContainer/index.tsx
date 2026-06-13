@@ -10,12 +10,16 @@ import {
   setPerpPageEnterSource,
 } from '@onekeyhq/shared/src/logger/scopes/perp/perpPageSource';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
-import { ETabRoutes } from '@onekeyhq/shared/src/routes';
-import { navigateToNotificationDetailByLocalParams } from '@onekeyhq/shared/src/utils/notificationsUtils';
 import {
-  openUrlExternal,
-  openUrlInApp,
-} from '@onekeyhq/shared/src/utils/openUrlUtils';
+  ETabRoutes,
+  type IWebViewPageParams,
+} from '@onekeyhq/shared/src/routes';
+import {
+  type INotificationPageNavigationEvent,
+  navigateToNotificationDetailByLocalParams,
+  registerNotificationPageNavigationProcessor,
+} from '@onekeyhq/shared/src/utils/notificationsUtils';
+import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 import {
   ENotificationViewDialogActionType,
@@ -30,6 +34,7 @@ import { useVersionCompatible } from '../../../hooks/useVersionCompatible';
 import { useActiveAccount } from '../../../states/jotai/contexts/accountSelector';
 import { useBrowserAction } from '../../../states/jotai/contexts/discovery';
 import { DiscoveryBrowserProviderMirror } from '../../../views/Discovery/components/DiscoveryBrowserProviderMirror';
+import { openWebView } from '../../../views/WebView/utils/webViewNavigation';
 
 import { executeNotificationCommand } from './commandRegistry';
 import { useInitialNotification } from './hooks';
@@ -96,7 +101,7 @@ function BaseNotificationHandlerContainer() {
               }
               break;
             case ENotificationViewDialogActionType.openInApp:
-              openUrlInApp(payload as string);
+              openWebView({ url: payload as string, source: 'notification' });
               break;
             case ENotificationViewDialogActionType.openInBrowser:
               openUrlExternal(payload as string);
@@ -114,20 +119,7 @@ function BaseNotificationHandlerContainer() {
     const handleShowNotificationPageNavigation = async ({
       payload: payloadObj,
       extras,
-    }: {
-      payload: {
-        screen: string;
-        params: Record<string, any>;
-      };
-      extras?: {
-        params?: {
-          coin?: string;
-          type?: string;
-          [key: string]: any;
-        };
-        [key: string]: any;
-      };
-    }) => {
+    }: INotificationPageNavigationEvent) => {
       const localParams = getLocalParams();
 
       const isPerpNavigation =
@@ -146,6 +138,13 @@ function BaseNotificationHandlerContainer() {
       if (perpToken) {
         try {
           await backgroundApiProxy.serviceHyperliquid.changeActiveAsset({
+            coin: perpToken,
+          });
+          // Notify an already-mounted Perp page (via PerpsGlobalEffects) to
+          // switch its active instrument; without this the coin switch is a
+          // no-op when the Perp page was already opened (banner deep-link case).
+          appEventBus.emit(EAppEventBusNames.PerpSwitchActiveInstrument, {
+            mode: 'perp',
             coin: perpToken,
           });
         } catch (error) {
@@ -180,13 +179,25 @@ function BaseNotificationHandlerContainer() {
         openUrlExternal(url);
       }
     };
-    appEventBus.on(
-      EAppEventBusNames.ShowNotificationPageNavigation,
-      handleShowNotificationPageNavigation,
-    );
+    const handleShowNotificationInWebViewOverlay = (
+      params: IWebViewPageParams,
+    ) => {
+      openWebView(params);
+    };
+    // Durable registration: drains any intent buffered before this UI mounted
+    // (cold-start safe), instead of a transient appEventBus.on that drops
+    // events emitted before the handler was registered.
+    const unregisterPageNavigationProcessor =
+      registerNotificationPageNavigationProcessor(
+        handleShowNotificationPageNavigation,
+      );
     appEventBus.on(
       EAppEventBusNames.ShowNotificationInDappPage,
       handleShowNotificationDappNavigation,
+    );
+    appEventBus.on(
+      EAppEventBusNames.ShowNotificationInWebViewOverlay,
+      handleShowNotificationInWebViewOverlay,
     );
 
     const handleExecuteCommand = ({
@@ -216,13 +227,14 @@ function BaseNotificationHandlerContainer() {
         EAppEventBusNames.ShowNotificationViewDialog,
         handleShowNotificationViewDialog,
       );
-      appEventBus.off(
-        EAppEventBusNames.ShowNotificationPageNavigation,
-        handleShowNotificationPageNavigation,
-      );
+      unregisterPageNavigationProcessor();
       appEventBus.off(
         EAppEventBusNames.ShowNotificationInDappPage,
         handleShowNotificationDappNavigation,
+      );
+      appEventBus.off(
+        EAppEventBusNames.ShowNotificationInWebViewOverlay,
+        handleShowNotificationInWebViewOverlay,
       );
       appEventBus.off(
         EAppEventBusNames.ExecuteNotificationCommand,

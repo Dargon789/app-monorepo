@@ -26,6 +26,7 @@ import {
   type IAddressInputValue,
 } from '@onekeyhq/kit/src/components/AddressInput';
 import { ChainSelectorInput } from '@onekeyhq/kit/src/components/ChainSelectorInput';
+import { useValidateMemoField } from '@onekeyhq/kit/src/hooks/useValidateMemoField';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import type {
@@ -37,6 +38,7 @@ import { formatDate } from '@onekeyhq/shared/src/utils/dateUtils';
 import { buildChangeHistoryInputAddon } from '../../../components/ChangeHistoryDialog/ChangeHistoryDialog';
 import { useAccountData } from '../../../hooks/useAccountData';
 import { usePromiseResult } from '../../../hooks/usePromiseResult';
+import { AddressBookTestIDs } from '../testIDs';
 
 import type { IAddressItem } from '../type';
 
@@ -44,7 +46,12 @@ type ICreateOrEditContentProps = {
   title?: string;
   item: IAddressItem;
   isSubmitLoading?: boolean;
-  disabledAddressEdit?: boolean;
+  // Lock every field that is part of the entry's routing identity (network,
+  // address, memo, note). `name` stays editable. Routing fields are immutable
+  // post-create because the cloud sync layer keys items by (networkImpl +
+  // address) and chains like XRP/Cosmos/Algorand treat memo/note as part of
+  // the destination.
+  lockRoutingFields?: boolean;
   onSubmit: (item: IAddressItem) => Promise<void>;
   onRemove?: (item: IAddressItem) => void;
   nameHistoryInfo?: {
@@ -79,7 +86,7 @@ export function CreateOrEditContent({
   onRemove,
   nameHistoryInfo,
   isSubmitLoading,
-  disabledAddressEdit,
+  lockRoutingFields,
 }: ICreateOrEditContentProps) {
   const intl = useIntl();
 
@@ -90,7 +97,7 @@ export function CreateOrEditContent({
           icon="DeleteOutline"
           variant="tertiary"
           onPress={() => onRemove(item)}
-          testID="address-form-remove"
+          testID={AddressBookTestIDs.formRemoveBtn}
         />
       ) : null,
     [onRemove, item],
@@ -181,52 +188,30 @@ export function CreateOrEditContent({
           placeholder={intl.formatMessage({
             id: ETranslations.global_Note,
           })}
+          testID={AddressBookTestIDs.formNoteInput}
+          editable={!lockRoutingFields}
         />
       </Form.Field>
     );
-  }, [intl, media.gtMd, vaultSettings?.noteMaxLength, vaultSettings?.withNote]);
+  }, [
+    intl,
+    lockRoutingFields,
+    media.gtMd,
+    vaultSettings?.noteMaxLength,
+    vaultSettings?.withNote,
+  ]);
 
-  const validateMemoField = useCallback(
-    async (value: string): Promise<string | undefined> => {
-      if (!value) return undefined;
-
-      try {
-        const validationResult =
-          await backgroundApiProxy.serviceSend.validateMemo({
-            networkId,
-            memo: value,
-          });
-        if (!validationResult.isValid) {
-          return validationResult.errorMessage;
-        }
-        return undefined;
-      } catch (error) {
-        // Fallback to client-side validation if Vault validation fails
-        console.warn('Vault validateMemo failed, using fallback:', error);
-      }
-
-      // Fallback: use original logic
-      const validateErrMsg = vaultSettings?.numericOnlyMemo
-        ? intl.formatMessage({
-            id: ETranslations.send_field_only_integer,
-          })
-        : undefined;
-      const memoRegExp = vaultSettings?.numericOnlyMemo
-        ? /^[0-9]+$/
-        : undefined;
-
-      if (!value || !memoRegExp) return undefined;
-      const result = !memoRegExp.test(value);
-      return result ? validateErrMsg : undefined;
-    },
-    [intl, networkId, vaultSettings?.numericOnlyMemo],
-  );
+  const validateMemoField = useValidateMemoField({
+    networkId,
+    numericOnlyMemo: vaultSettings?.numericOnlyMemo,
+    supportMemoValidation: vaultSettings?.supportMemoValidation,
+  });
 
   const renderMemoForm = useCallback(() => {
     if (!vaultSettings?.withMemo) return null;
 
     const maxLength = vaultSettings?.memoMaxLength || 256;
-    const customValidate = vaultSettings?.supportMemoValidation;
+    const isNumericMemo = Boolean(vaultSettings?.numericOnlyMemo);
 
     return (
       <Form.Field
@@ -234,19 +219,17 @@ export function CreateOrEditContent({
         optional
         name="memo"
         rules={{
-          maxLength: customValidate
-            ? undefined
-            : {
-                value: maxLength,
-                message: intl.formatMessage(
-                  {
-                    id: ETranslations.dapp_connect_msg_description_can_be_up_to_int_characters,
-                  },
-                  {
-                    number: maxLength,
-                  },
-                ),
+          maxLength: {
+            value: maxLength,
+            message: intl.formatMessage(
+              {
+                id: ETranslations.dapp_connect_msg_description_can_be_up_to_int_characters,
               },
+              {
+                number: maxLength,
+              },
+            ),
+          },
           validate: validateMemoField,
         }}
       >
@@ -256,16 +239,22 @@ export function CreateOrEditContent({
           placeholder={intl.formatMessage({
             id: ETranslations.send_tag_placeholder,
           })}
+          testID={AddressBookTestIDs.formMemoInput}
+          keyboardType={
+            isNumericMemo && platformEnv.isNative ? 'number-pad' : undefined
+          }
+          editable={!lockRoutingFields}
         />
       </Form.Field>
     );
   }, [
     intl,
+    lockRoutingFields,
     media.gtMd,
     validateMemoField,
     vaultSettings?.memoMaxLength,
+    vaultSettings?.numericOnlyMemo,
     vaultSettings?.withMemo,
-    vaultSettings?.supportMemoValidation,
   ]);
 
   return (
@@ -289,7 +278,10 @@ export function CreateOrEditContent({
               ) : null
             }
           >
-            <ChainSelectorInput networkIds={addressBookEnabledNetworkIds} />
+            <ChainSelectorInput
+              networkIds={addressBookEnabledNetworkIds}
+              editable={!lockRoutingFields}
+            />
           </Form.Field>
           <Form.Field
             label={intl.formatMessage({
@@ -330,13 +322,13 @@ export function CreateOrEditContent({
                 });
               },
             }}
-            testID="address-form-name-field"
+            testID={AddressBookTestIDs.formNameField}
           >
             <Input
               placeholder={intl.formatMessage({
                 id: ETranslations.address_book_add_address_name_required,
               })}
-              testID="address-form-name"
+              testID={AddressBookTestIDs.formNameInput}
               flex={1}
               addOns={
                 nameHistoryInfo?.entityId
@@ -383,16 +375,16 @@ export function CreateOrEditContent({
                 });
               },
             }}
-            testID="address-form-address-field"
+            testID={AddressBookTestIDs.formAddressField}
           >
             <AddressInput
               networkId={networkId}
               placeholder={intl.formatMessage({
                 id: ETranslations.address_book_add_address_address,
               })}
-              editable={!disabledAddressEdit}
+              editable={!lockRoutingFields}
               autoError={false}
-              testID="address-form-address"
+              testID={AddressBookTestIDs.formAddressInput}
               enableNameResolve
               enableAddressContract
             />
@@ -437,7 +429,7 @@ export function CreateOrEditContent({
               loading: isSubmitLoading || form.formState.isSubmitting,
               disabled: !form.formState.isValid || pending,
               onPress: form.submit,
-              testID: 'address-form-save',
+              testID: AddressBookTestIDs.formSaveBtn,
             }}
           />
         </Stack>

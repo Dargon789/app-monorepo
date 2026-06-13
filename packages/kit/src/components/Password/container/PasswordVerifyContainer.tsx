@@ -46,16 +46,21 @@ interface IPasswordVerifyProps {
   onLayout?: (e: LayoutChangeEvent) => void;
   name?: 'lock';
   pageMode?: boolean;
+  skipPostVerifyBackgroundTasks?: boolean;
 }
 
 const PasswordVerifyContainer = ({
   onVerifyRes,
   name,
   pageMode,
+  skipPostVerifyBackgroundTasks,
 }: IPasswordVerifyProps) => {
   const intl = useIntl();
-  const [{ authType, isEnable }] = usePasswordBiologyAuthInfoAtom();
-  const { verifiedPasswordWebAuth, checkWebAuth } = useWebAuthActions();
+  const [{ authType, isEnable, isSupport: biologyAuthIsSupport }] =
+    usePasswordBiologyAuthInfoAtom();
+  const { verifiedPasswordWebAuth, checkWebAuth } = useWebAuthActions({
+    skipPostVerifyBackgroundTasks,
+  });
   const [{ webAuthCredentialId }] = usePasswordPersistAtom();
   const [{ isBiologyAuthSwitchOn }] = useSettingsPersistAtom();
   const [hasCachedPassword, setHasCachedPassword] = useState(false);
@@ -165,6 +170,38 @@ const PasswordVerifyContainer = ({
     ],
   );
 
+  // TODO(biologyAuth-debug): temporary log to diagnose biology auth visibility
+  useEffect(() => {
+    defaultLogger.setting.page.biologyAuthDebug('PasswordVerifyContainer', {
+      platform: platformEnv.symbol,
+      isLock,
+      pageMode: !!pageMode,
+      isExtLockAndNoCachePassword,
+      isBiologyAuthSwitchOn,
+      verifyPeriodBiologyEnable,
+      biologyAuthIsSupport,
+      biologyAuthIsEnable: isEnable,
+      authType,
+      hasSecurePassword,
+      hasCachedPassword,
+      hasWebAuthCredentialId: !!webAuthCredentialId,
+      isBiologyAuthEnable,
+    });
+  }, [
+    isLock,
+    pageMode,
+    isExtLockAndNoCachePassword,
+    isBiologyAuthSwitchOn,
+    verifyPeriodBiologyEnable,
+    biologyAuthIsSupport,
+    isEnable,
+    authType,
+    hasSecurePassword,
+    hasCachedPassword,
+    webAuthCredentialId,
+    isBiologyAuthEnable,
+  ]);
+
   const resetPasswordErrorAttempts = useCallback(() => {
     if (isLock && enablePasswordErrorProtection) {
       setPasswordPersist((v) => ({
@@ -253,6 +290,7 @@ const PasswordVerifyContainer = ({
                 await backgroundApiProxy.servicePassword.verifyPassword({
                   password: securePassword,
                   passwordMode,
+                  skipPostVerifyBackgroundTasks,
                 });
               await callOnVerifyRes(verifiedPassword);
               setVerifiedStatus();
@@ -286,6 +324,7 @@ const PasswordVerifyContainer = ({
                 password: '',
                 isBiologyAuth: true,
                 passwordMode,
+                skipPostVerifyBackgroundTasks,
               });
           }
           if (biologyAuthRes) {
@@ -356,6 +395,7 @@ const PasswordVerifyContainer = ({
       passwordMode,
       passwordVerifyStatus.value,
       pageMode,
+      skipPostVerifyBackgroundTasks,
       setPasswordAtom,
       setVerifyPeriodBiologyAuthAttempts,
       setVerifyPeriodBiologyEnable,
@@ -394,6 +434,7 @@ const PasswordVerifyContainer = ({
           await backgroundApiProxy.servicePassword.verifyPassword({
             password: encodePassword,
             passwordMode,
+            skipPostVerifyBackgroundTasks,
           });
         if (platformEnv.isNativeAndroid) {
           dismissKeyboard();
@@ -503,6 +544,7 @@ const PasswordVerifyContainer = ({
       passwordMode,
       passwordVerifyStatus.value,
       pageMode,
+      skipPostVerifyBackgroundTasks,
       resetApp,
       hasSecurePassword,
       setPasswordAtom,

@@ -60,12 +60,12 @@ import {
   UniversalSearchAccountAssetItem,
   UniversalSearchAddressItem,
   UniversalSearchDappItem,
-  UniversalSearchMarketTokenItem,
   UniversalSearchPerpItem,
   UniversalSearchSettingsItem,
   UniversalSearchV2MarketTokenItem,
 } from '../components/SearchResultItems';
 import { useSettingsSearch } from '../hooks/useSettingsSearch';
+import { UniversalSearchTestIDs } from '../testIDs';
 
 import { RecentSearched } from './components/RecentSearched';
 import { UniversalSearchProviderMirror } from './UniversalSearchProviderMirror';
@@ -84,7 +84,6 @@ const SEARCH_DEBOUNCE_MS = 300;
 const getSearchTypes = (): EUniversalSearchType[] => {
   return [
     !platformEnv.isWebDappMode && EUniversalSearchType.Address,
-    EUniversalSearchType.MarketToken,
     EUniversalSearchType.V2MarketToken,
     // Hide AccountAssets search in WebDapp mode
     !platformEnv.isWebDappMode && EUniversalSearchType.AccountAssets,
@@ -103,13 +102,13 @@ const getTabIndexForSearchType = (searchType: EUniversalSearchType): number => {
     [EUniversalSearchType.Address]: 1, // Wallets tab
     [EUniversalSearchType.V2MarketToken]: 2, // Market tab
     [EUniversalSearchType.Perp]: 3, // Perp tab (after Market)
-    [EUniversalSearchType.MarketToken]: 4, // Tokens tab
+    [EUniversalSearchType.MarketToken]: 0, // Legacy Tokens tab is hidden
     // In WebDapp mode, My Assets tab is hidden
-    [EUniversalSearchType.AccountAssets]: platformEnv.isWebDappMode ? 0 : 5,
+    [EUniversalSearchType.AccountAssets]: platformEnv.isWebDappMode ? 0 : 4,
     // DApps tab index changes based on whether My Assets tab is shown
-    [EUniversalSearchType.Dapp]: platformEnv.isWebDappMode ? 5 : 6,
+    [EUniversalSearchType.Dapp]: platformEnv.isWebDappMode ? 4 : 5,
     // Settings tab is last
-    [EUniversalSearchType.Settings]: platformEnv.isWebDappMode ? 6 : 7,
+    [EUniversalSearchType.Settings]: platformEnv.isWebDappMode ? 5 : 6,
   };
 
   return tabMapping[searchType];
@@ -204,9 +203,6 @@ export function UniversalSearch({
       intl.formatMessage({
         id: ETranslations.global_perp,
       }),
-      intl.formatMessage({
-        id: ETranslations.global_universal_search_tabs_tokens,
-      }),
       // Include My Assets tab only when not in WebDapp mode
       !platformEnv.isWebDappMode &&
         intl.formatMessage({
@@ -244,21 +240,74 @@ export function UniversalSearch({
     },
     [focusedTab],
   );
-  const isInAllTab = useMemo(() => {
-    return filterType === tabTitles[0];
-  }, [filterType, tabTitles]);
+  // Only surface tabs that actually have results for the current search. The
+  // leading "All" tab is always kept; module tabs with no results are hidden.
+  const visibleTabTitles = useMemo(() => {
+    const sectionTitles = new Set(sections.map((section) => section.title));
+    return tabTitles.filter(
+      (title, index) => index === 0 || sectionTitles.has(title),
+    );
+  }, [sections, tabTitles]);
 
+  // The selected tab may have been hidden (e.g. an `initialTab` preset whose
+  // module returned no results). Fall back to the "All" tab so the result list
+  // still shows the available results instead of an empty state.
+  const activeTab = useMemo(
+    () => (visibleTabTitles.includes(filterType) ? filterType : tabTitles[0]),
+    [visibleTabTitles, filterType, tabTitles],
+  );
+
+  const isInAllTab = useMemo(() => {
+    return activeTab === tabTitles[0];
+  }, [activeTab, tabTitles]);
+
+  // Reset the active tab to the initial tab whenever a new search starts.
+  // The TabBar is only rendered in the `done` state and is unmounted while
+  // `loading`, so resetting here (before it re-mounts) guarantees it re-mounts
+  // already focused on the initial tab. Resetting on `done` instead is
+  // unreliable: the TabBar re-mounts initializing its internal `currentTab`
+  // from the previous (stale) `focusedTab`, and a deferred programmatic write
+  // can be dropped by its mount-time state initialization — leaving the
+  // highlight stuck on the old tab while the result list already shows all
+  // modules. Covers both typing and recent-search fill, since both enter
+  // `loading` before `done`.
   useEffect(() => {
-    if (searchStatus === ESearchStatus.done) {
-      const targetTabName = initialTabName;
-      if (focusedTab.value !== targetTabName) {
-        setFilterType(targetTabName);
-        setTimeout(() => {
-          focusedTab.value = targetTabName;
-        }, 0);
+    if (searchStatus === ESearchStatus.loading) {
+      if (focusedTab.value !== initialTabName) {
+        focusedTab.value = initialTabName;
       }
+      setFilterType(initialTabName);
     }
   }, [focusedTab, searchStatus, initialTabName]);
+
+  // The loading-phase reset above points `focusedTab` at `initialTabName`, which
+  // can end up hidden when that preset module returns no results (see
+  // `visibleTabTitles`). The TabBar seeds its highlight from `focusedTab.value`
+  // at mount, so a hidden value would leave the bar with no active tab while the
+  // list already falls back to the All results. Correct it synchronously here —
+  // before the TabBar mounts in the `done` branch — to the resolved, always
+  // visible `activeTab`. This is a render-time fix (not a deferred write), so it
+  // is applied at mount-seed time rather than being dropped by it.
+  if (
+    searchStatus === ESearchStatus.done &&
+    focusedTab.value !== activeTab &&
+    !visibleTabTitles.includes(focusedTab.value)
+  ) {
+    focusedTab.value = activeTab;
+    // Commit `filterType` to the resolved fallback too. Otherwise it keeps the
+    // hidden preset (e.g. "Dapps"): once that preset's deferred results arrive
+    // and its tab becomes visible again, `activeTab` would jump back to the
+    // preset and the content list would re-filter to it — while the TabBar,
+    // already mounted and seeded to the always-visible fallback, keeps
+    // highlighting it, leaving the highlight out of sync with the content.
+    // Pinning `filterType` here keeps the user on the fallback so both stay in
+    // sync.
+    // This guard never fires mid-swipe, where `filterType` already equals
+    // `activeTab` (only `focusedTab` is mid-transition).
+    if (filterType !== activeTab) {
+      setFilterType(activeTab);
+    }
+  }
 
   const shouldUseTokensCacheData = useMemo(() => {
     return (
@@ -281,49 +330,16 @@ export function UniversalSearch({
 
     const result =
       await backgroundApiProxy.serviceUniversalSearch.universalSearchRecommend({
-        searchTypes: [EUniversalSearchType.MarketToken],
+        searchTypes: [EUniversalSearchType.V2MarketToken],
       });
 
-    // Prefer V2MarketToken (has network badge from searchRecommendTokens)
     if (result?.[EUniversalSearchType.V2MarketToken]?.items?.length) {
       searchResultSections.push({
-        tabIndex: 2,
+        tabIndex: MARKET_TAB_INDEX,
         type: EUniversalSearchType.V2MarketToken,
         title: intl.formatMessage({ id: ETranslations.market_trending }),
         data: result[EUniversalSearchType.V2MarketToken]
           .items as IUniversalSearchResultItem[],
-      });
-    } else if (result?.[EUniversalSearchType.MarketToken]?.items) {
-      // Fallback: convert MarketToken (coingecko-based, no network) to V2MarketToken
-      const v2Items = result[EUniversalSearchType.MarketToken].items.map(
-        (item) => {
-          const token = item.payload;
-          return {
-            type: EUniversalSearchType.V2MarketToken,
-            payload: {
-              name: token.name,
-              symbol: token.symbol,
-              price: String(token.price),
-              address: token.coingeckoId,
-              network: '',
-              logoUrl: token.image,
-              isNative: false,
-              decimals: 0,
-              liquidity: '0',
-              volume_24h: String(token.totalVolume || 0),
-              marketCap: String(token.marketCap || 0),
-              priceChange24hPercent: String(
-                token.priceChangePercentage24H || 0,
-              ),
-            },
-          };
-        },
-      );
-      searchResultSections.push({
-        tabIndex: 2,
-        type: EUniversalSearchType.V2MarketToken,
-        title: intl.formatMessage({ id: ETranslations.market_trending }),
-        data: v2Items as IUniversalSearchResultItem[],
       });
     }
     setRecommendSections(searchResultSections);
@@ -427,19 +443,6 @@ export function UniversalSearch({
           type: EUniversalSearchType.Perp,
           title: intl.formatMessage({
             id: ETranslations.global_perp,
-          }),
-          ...buildSectionData(data),
-        });
-      }
-
-      if (result?.[EUniversalSearchType.MarketToken]?.items?.length) {
-        const data = result[EUniversalSearchType.MarketToken]
-          .items as IUniversalSearchResultItem[];
-        searchResultSections.push({
-          tabIndex: getTabIndexForSearchType(EUniversalSearchType.MarketToken),
-          type: EUniversalSearchType.MarketToken,
-          title: intl.formatMessage({
-            id: ETranslations.global_universal_search_tabs_tokens,
           }),
           ...buildSectionData(data),
         });
@@ -688,6 +691,7 @@ export function UniversalSearch({
       if (section.showMore) {
         return (
           <ListItem
+            testID={UniversalSearchTestIDs.showMoreBtn}
             onPress={() => {
               handleTabPress(section.title);
             }}
@@ -728,14 +732,6 @@ export function UniversalSearch({
             <UniversalSearchAddressItem
               item={item}
               contextNetworkId={activeAccount?.network?.id}
-              getSearchInput={getSearchInput}
-            />
-          );
-        case EUniversalSearchType.MarketToken:
-          return (
-            <UniversalSearchMarketTokenItem
-              item={item}
-              searchStatus={searchStatus}
               getSearchInput={getSearchInput}
             />
           );
@@ -806,8 +802,6 @@ export function UniversalSearch({
             payload.wallet?.id ??
             index
           }-${payload.network?.id ?? ''}`;
-        case EUniversalSearchType.MarketToken:
-          return `${type}-${payload.coingeckoId ?? index}`;
         case EUniversalSearchType.V2MarketToken:
           return `${type}-${payload.address ?? payload.symbol}-${index}`;
         case EUniversalSearchType.AccountAssets:
@@ -859,9 +853,9 @@ export function UniversalSearch({
 
       return sectionsWithSliceData;
     }
-    const filtered = sections.filter((i) => i.title === filterType);
+    const filtered = sections.filter((i) => i.title === activeTab);
     return filtered;
-  }, [filterType, isInAllTab, sections, isFocusInMarketTab]);
+  }, [activeTab, isInAllTab, sections, isFocusInMarketTab]);
 
   const renderResult = useCallback(() => {
     switch (searchStatus) {
@@ -898,17 +892,19 @@ export function UniversalSearch({
       case ESearchStatus.done:
         return (
           <>
-            <Tabs.TabBar
-              scrollable
-              tabNames={tabTitles}
-              onTabPress={handleTabPress}
-              focusedTab={focusedTab}
-              tabItemStyle={{
-                h: 44,
-              }}
-            />
+            {visibleTabTitles.length > 1 ? (
+              <Tabs.TabBar
+                scrollable
+                tabNames={visibleTabTitles}
+                onTabPress={handleTabPress}
+                focusedTab={focusedTab}
+                tabItemStyle={{
+                  h: 44,
+                }}
+              />
+            ) : null}
             <SectionList
-              key={`search-results-${isInAllTab ? 'all' : filterType}`}
+              key={`search-results-${isInAllTab ? 'all' : activeTab}`}
               stickySectionHeadersEnabled
               sections={filterSections}
               renderSectionHeader={renderSectionHeader}
@@ -944,11 +940,11 @@ export function UniversalSearch({
     keyExtractor,
     filterTypes,
     handleSearchTextFill,
-    tabTitles,
+    visibleTabTitles,
     handleTabPress,
     focusedTab,
     isInAllTab,
-    filterType,
+    activeTab,
     filterSections,
     renderSectionFooter,
     intl,
@@ -963,6 +959,7 @@ export function UniversalSearch({
         <View px="$5" pb="$2">
           <SearchBar
             autoFocus
+            testID={UniversalSearchTestIDs.searchBar}
             value={searchValue}
             placeholder={intl.formatMessage({
               id: platformEnv.isWebDappMode

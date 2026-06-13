@@ -23,31 +23,53 @@ import {
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 
 export type IActionItemsProps = {
-  icon?: IKeyOfIcons;
+  icon?: IKeyOfIcons | null;
   label?: string | ReactNode;
   showButtonStyle?: boolean;
   hiddenIfDisabled?: boolean;
+  allowPressWhenDisabled?: boolean;
+  highlighted?: boolean;
   verticalContainerProps?: IStackProps;
-} & Partial<Omit<IButtonProps, 'type'> & Omit<IIconButtonProps, 'type'>>;
+} & Partial<
+  Omit<IButtonProps, 'type' | 'icon'> & Omit<IIconButtonProps, 'type' | 'icon'>
+>;
 
 function ActionItem({
   icon = 'PlaceholderOutline',
   label,
   verticalContainerProps,
   showButtonStyle = false,
+  allowPressWhenDisabled = false,
+  highlighted = false,
   onPress,
+  disabled,
   ...rest
 }: IActionItemsProps) {
+  const visualDisabled = !!disabled;
+  const effectiveDisabled = visualDisabled && !allowPressWhenDisabled;
+
+  let iconColor: '$iconDisabled' | '$iconInverse' | '$icon' = '$icon';
+  if (visualDisabled) iconColor = '$iconDisabled';
+  else if (highlighted) iconColor = '$iconInverse';
+
+  let textColor: '$textDisabled' | '$textInverse' | '$text' = '$text';
+  if (visualDisabled) textColor = '$textDisabled';
+  else if (highlighted) textColor = '$textInverse';
+
   if (showButtonStyle) {
     return (
       <Button
-        icon={icon}
+        testID="home-action-item-btn"
+        icon={icon || undefined}
+        variant={highlighted ? 'primary' : undefined}
         {...(!label && {
           py: '$2',
           pl: '$2.5',
           pr: '$0.5',
         })}
         onPress={onPress}
+        disabled={effectiveDisabled}
+        opacity={allowPressWhenDisabled && visualDisabled ? 0.4 : undefined}
         {...rest}
       >
         {label}
@@ -63,14 +85,18 @@ function ActionItem({
         flexBasis={0}
         alignItems="center"
         justifyContent="center"
-        bg="$bgStrong"
+        bg={highlighted ? '$bgPrimary' : '$bgStrong'}
         borderRadius="$4"
         pt="$2.5"
         pb="$1"
         px="$1"
         userSelect="none"
-        hoverStyle={{ bg: '$bgStrongHover' }}
-        pressStyle={{ bg: '$bgStrongActive' }}
+        hoverStyle={{
+          bg: highlighted ? '$bgPrimaryHover' : '$bgStrongHover',
+        }}
+        pressStyle={{
+          bg: highlighted ? '$bgPrimaryActive' : '$bgStrongActive',
+        }}
         focusable
         focusVisibleStyle={{
           outlineColor: '$focusRing',
@@ -78,23 +104,21 @@ function ActionItem({
           outlineWidth: 2,
         }}
         $gtSm={{ display: 'none' }}
-        {...(rest.disabled && { opacity: 0.4 })}
+        {...(visualDisabled && { opacity: 0.4 })}
         {...verticalContainerProps}
         onPress={onPress}
         {...rest}
       >
-        <Stack>
-          <Icon
-            name={icon}
-            size="$6"
-            color={rest.disabled ? '$iconDisabled' : '$icon'}
-          />
-        </Stack>
+        {icon ? (
+          <Stack>
+            <Icon name={icon} size="$6" color={iconColor} />
+          </Stack>
+        ) : null}
         <SizableText
           my="$1"
           textAlign="center"
           size="$bodySm"
-          color={rest.disabled ? '$textDisabled' : '$text'}
+          color={textColor}
         >
           {label}
         </SizableText>
@@ -102,12 +126,15 @@ function ActionItem({
 
       {/* Desktop: Pill button */}
       <Button
-        variant="secondary"
+        testID="home-btn"
+        variant={highlighted ? 'primary' : 'secondary'}
         size="large"
-        icon={icon}
+        icon={icon || undefined}
         display="none"
         $gtSm={{ display: 'flex' }}
         onPress={onPress}
+        disabled={effectiveDisabled}
+        opacity={allowPressWhenDisabled && visualDisabled ? 0.4 : undefined}
         {...rest}
       >
         {label}
@@ -209,8 +236,15 @@ function ActionStaking(props: IActionItemsProps) {
 
 function ActionMore({
   renderItemsAsync,
+  testID,
+  iconOnly = false,
 }: {
   renderItemsAsync: IActionListProps['renderItemsAsync'];
+  testID?: string;
+  // When true, render the icon-only trigger on both mobile and desktop. Used
+  // by the collapsed Add-Money home action row, where the secondary menu
+  // should not steal flex space from the primary CTA.
+  iconOnly?: boolean;
 }) {
   const intl = useIntl();
   const label = intl.formatMessage({ id: ETranslations.global_more });
@@ -222,6 +256,24 @@ function ActionMore({
       renderItemsAsync,
     });
   };
+
+  if (iconOnly) {
+    return (
+      <ActionList
+        title={label}
+        floatingPanelProps={{ w: '$60' }}
+        renderTrigger={
+          <IconButton
+            variant="secondary"
+            size="large"
+            icon="DotHorOutline"
+            testID={testID}
+          />
+        }
+        renderItemsAsync={renderItemsAsync}
+      />
+    );
+  }
 
   return (
     <>
@@ -247,6 +299,7 @@ function ActionMore({
         }}
         $gtSm={{ display: 'none' }}
         onPress={handleMobilePress}
+        testID={testID}
       >
         <Stack>
           <Icon name="DotHorOutline" size="$6" color="$icon" />
@@ -262,7 +315,12 @@ function ActionMore({
           title={label}
           floatingPanelProps={{ w: '$60' }}
           renderTrigger={
-            <IconButton variant="secondary" size="large" icon="DotHorOutline" />
+            <IconButton
+              variant="secondary"
+              size="large"
+              icon="DotHorOutline"
+              testID={testID}
+            />
           }
           renderItemsAsync={renderItemsAsync}
         />

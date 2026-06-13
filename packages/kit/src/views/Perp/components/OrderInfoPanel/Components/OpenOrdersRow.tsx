@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 
 import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
@@ -6,17 +6,26 @@ import { useIntl } from 'react-intl';
 import { Button, SizableText, XStack, YStack } from '@onekeyhq/components';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import {
+  useSpotPairDisplayMapAtom,
+  useSpotPairDisplayNameMapAtom,
+} from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { formatTime } from '@onekeyhq/shared/src/utils/dateUtils';
 import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 import {
   getValidPriceDecimals,
-  parseDexCoin,
+  isSpotInstrument,
 } from '@onekeyhq/shared/src/utils/perpsUtils';
 import type { IPerpsFrontendOrder } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
-import { calcCellAlign, getColumnStyle } from '../utils';
+import { PerpTestIDs } from '../../../testIDs';
+import {
+  calcCellAlign,
+  getColumnStyle,
+  getOrderAssetDisplayName,
+} from '../utils';
 
 import type { IColumnConfig, IRenderMode } from '../List/CommonTableListView';
 
@@ -65,9 +74,15 @@ const OpenOrdersRow = memo(
     const actions = useHyperliquidActions();
     const intl = useIntl();
     const { coin, side, orderType: originalOrderType, reduceOnly } = order;
+    const [spotDisplayMap] = useSpotPairDisplayMapAtom();
+    const [spotPairDisplayNameMap] = useSpotPairDisplayNameMapAtom();
     const assetInfo = useMemo(() => {
-      const parsedCoin = parseDexCoin(coin);
-      const assetSymbol = parsedCoin.displayName;
+      const isSpot = isSpotInstrument(coin);
+      const assetSymbol = getOrderAssetDisplayName(
+        coin,
+        spotDisplayMap,
+        spotPairDisplayNameMap,
+      );
       const orderType = (() => {
         switch (originalOrderType) {
           case 'Market':
@@ -99,6 +114,11 @@ const OpenOrdersRow = memo(
         }
       })();
       const type = (() => {
+        if (isSpot) {
+          return side === 'B'
+            ? intl.formatMessage({ id: ETranslations.global_buy })
+            : intl.formatMessage({ id: ETranslations.global_sell });
+        }
         if (side === 'B') {
           if (reduceOnly) {
             return intl.formatMessage({
@@ -121,12 +141,27 @@ const OpenOrdersRow = memo(
       const typeColor = side === 'B' ? '$green11' : '$red11';
       return {
         assetSymbol,
+        isSpot,
         rawCoin: coin,
         type,
         orderType,
         typeColor,
       };
-    }, [coin, side, originalOrderType, reduceOnly, intl]);
+    }, [
+      coin,
+      side,
+      originalOrderType,
+      reduceOnly,
+      intl,
+      spotDisplayMap,
+      spotPairDisplayNameMap,
+    ]);
+    const handleSwitchInstrument = useCallback(() => {
+      void actions.current.switchTradeInstrument({
+        mode: assetInfo.isSpot ? 'spot' : 'perp',
+        coin: assetInfo.rawCoin,
+      });
+    }, [actions, assetInfo.isSpot, assetInfo.rawCoin]);
     const dateInfo = useMemo(() => {
       const timeDate = new Date(order.timestamp);
       const date = formatTime(timeDate, {
@@ -216,14 +251,7 @@ const OpenOrdersRow = memo(
             width="100%"
             alignItems="center"
           >
-            <YStack
-              onPress={() =>
-                actions.current.changeActiveAsset({
-                  coin: assetInfo.rawCoin,
-                })
-              }
-              cursor="default"
-            >
+            <YStack onPress={handleSwitchInstrument} cursor="default">
               <SizableText
                 numberOfLines={1}
                 ellipsizeMode="tail"
@@ -251,9 +279,11 @@ const OpenOrdersRow = memo(
               </XStack>
             </YStack>
             <Button
+              testID={PerpTestIDs.CancelOrderButton(order.oid)}
               size="small"
               variant="secondary"
               onPress={handleCancelOrder}
+              childrenAsText={false}
             >
               <SizableText size="$bodySm">
                 {intl.formatMessage({
@@ -381,11 +411,7 @@ const OpenOrdersRow = memo(
               {...getColumnStyle(columnConfigs[1])}
               justifyContent="center"
               alignItems={calcCellAlign(columnConfigs[1].align)}
-              onPress={() =>
-                actions.current.changeActiveAsset({
-                  coin: assetInfo.rawCoin,
-                })
-              }
+              onPress={handleSwitchInstrument}
               cursor="default"
             >
               <SizableText

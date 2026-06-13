@@ -17,12 +17,15 @@ import { EManagePositionType } from '../../Staking/pages/ManagePosition/hooks/us
 import { EBorrowDataStatus } from '../borrowDataStatus';
 import { useBorrowContext } from '../BorrowProvider';
 import { BorrowNavigation } from '../borrowUtils';
+import { BorrowTestIDs } from '../testIDs';
 
 import {
   ActionField,
   AmountField,
   AssetField,
   AssetWithAmountField,
+  BORROW_TABLE_ACTION_COLUMN_MIN_WIDTH,
+  BORROW_TABLE_APY_COLUMN_MIN_WIDTH,
   BorrowAPYField,
   BorrowTableList,
 } from './BorrowTableList';
@@ -199,6 +202,7 @@ export const SupplyCard = () => {
     () => (
       <XStack ai="center" gap="$3">
         <Switch
+          testID={BorrowTestIDs.supplyZeroBalanceSwitch}
           value={showZeroBalance}
           onChange={setShowZeroBalance}
           size="small"
@@ -282,6 +286,7 @@ export const SupplyCard = () => {
         key: 'supplyApy',
         render: BorrowAPYField,
         flex: 1,
+        minWidth: BORROW_TABLE_APY_COLUMN_MIN_WIDTH,
       },
       {
         label: '',
@@ -300,6 +305,7 @@ export const SupplyCard = () => {
           />
         ),
         flex: 1,
+        minWidth: BORROW_TABLE_ACTION_COLUMN_MIN_WIDTH,
       },
     ],
     [

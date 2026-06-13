@@ -1,5 +1,6 @@
-import type { EBulkSendMode } from '@onekeyhq/shared/types/bulkSend';
-import type { IToken, ITokenFiat } from '@onekeyhq/shared/types/token';
+import type { EModalBulkSendRoutes, IModalBulkSendParamList } from './bulkSend';
+import type { EBulkSendMode } from '../../types/bulkSend';
+import type { IToken, ITokenFiat } from '../../types/token';
 
 export enum ETabHomeRoutes {
   TabHome = 'TabHome',
@@ -8,6 +9,7 @@ export enum ETabHomeRoutes {
   TabHomeReferralLanding = 'TabHomeReferralLanding',
   TabHomeReferralLandingWithoutPage = 'TabHomeReferralLandingWithoutPage',
   TabHomeReferralLandingCodeOnly = 'TabHomeReferralLandingCodeOnly',
+  TabHomeRedeemBitcoinVoucher = 'TabHomeRedeemBitcoinVoucher',
   TabHomeBulkSendAddressesInput = 'TabHomeBulkSendAddressesInput',
   TabHomeBulkSendAmountsInput = 'TabHomeBulkSendAmountsInput',
   TabHomeBulkSendProcess = 'TabHomeBulkSendProcess',
@@ -31,6 +33,7 @@ export type ITabHomeParamList = {
     code: string;
     page: string;
     fromDeepLink?: boolean;
+    referralRequestId?: number;
   };
   [ETabHomeRoutes.TabHomeReferralLandingWithoutPage]: {
     code: string;
@@ -39,6 +42,11 @@ export type ITabHomeParamList = {
   [ETabHomeRoutes.TabHomeReferralLandingCodeOnly]: {
     code: string;
   };
+  [ETabHomeRoutes.TabHomeRedeemBitcoinVoucher]:
+    | {
+        code?: string;
+      }
+    | undefined;
   [ETabHomeRoutes.TabHomeBulkSendAddressesInput]: {
     networkId: string | undefined;
     accountId: string | undefined;
@@ -62,11 +70,7 @@ export type ITabHomeParamList = {
     isInModal?: boolean;
     hasDuplicateSenders?: boolean;
   };
-  [ETabHomeRoutes.TabHomeBulkSendProcess]: {
-    networkId: string;
-    accountId: string | undefined;
-    isInModal?: boolean;
-  };
+  [ETabHomeRoutes.TabHomeBulkSendProcess]: IModalBulkSendParamList[EModalBulkSendRoutes.BulkSendProcess];
   [ETabHomeRoutes.TabHomeApprovalList]: {
     networkId: string | undefined;
     accountId: string | undefined;

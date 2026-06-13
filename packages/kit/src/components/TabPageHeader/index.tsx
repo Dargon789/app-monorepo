@@ -1,15 +1,21 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback } from 'react';
 
-import { Page, XStack, YStack, useMedia, useTheme } from '@onekeyhq/components';
+import { Page, XStack, useMedia, useTheme } from '@onekeyhq/components';
 import { UniversalSearchInput } from '@onekeyhq/kit/src/components/TabPageHeader/UniversalSearchInput';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { ETabRoutes } from '@onekeyhq/shared/src/routes';
+import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import { EAccountSelectorSceneName } from '@onekeyhq/shared/types';
 
+import {
+  useActiveAccount,
+  useIsAccountSelectorSyncLoading,
+} from '../../states/jotai/contexts/accountSelector';
 import { HistoryIconButton } from '../../views/Discovery/pages/components/HistoryIconButton';
 
 import {
   GiftAction,
+  HeaderUpdateButton,
   WalletConnectionForWeb,
   WalletConnectionGroup,
 } from './components';
@@ -23,6 +29,27 @@ import type { ITabPageHeaderProp } from './type';
 
 export { DiscoveryHeaderSegment };
 
+function HomeWalletConnectionInPage({ tabRoute }: { tabRoute: ETabRoutes }) {
+  const {
+    activeAccount: { wallet, account },
+  } = useActiveAccount({ num: 0 });
+  const isSyncLoading = useIsAccountSelectorSyncLoading(0);
+  const hasNoUsableWallet = accountUtils.hasNoUsableWallet({
+    wallet,
+    account,
+  });
+
+  if (hasNoUsableWallet && !isSyncLoading) {
+    return null;
+  }
+
+  return (
+    <XStack px="$pagePadding" pt="$5" pb="$2.5" bg="$bgApp" borderRadius="$4">
+      <WalletConnectionGroup tabRoute={tabRoute} />
+    </XStack>
+  );
+}
+
 function InPageHeader({
   tabRoute,
   sceneName,
@@ -30,27 +57,22 @@ function InPageHeader({
   sceneName: EAccountSelectorSceneName;
   tabRoute: ETabRoutes;
 }) {
-  const item = useMemo(() => {
-    if (
-      tabRoute === ETabRoutes.Home &&
-      sceneName !== EAccountSelectorSceneName.homeUrlAccount
-    ) {
-      return <WalletConnectionGroup tabRoute={tabRoute} />;
-    }
-    if (sceneName === EAccountSelectorSceneName.homeUrlAccount) {
-      return <UrlAccountPageHeader />;
-    }
-  }, [sceneName, tabRoute]);
-
-  if (!item) {
-    return null;
+  if (
+    tabRoute === ETabRoutes.Home &&
+    sceneName !== EAccountSelectorSceneName.homeUrlAccount
+  ) {
+    return <HomeWalletConnectionInPage tabRoute={tabRoute} />;
   }
 
-  return (
-    <XStack px="$pagePadding" pt="$5" pb="$2.5" bg="$bgApp" borderRadius="$4">
-      {item}
-    </XStack>
-  );
+  if (sceneName === EAccountSelectorSceneName.homeUrlAccount) {
+    return (
+      <XStack px="$pagePadding" pt="$5" pb="$2.5" bg="$bgApp" borderRadius="$4">
+        <UrlAccountPageHeader />
+      </XStack>
+    );
+  }
+
+  return null;
 }
 
 function BaseDesktopTabPageHeader({
@@ -84,9 +106,10 @@ function BaseDesktopTabPageHeader({
       return (
         <>
           {customHeaderRightItems}
-          <YStack pl="$5">
+          <XStack pl="$5" alignItems="center">
+            <HeaderUpdateButton />
             <HeaderNotificationIconButton testID="header-right-notification" />
-          </YStack>
+          </XStack>
         </>
       );
     }
@@ -105,7 +128,10 @@ function BaseDesktopTabPageHeader({
             <HistoryIconButton />
           </XStack>
         ) : null}
-        <HeaderNotificationIconButton testID="header-right-notification" />
+        <XStack alignItems="center">
+          <HeaderUpdateButton />
+          <HeaderNotificationIconButton testID="header-right-notification" />
+        </XStack>
       </>
     );
   }, [customHeaderRightItems, tabRoute]);

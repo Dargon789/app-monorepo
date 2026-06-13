@@ -192,6 +192,7 @@ const normalizeAutoSizeNativeColor = (color?: string): string | undefined => {
 
 export type ISendAmountAutoSizeInputRef = {
   focus: () => void;
+  blur: () => void;
   focusPercentageButton: (percent: 25 | 50 | 75 | 100) => void;
 };
 
@@ -255,6 +256,9 @@ function SendAutoSizeAmountInputComponent(
   useImperativeHandle(ref, () => ({
     focus: () => {
       autoSizeInputRef.current?.focus?.();
+    },
+    blur: () => {
+      autoSizeInputRef.current?.blur?.();
     },
     focusPercentageButton: () => {},
   }));
@@ -352,7 +356,7 @@ function SendAutoSizeAmountInputComponent(
     0,
   );
   const isCompactInlineWidth =
-    !md && availableInlineWidth > 0 && availableInlineWidth < 360;
+    md && availableInlineWidth > 0 && availableInlineWidth < 360;
   const maxFontSize = Math.round(56 * fontSizeScale);
   const minFontSize = Math.round(
     (isCompactInlineWidth ? 12 : 14) * fontSizeScale,
@@ -447,52 +451,54 @@ function SendAutoSizeAmountInputComponent(
           {wrappedTokenSymbol}
         </SizableText>
       ) : null}
-      <XStack
-        alignItems="center"
-        mt={md ? '$0' : '$2'}
-        py="$1.5"
-        px="$1"
-        borderRadius="$2"
-        alignSelf="center"
-        disabled={valueProps?.loading}
-        onPress={valueProps?.onPress}
-        {...(reversible && {
-          userSelect: 'none',
-          hoverStyle: {
-            bg: '$bgHover',
-          },
-          pressStyle: {
-            bg: '$bgActive',
-          },
-        })}
-      >
-        {valueProps?.loading ? (
-          <Skeleton h="$6" w="$28" />
-        ) : (
-          <>
-            <NumberSizeableText
-              formatter={valueProps?.formatter ?? 'value'}
-              formatterOptions={{
-                currency: valueProps?.currency,
-                tokenSymbol: valueProps?.tokenSymbol,
-              }}
-              size="$headingLg"
-              color={valueProps?.color ?? '$textSubdued'}
-            >
-              {valueProps?.value || '0.00'}
-            </NumberSizeableText>
-            {valueProps?.moreComponent}
-            {reversible ? (
-              <Icon
-                name="SwitchVerOutline"
-                size="$4"
-                color="$iconSubdued"
-                ml="$1.5"
-              />
-            ) : null}
-          </>
-        )}
-      </XStack>
+      {valueProps || reversible ? (
+        <XStack
+          alignItems="center"
+          mt={md ? '$0' : '$2'}
+          py="$1.5"
+          px="$1"
+          borderRadius="$2"
+          alignSelf="center"
+          disabled={valueProps?.loading}
+          onPress={valueProps?.onPress}
+          {...(reversible && {
+            userSelect: 'none',
+            hoverStyle: {
+              bg: '$bgHover',
+            },
+            pressStyle: {
+              bg: '$bgActive',
+            },
+          })}
+        >
+          {valueProps?.loading ? (
+            <Skeleton h="$6" w="$28" />
+          ) : (
+            <>
+              <NumberSizeableText
+                formatter={valueProps?.formatter ?? 'value'}
+                formatterOptions={{
+                  currency: valueProps?.currency,
+                  tokenSymbol: valueProps?.tokenSymbol,
+                }}
+                size="$headingLg"
+                color={valueProps?.color ?? '$textSubdued'}
+              >
+                {valueProps?.value || '0.00'}
+              </NumberSizeableText>
+              {valueProps?.moreComponent}
+              {reversible ? (
+                <Icon
+                  name="SwitchVerOutline"
+                  size="$4"
+                  color="$iconSubdued"
+                  ml="$1.5"
+                />
+              ) : null}
+            </>
+          )}
+        </XStack>
+      ) : null}
       {extraContent}
     </Stack>
   );

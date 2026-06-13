@@ -1,7 +1,14 @@
 import { getPresetNetworks } from '@onekeyhq/shared/src/config/presetNetworks';
+import {
+  IMPL_BTC,
+  IMPL_EVM,
+  IMPL_SOL,
+} from '@onekeyhq/shared/src/engine/engineConsts';
 
+import { AppError, ERROR_CODES } from '../../errors';
 import { apiClient } from '../../infra';
 
+import type { OutputFormatter } from '../../output';
 import type { Command } from 'commander';
 
 export interface ISwapNetworkResult {
@@ -15,6 +22,13 @@ export interface ISwapNetworkResult {
 }
 
 let cachedNetworks: ISwapNetworkResult[] | null = null;
+
+const SUPPORTED_SWAP_IMPLS = new Set([IMPL_EVM, IMPL_BTC, IMPL_SOL]);
+
+function hasWellFormedNetworkId(networkId: string): boolean {
+  const parts = networkId.split('--');
+  return parts.length === 2 && parts[0].length > 0 && parts[1].length > 0;
+}
 
 /** @internal Reset cache between tests */
 export function _resetSwapNetworksCache(): void {
@@ -43,13 +57,12 @@ export async function fetchSwapNetworks(): Promise<ISwapNetworkResult[]> {
 
     const results: ISwapNetworkResult[] = [];
     for (const net of res) {
-      if (typeof net.networkId !== 'string') {
-        // skip entries without networkId
-      } else if (!net.networkId.startsWith('evm--')) {
-        // skip non-EVM networks
-      } else {
+      if (
+        typeof net.networkId === 'string' &&
+        hasWellFormedNetworkId(net.networkId)
+      ) {
         const preset = presetMap.get(net.networkId);
-        if (preset) {
+        if (preset && SUPPORTED_SWAP_IMPLS.has(preset.impl)) {
           results.push({
             networkId: net.networkId,
             name: preset.name,
@@ -82,13 +95,17 @@ export function registerSwapNetworksCommand(parent: Command): void {
     .option('--bridge', 'Only show networks that support cross-chain bridge')
     .action(async (options: Record<string, unknown>, cmd: Command) => {
       const globalOpts = cmd.optsWithGlobals();
+      const output = globalOpts._outputFormatter as OutputFormatter;
       const networks = await fetchSwapNetworks();
 
       if (networks.length === 0) {
-        console.error(
-          'Failed to fetch swap networks. Check your internet connection.',
+        const appError = new AppError(
+          ERROR_CODES.NET_REQUEST_FAILED.code,
+          'Failed to fetch swap networks.',
+          'Check your internet connection and retry.',
         );
-        process.exitCode = 1;
+        output.error(appError.toErrorDetail());
+        process.exitCode = appError.exitCode;
         return;
       }
 
@@ -97,8 +114,15 @@ export function registerSwapNetworksCommand(parent: Command): void {
         displayNetworks = networks.filter((n) => n.supportCrossChainSwap);
       }
 
-      if (globalOpts.json) {
-        console.log(JSON.stringify(displayNetworks, null, 2));
+      if (output.getMode() === 'agent') {
+        output.success(displayNetworks, {
+          count: displayNetworks.length,
+        });
+        return;
+      }
+
+      if (output.getMode() === 'quiet') {
+        output.raw(JSON.stringify(displayNetworks, null, 2));
         return;
       }
 
@@ -112,11 +136,10 @@ export function registerSwapNetworksCommand(parent: Command): void {
         'Bridge'.padEnd(8),
         'Limit'.padEnd(6),
       ].join('');
-      console.log(header);
-      console.log('-'.repeat(header.length));
+      const lines = [header, '-'.repeat(header.length)];
 
       for (const net of displayNetworks) {
-        console.log(
+        lines.push(
           [
             net.name.padEnd(20),
             net.chainId.padEnd(10),
@@ -127,5 +150,7 @@ export function registerSwapNetworksCommand(parent: Command): void {
           ].join(''),
         );
       }
+
+      output.raw(lines.join('\n'));
     });
 }

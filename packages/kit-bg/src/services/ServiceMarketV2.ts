@@ -10,6 +10,7 @@ import {
 } from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
+import { dedupeTokenSelectorFavoriteCoins } from '@onekeyhq/shared/src/utils/perpsTokenSelectorFavorites';
 import sortUtils from '@onekeyhq/shared/src/utils/sortUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
@@ -31,6 +32,8 @@ import type {
   IMarketTokenListItem,
   IMarketTokenListResponse,
   IMarketTokenSecurityBatchResponse,
+  IMarketTokenTopLiquidityItem,
+  IMarketTokenTopLiquidityResponse,
   IMarketTokenTransactionsResponse,
 } from '@onekeyhq/shared/types/marketV2';
 import type { INotificationWatchlistToken } from '@onekeyhq/shared/types/notification';
@@ -44,11 +47,46 @@ import { perpTokenFavoritesPersistAtom } from '../states/jotai/atoms/perps';
 
 import ServiceBase from './ServiceBase';
 import { MOCK_MARKET_BANNER_LIST } from './ServiceMarketV2.const';
+import { resolveMarketTokenDetailRequestTokenAddress } from './utils/marketTokenDetailUtils';
+
+type IMarketTokenListRequestParams = {
+  networkId: string;
+  sortBy?: string;
+  sortType?: 'asc' | 'desc';
+  page?: number;
+  limit?: number;
+  minLiquidity?: number;
+  maxLiquidity?: number;
+  type?: string;
+  timeFrame?: string;
+};
+
+type INormalizedMarketTokenListRequestParams = IMarketTokenListRequestParams & {
+  page: number;
+  limit: number;
+};
 
 @backgroundClass()
 class ServiceMarketV2 extends ServiceBase {
   constructor({ backgroundApi }: { backgroundApi: any }) {
     super({ backgroundApi });
+    // Drop the in-memory market data cache + memoized batch fetchers on
+    // critical memory pressure. These are the largest known per-route
+    // cache footprints (token logos + pricing for 218 batch fetches in
+    // 27 min in observed sessions).
+    //
+    // Intentionally NOT clearing memoizedFetchMarketChains /
+    // memoizedFetchMarketBasicConfig: both are KB-sized constant configs
+    // with a 1 h TTL. Previously these were dropped here too, which made
+    // every critical-memory event force a network refetch of small
+    // constants — observed as 16+ basicConfig RPCs per 4 min window in
+    // iPad logs (cleared 3× by 3 critical warnings, then immediately
+    // re-fetched by 5 active components).
+    appEventBus.on(EAppEventBusNames.MemoryPressureWarning, (event) => {
+      if (event.level !== 'critical') return;
+      this._marketTokenBatchCache.clear();
+      void this.memoizedFetchMarketTokenList.clear();
+    });
   }
 
   // Cache for batch token list items with auto-expiration
@@ -62,6 +100,10 @@ class ServiceMarketV2 extends ServiceBase {
     seconds: 30,
   });
 
+  private _marketTokenListCacheTTL = timerUtils.getTimeDurationMs({
+    seconds: 20,
+  });
+
   private _cleanExpiredMarketTokenBatchCache() {
     const now = Date.now();
     for (const [key, value] of this._marketTokenBatchCache) {
@@ -71,26 +113,101 @@ class ServiceMarketV2 extends ServiceBase {
     }
   }
 
+  private _normalizeMarketTokenListParams({
+    page = 1,
+    limit = 20,
+    ...rest
+  }: IMarketTokenListRequestParams): INormalizedMarketTokenListRequestParams {
+    return {
+      ...rest,
+      page,
+      limit,
+    };
+  }
+
+  private async _fetchMarketTokenListFromApi({
+    networkId,
+    sortBy,
+    sortType,
+    page,
+    limit,
+    minLiquidity,
+    maxLiquidity,
+    type,
+    timeFrame,
+  }: INormalizedMarketTokenListRequestParams) {
+    const client = await this.getClient(EServiceEndpointEnum.Utility);
+    const response = await client.get<{
+      code: number;
+      message: string;
+      data: IMarketTokenListResponse;
+    }>('/utility/v2/market/token/list', {
+      params: {
+        networkId,
+        sortBy,
+        sortType,
+        page,
+        limit,
+        minLiquidity,
+        maxLiquidity,
+        type,
+        timeFrame,
+        currency: 'usd',
+      },
+    });
+    const { data } = response.data;
+    return data;
+  }
+
+  private memoizedFetchMarketTokenList = memoizee(
+    async (params: INormalizedMarketTokenListRequestParams) =>
+      this._fetchMarketTokenListFromApi(params),
+    {
+      maxAge: this._marketTokenListCacheTTL,
+      promise: true,
+    },
+  );
+
   @backgroundMethod()
   async fetchMarketTokenDetailByTokenAddress(
     tokenAddress: string,
     networkId: string,
+    options?: {
+      autoHandleError?: boolean;
+      skipConvertCurrency?: boolean;
+    },
   ) {
-    const settings = await settingsPersistAtom.get();
-    const selectedCurrencyId = settings.currencyInfo?.id ?? 'usd';
+    const selectedCurrencyId = options?.skipConvertCurrency
+      ? 'usd'
+      : ((await settingsPersistAtom.get()).currencyInfo?.id ?? 'usd');
     const client = await this.getClient(EServiceEndpointEnum.Utility);
+    const requestTokenAddress =
+      await resolveMarketTokenDetailRequestTokenAddress({
+        tokenAddress,
+        networkId,
+        getNativeTokenAddress: (params) =>
+          this.backgroundApi.serviceToken.getNativeTokenAddress(params),
+      });
     const params: Record<string, string> = {
-      tokenAddress,
+      tokenAddress: requestTokenAddress,
       networkId,
       currency: 'usd',
     };
     // When the user has selected a non-USD currency, request a converted price
-    if (selectedCurrencyId !== 'usd') {
+    if (!options?.skipConvertCurrency && selectedCurrencyId !== 'usd') {
       params.convertCurrency = selectedCurrencyId;
     }
     const response = await client.get<IMarketTokenDetailResponse>(
       '/utility/v2/market/token/detail',
-      { params },
+      {
+        params,
+        ...(options?.skipConvertCurrency
+          ? { headers: { 'x-onekey-request-currency': 'usd' } }
+          : {}),
+        ...(options?.autoHandleError === false
+          ? { autoHandleError: false }
+          : {}),
+      },
     );
     return response.data;
   }
@@ -150,24 +267,9 @@ class ServiceMarketV2 extends ServiceBase {
     maxLiquidity,
     type,
     timeFrame,
-  }: {
-    networkId: string;
-    sortBy?: string;
-    sortType?: 'asc' | 'desc';
-    page?: number;
-    limit?: number;
-    minLiquidity?: number;
-    maxLiquidity?: number;
-    type?: string;
-    timeFrame?: string;
-  }) {
-    const client = await this.getClient(EServiceEndpointEnum.Utility);
-    const response = await client.get<{
-      code: number;
-      message: string;
-      data: IMarketTokenListResponse;
-    }>('/utility/v2/market/token/list', {
-      params: {
+  }: IMarketTokenListRequestParams) {
+    return this.memoizedFetchMarketTokenList(
+      this._normalizeMarketTokenListParams({
         networkId,
         sortBy,
         sortType,
@@ -177,11 +279,8 @@ class ServiceMarketV2 extends ServiceBase {
         maxLiquidity,
         type,
         timeFrame,
-        currency: 'usd',
-      },
-    });
-    const { data } = response.data;
-    return data;
+      }),
+    );
   }
 
   @backgroundMethod()
@@ -191,12 +290,14 @@ class ServiceMarketV2 extends ServiceBase {
     interval,
     timeFrom,
     timeTo,
+    autoHandleError,
   }: {
     tokenAddress: string;
     networkId: string;
     interval?: string;
     timeFrom?: number;
     timeTo?: number;
+    autoHandleError?: boolean;
   }) {
     let innerInterval = interval?.toUpperCase();
 
@@ -204,12 +305,7 @@ class ServiceMarketV2 extends ServiceBase {
       innerInterval = innerInterval?.toLowerCase();
     }
 
-    const client = await this.getClient(EServiceEndpointEnum.Utility);
-    const response = await client.get<{
-      code: number;
-      message: string;
-      data: IMarketTokenKLineResponse;
-    }>('/utility/v2/market/token/kline', {
+    const requestConfig = {
       params: {
         tokenAddress,
         networkId,
@@ -218,7 +314,15 @@ class ServiceMarketV2 extends ServiceBase {
         timeTo,
         currency: 'usd',
       },
-    });
+      ...(autoHandleError === false ? { autoHandleError: false } : {}),
+    };
+
+    const client = await this.getClient(EServiceEndpointEnum.Utility);
+    const response = await client.get<{
+      code: number;
+      message: string;
+      data: IMarketTokenKLineResponse;
+    }>('/utility/v2/market/token/kline', requestConfig);
     const { data } = response.data;
     return data;
   }
@@ -319,6 +423,32 @@ class ServiceMarketV2 extends ServiceBase {
     });
     const { data } = response.data;
     return data;
+  }
+
+  @backgroundMethod()
+  async fetchMarketTokenTopLiquidity({
+    tokenAddress,
+    networkId,
+  }: {
+    tokenAddress: string;
+    networkId: string;
+  }) {
+    const client = await this.getClient(EServiceEndpointEnum.Utility);
+    const response = await client.get<{
+      code: number;
+      message: string;
+      data: IMarketTokenTopLiquidityResponse | IMarketTokenTopLiquidityItem[];
+    }>('/utility/v1/market/token/top-liquidity', {
+      params: {
+        tokenAddress,
+        networkId,
+      },
+    });
+    const { data } = response.data;
+    if (Array.isArray(data)) {
+      return { list: data };
+    }
+    return data ?? { list: [] };
   }
 
   @backgroundMethod()
@@ -428,7 +558,6 @@ class ServiceMarketV2 extends ServiceBase {
     isDeleted?: boolean;
   }): Promise<IDBCloudSyncItem[]> {
     const syncManagers = this.backgroundApi.servicePrimeCloudSync.syncManagers;
-    const now = await this.backgroundApi.servicePrimeCloudSync.timeNow();
     const syncCredential =
       await this.backgroundApi.servicePrimeCloudSync.getSyncCredentialSafe();
 
@@ -438,7 +567,7 @@ class ServiceMarketV2 extends ServiceBase {
           return syncManagers.marketWatchList.buildSyncItemByDBQuery({
             syncCredential,
             dbRecord: watchListItem,
-            dataTime: now,
+            dataTime: undefined,
             isDeleted,
           });
         }),
@@ -468,7 +597,7 @@ class ServiceMarketV2 extends ServiceBase {
         isDeleted,
       });
     }
-    await this.backgroundApi.localDb.addAndUpdateSyncItems({
+    await this.backgroundApi.localDb.addAndUpdateFreshSyncItems({
       items: syncItems,
       fn,
     });
@@ -815,17 +944,23 @@ class ServiceMarketV2 extends ServiceBase {
   }) {
     try {
       const current = await perpTokenFavoritesPersistAtom.get();
-      const hasCoin = current.favorites.includes(coin);
+      const favorites = dedupeTokenSelectorFavoriteCoins(current.favorites);
+      const hasCoin = favorites.includes(coin);
 
       if (action === 'add' && !hasCoin) {
         await perpTokenFavoritesPersistAtom.set({
           ...current,
-          favorites: [...current.favorites, coin],
+          favorites: [...favorites, coin],
         });
       } else if (action === 'remove' && hasCoin) {
         await perpTokenFavoritesPersistAtom.set({
           ...current,
-          favorites: current.favorites.filter((f) => f !== coin),
+          favorites: favorites.filter((f) => f !== coin),
+        });
+      } else if (favorites.length !== current.favorites.length) {
+        await perpTokenFavoritesPersistAtom.set({
+          ...current,
+          favorites,
         });
       }
     } catch (error) {
@@ -880,7 +1015,10 @@ class ServiceMarketV2 extends ServiceBase {
           .filter((item) => !!item.perpsCoin)
           .map((item) => item.perpsCoin ?? ''),
       );
-      const perpsCoins = new Set(perpsFavorites.favorites);
+      const dedupedPerpsFavorites = dedupeTokenSelectorFavoriteCoins(
+        perpsFavorites.favorites,
+      );
+      const perpsCoins = new Set(dedupedPerpsFavorites);
 
       // Market has but Perps doesn't
       const missingInPerps = [...marketPerpsCoins].filter(
@@ -891,6 +1029,16 @@ class ServiceMarketV2 extends ServiceBase {
         (c) => !marketPerpsCoins.has(c),
       );
 
+      if (
+        dedupedPerpsFavorites.length !== perpsFavorites.favorites.length &&
+        missingInPerps.length === 0
+      ) {
+        await perpTokenFavoritesPersistAtom.set({
+          ...perpsFavorites,
+          favorites: dedupedPerpsFavorites,
+        });
+      }
+
       if (missingInPerps.length === 0 && missingInMarket.length === 0) {
         return;
       }
@@ -898,12 +1046,18 @@ class ServiceMarketV2 extends ServiceBase {
       // Sync missing items to Perps atom
       if (missingInPerps.length > 0) {
         const current = await perpTokenFavoritesPersistAtom.get();
-        const existingSet = new Set(current.favorites);
+        const favorites = dedupeTokenSelectorFavoriteCoins(current.favorites);
+        const existingSet = new Set(favorites);
         const toAdd = missingInPerps.filter((c) => !existingSet.has(c));
         if (toAdd.length > 0) {
           await perpTokenFavoritesPersistAtom.set({
             ...current,
-            favorites: [...current.favorites, ...toAdd],
+            favorites: [...favorites, ...toAdd],
+          });
+        } else if (favorites.length !== current.favorites.length) {
+          await perpTokenFavoritesPersistAtom.set({
+            ...current,
+            favorites,
           });
         }
       }

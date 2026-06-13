@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from 'react';
 
+import { resetChainSelectorModal } from '@onekeyhq/components';
 import type { IPageScreenProps } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
@@ -81,9 +82,9 @@ const EditableAccountChainSelector = ({
     async () => {
       const [_accountsValue, _chainSelectorNetworks, _localDeFiOverview] =
         await Promise.all([
-          backgroundApiProxy.serviceAccountProfile.getAllNetworkAccountsValue({
-            accounts: [{ accountId: indexedAccount?.id ?? account?.id ?? '' }],
-          }),
+          backgroundApiProxy.serviceAccountProfile.getAllNetworkAccountsValueByAccountId(
+            { accountId: indexedAccount?.id ?? account?.id ?? '' },
+          ),
           backgroundApiProxy.serviceNetwork.getChainSelectorNetworksCompatibleWithAccountId(
             {
               accountId: account?.id,
@@ -104,7 +105,7 @@ const EditableAccountChainSelector = ({
           }),
         ]);
 
-      if (_accountsValue[0] || _localDeFiOverview[0]) {
+      if (_accountsValue || _localDeFiOverview[0]) {
         const {
           chainSelectorNetworks: sortedChainSelectorNetworks,
           formattedAccountNetworkValues,
@@ -112,10 +113,10 @@ const EditableAccountChainSelector = ({
         } = await backgroundApiProxy.serviceNetwork.sortChainSelectorNetworksByValue(
           {
             walletId: accountUtils.getWalletIdFromAccountId({
-              accountId: _accountsValue[0].accountId,
+              accountId: _accountsValue?.accountId ?? '',
             }),
             chainSelectorNetworks: _chainSelectorNetworks,
-            accountNetworkValues: _accountsValue[0].value ?? {},
+            accountNetworkValues: _accountsValue?.value ?? {},
             localDeFiOverview: _localDeFiOverview[0]?.overview ?? {},
           },
         );
@@ -123,7 +124,7 @@ const EditableAccountChainSelector = ({
         return {
           chainSelectorNetworks: sortedChainSelectorNetworks,
           accountNetworkValues: formattedAccountNetworkValues,
-          accountNetworkValueCurrency: _accountsValue[0].currency,
+          accountNetworkValueCurrency: _accountsValue?.currency,
           accountDeFiOverview: _accountDeFiOverview,
         };
       }
@@ -185,85 +186,6 @@ const EditableAccountChainSelector = ({
           refreshNetworkData: refreshLocalData,
         })
       }
-      onFrequentlyUsedItemsChange={async (items) => {
-        const pinnedNetworkIds =
-          await backgroundApiProxy.serviceNetwork.getNetworkSelectorPinnedNetworkIds();
-        const frequentlyUsedNetworkIds =
-          chainSelectorNetworks.frequentlyUsedItems.map((o) => o.id);
-        // If all pinned networks are involved in editing, just set
-        if (pinnedNetworkIds.length === frequentlyUsedNetworkIds.length) {
-          await backgroundApiProxy.serviceNetwork.setNetworkSelectorPinnedNetworkIds(
-            {
-              networkIds: items.map((o) => o.id),
-            },
-          );
-        } else {
-          /*
-          If only some of the pinned networks participate in editing (filtered by unavailableItems). 
-          Elements that do not participate in editing maintain their position. 
-          Only elements that participate in editing are added, deleted, or modified.
-          */
-          const inputs = items.map((o) => o.id);
-
-          const itemsToAdd: string[] = [];
-
-          const itemsToRemove: string[] = frequentlyUsedNetworkIds.filter(
-            (o) => !inputs.includes(o),
-          );
-
-          let newPinnedNetworkIds = [...pinnedNetworkIds];
-
-          // networkId to index at pinnedNetworkIds
-          const networkIdsIndexes = pinnedNetworkIds.reduce(
-            (acc, item, index) => {
-              acc[item] = index;
-              return acc;
-            },
-            {} as Record<string, number>,
-          );
-
-          const frequentlyUsedIndexes: number[] = frequentlyUsedNetworkIds.map(
-            (o) => networkIdsIndexes[o],
-          );
-
-          const len = Math.max(frequentlyUsedIndexes.length, inputs.length);
-
-          for (let i = 0; i < len; i += 1) {
-            const input = inputs[i];
-            const inputIndex = frequentlyUsedIndexes[i];
-
-            if (input && inputIndex !== undefined) {
-              // inputIndex is the position in pinned networks, do replace
-              newPinnedNetworkIds[inputIndex] = input;
-            } else if (input && inputIndex === undefined) {
-              // do added
-              itemsToAdd.push(input);
-            }
-          }
-
-          if (itemsToAdd.length) {
-            const indexToAdd =
-              frequentlyUsedIndexes[frequentlyUsedIndexes.length - 1];
-            if (indexToAdd !== undefined) {
-              newPinnedNetworkIds.splice(indexToAdd + 1, 0, ...itemsToAdd);
-            } else {
-              newPinnedNetworkIds.push(...itemsToAdd);
-            }
-          }
-          if (itemsToRemove.length) {
-            newPinnedNetworkIds = newPinnedNetworkIds.filter(
-              (o) => !itemsToRemove.includes(o),
-            );
-          }
-          await backgroundApiProxy.serviceNetwork.setNetworkSelectorPinnedNetworkIds(
-            {
-              networkIds: newPinnedNetworkIds,
-            },
-          );
-        }
-
-        await refreshLocalData();
-      }}
     />
   );
 };
@@ -346,20 +268,17 @@ function AccountChainSelector({
         networkId: item.id,
       });
 
-      navigation.popStack();
+      // Surgically drop only the ChainSelectorModal route. popStack() triggers
+      // a native animated dismiss that leaves tab RNSScreenStacks with window=NIL
+      // (~5s retry storm on iOS). resetAboveMainRoute would also kill any parent
+      // modal (DApp connect, Settings, BulkSend, Onboarding) that pushed us here,
+      // so filter by route name instead. See ios-overlay-navigation-freeze.md.
+      resetChainSelectorModal();
     },
-    [
-      actions,
-      num,
-      navigation,
-      recordNetworkHistoryEnabled,
-      activeNetwork,
-      sceneName,
-    ],
+    [actions, num, recordNetworkHistoryEnabled, activeNetwork, sceneName],
   );
   const onAddCustomNetwork = useCallback(() => {
-    navigation.push(EChainSelectorPages.AddCustomNetwork, {
-      state: 'add',
+    navigation.push(EChainSelectorPages.ChainListSearch, {
       onSuccess: (network: IServerNetwork) => {
         handleListItemPress(network);
       },

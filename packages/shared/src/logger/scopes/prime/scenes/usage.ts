@@ -1,7 +1,14 @@
+import type { EPrimeFeatures } from '@onekeyhq/shared/src/routes/prime';
 import type { EBulkSendMode } from '@onekeyhq/shared/types/bulkSend';
+import type {
+  ETranslateDisplayMode,
+  ETranslateEngine,
+} from '@onekeyhq/shared/types/discovery';
 
 import { BaseScene } from '../../../base/baseScene';
 import { LogToServer } from '../../../base/decorators';
+
+type IReceiveKytFeatureName = EPrimeFeatures.ReceiveRiskMonitoring;
 
 export class PrimeUsageScene extends BaseScene {
   /**
@@ -57,5 +64,50 @@ export class PrimeUsageScene extends BaseScene {
     return {
       revokeCount,
     };
+  }
+
+  @LogToServer()
+  public dappTranslateSuccess({
+    engine,
+    targetLang,
+    displayMode,
+    dappDomain,
+  }: {
+    engine: ETranslateEngine;
+    targetLang: string;
+    displayMode: ETranslateDisplayMode;
+    dappDomain: string;
+  }) {
+    return {
+      engine,
+      targetLang,
+      displayMode,
+      dappDomain,
+    };
+  }
+
+  /**
+   * Triggered when the receive risk monitoring intro dialog is shown.
+   */
+  @LogToServer()
+  public primeReceiveKytIntroShown(params: {
+    featureName: IReceiveKytFeatureName;
+    entryPoint: 'homeAutoIntro';
+    isPrimeActive: true;
+  }) {
+    return params;
+  }
+
+  /**
+   * Triggered when the user acts on the receive risk monitoring intro dialog.
+   */
+  @LogToServer()
+  public primeReceiveKytIntroAction(params: {
+    featureName: IReceiveKytFeatureName;
+    entryPoint: 'homeAutoIntro';
+    isPrimeActive: true;
+    action: 'enable' | 'dismiss' | 'learnMore';
+  }) {
+    return params;
   }
 }

@@ -17,7 +17,17 @@ import type {
   Stats,
 } from '@rspack/core';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { resolveCommitSha } = require('../utils/resolveCommitSha') as {
+  resolveCommitSha: () => string;
+};
+
 const IS_EAS_BUILD = !!process.env.EAS_BUILD;
+
+const COMMIT_SHA = resolveCommitSha();
+
+const CANVASKIT_WASM_TEST =
+  /canvaskit-wasm[\\/]bin[\\/](full[\\/])?canvaskit\.wasm$/;
 
 class BuildDoneNotifyPlugin implements RspackPluginInstance {
   apply(compiler: Compiler) {
@@ -62,10 +72,6 @@ const baseResolve = ({
   symlinks: true,
   alias: {
     'react-native$': 'react-native-web',
-    'react-native-restart': path.join(
-      __dirname,
-      '../module-resolver/react-native-restart-mock',
-    ),
     'react-native-fast-image': path.join(
       __dirname,
       '../module-resolver/react-native-fast-image-mock',
@@ -75,6 +81,7 @@ const baseResolve = ({
       '../module-resolver/react-native-keyboard-controller-mock',
     ),
     'react-native-aes-crypto': false,
+    'react-native-cloud-fs': false,
     'react-native/Libraries/Components/View/ViewStylePropTypes$':
       'react-native-web/dist/exports/View/ViewStylePropTypes',
     'react-native/Libraries/EventEmitter/RCTDeviceEventEmitter$':
@@ -110,6 +117,7 @@ const baseResolve = ({
     https: false,
     http: false,
     net: false,
+    dgram: false,
     zlib: false,
     tls: false,
     child_process: false,
@@ -132,6 +140,10 @@ const buildBasePlugins: (
     'process.env.ONEKEY_PROXY': JSON.stringify(onekeyProxy),
     'process.env.ONEKEY_PLATFORM': JSON.stringify(platform),
     'process.env.NODE_ENV': JSON.stringify(nodeEnv),
+    'process.env.DESKTOP_E2E_MODE': JSON.stringify(
+      process.env.DESKTOP_E2E_MODE || '',
+    ),
+    'process.env.E2E_MODE': JSON.stringify(process.env.E2E_MODE || ''),
     'process.env.TAMAGUI_TARGET': JSON.stringify('web'),
     'process.env.PERF_MONITOR_ENABLED': JSON.stringify(
       process.env.PERF_MONITOR_ENABLED || '',
@@ -139,6 +151,7 @@ const buildBasePlugins: (
     'process.env.VERSION': JSON.stringify(process.env.VERSION),
     'process.env.BUNDLE_VERSION': JSON.stringify(process.env.BUNDLE_VERSION),
     'process.env.BUILD_NUMBER': JSON.stringify(process.env.BUILD_NUMBER),
+    'process.env.GITHUB_SHA': JSON.stringify(COMMIT_SHA),
   }),
   new rspack.ProvidePlugin({
     Buffer: ['buffer', 'Buffer'],
@@ -252,8 +265,20 @@ export function createBaseConfig({
     ],
     module: {
       rules: [
+        // cspell:ignore emscripten Skia skia's
+        // Canvaskit ships a prebuilt wasm loaded at runtime by emscripten;
+        // emit it as a URL asset so react-native-skia's LoadSkiaWeb can fetch
+        // it via locateFile (see OrbShader.tsx). Must come before the generic
+        // .wasm rule and must be excluded there — otherwise both rules match
+        // and rspack tries to parse the wasm as a module.
+        {
+          test: CANVASKIT_WASM_TEST,
+          type: 'asset/resource',
+          generator: { filename: 'static/canvaskit/[name][ext]' },
+        },
         {
           test: /\.wasm$/,
+          exclude: CANVASKIT_WASM_TEST,
           type: 'webassembly/async',
         },
         {

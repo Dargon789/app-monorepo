@@ -1,6 +1,7 @@
 export enum EAppEventBusNames {
   ConfirmAccountSelected = 'ConfirmAccountSelected',
   LocalSystemTimeInvalid = 'LocalSystemTimeInvalid',
+  LocalSystemTimeStatusChanged = 'LocalSystemTimeStatusChanged',
   WalletClear = 'WalletClear',
   WalletUpdate = 'WalletUpdate',
   WalletRemove = 'WalletRemove',
@@ -55,13 +56,17 @@ export enum EAppEventBusNames {
   CloseHardwareUiStateDialogManually = 'CloseHardwareUiStateDialogManually',
   HardCloseHardwareUiStateDialog = 'CloseHardwareUiStateDialog',
   HistoryTxStatusChanged = 'HistoryTxStatusChanged',
+  LocalPendingTxConfirmed = 'LocalPendingTxConfirmed',
+  DeFiPositionRefreshed = 'DeFiPositionRefreshed',
   EstimateTxFeeRetry = 'estimateTxFeeRetry',
+  GasAccountSubmitRetryScheduled = 'gasAccountSubmitRetryScheduled',
+  GasAccountSubmitRetryCleared = 'gasAccountSubmitRetryCleared',
   TokenListUpdate = 'TokenListUpdate',
   TabListStateUpdate = 'TabListStateUpdate',
   RefreshTokenList = 'RefreshTokenList',
-  RefreshEarnRecommendedList = 'RefreshEarnRecommendedList',
   RefreshHistoryList = 'RefreshHistoryList',
   RefreshBookmarkList = 'RefreshBookmarkList',
+  InvalidateDiscoveryHomeBookmarksPrefetch = 'InvalidateDiscoveryHomeBookmarksPrefetch',
   RefreshApprovalList = 'RefreshApprovalList',
   AccountDataUpdate = 'AccountDataUpdate',
   AccountValueUpdate = 'AccountValueUpdate',
@@ -92,6 +97,7 @@ export enum EAppEventBusNames {
   CheckAddressBeforeSending = 'CheckAddressBeforeSending',
   HideTabBar = 'HideTabBar',
   RequestHardwareUIDialog = 'RequestHardwareUIDialog',
+  ShowThirdPartyHardwarePermissionDialog = 'ShowThirdPartyHardwarePermissionDialog',
   RequestDeviceInBootloaderForWebDevice = 'RequestDeviceInBootloaderForWebDevice',
   RequestDeviceForSwitchFirmwareWebDevice = 'RequestDeviceForSwitchFirmwareWebDevice',
   EnabledNetworksChanged = 'EnabledNetworksChanged',
@@ -109,6 +115,7 @@ export enum EAppEventBusNames {
   // HttpServerRequest = 'HttpServerRequest',
   AddressBookUpdate = 'AddressBookUpdate',
   ClearStorageOnExtension = 'ClearStorageOnExtension',
+  SupabaseStorageCacheCleared = 'SupabaseStorageCacheCleared',
   MarketWSDataUpdate = 'MarketWSDataUpdate',
   MarketWatchlistOnlyChanged = 'MarketWatchlistOnlyChanged',
   SettingsSearchResult = 'SettingsSearchResult',
@@ -116,12 +123,26 @@ export enum EAppEventBusNames {
   ShowHardwareErrorDialog = 'ShowHardwareErrorDialog',
   SwapPanelDismissKeyboard = 'SwapPanelDismissKeyboard',
   ShowFallbackUpdateDialog = 'ShowFallbackUpdateDialog',
+  // Background → foreground signal: an update was discovered mid-session and
+  // its server strategy is auto (silent/seamless) or it is a rollback, so the
+  // foreground should kick off the real byte transfer. The background keeps the
+  // status at `notify` and only emits this event — it cannot pull bytes nor
+  // advance the status itself. The native download (BundleUpdate.downloadBundle,
+  // with headers/retry) lives exclusively in the foreground useDownloadPackage
+  // hook, whose serviceAppUpdate.downloadPackage() flips `notify` →
+  // `downloadPackage`. This event bridges the two runtimes.
+  StartAutoDownloadUpdate = 'StartAutoDownloadUpdate',
+  PendingInstallTaskProcessFinished = 'PendingInstallTaskProcessFinished',
+  HomePageReady = 'HomePageReady',
   ShowNotificationViewDialog = 'ShowNotificationViewDialog',
   ShowNotificationPageNavigation = 'ShowNotificationPageNavigation',
   ShowNotificationInDappPage = 'ShowNotificationInDappPage',
+  ShowNotificationInWebViewOverlay = 'ShowNotificationInWebViewOverlay',
   UpdateNotificationBadge = 'UpdateNotificationBadge',
   HyperliquidDataUpdate = 'HyperliquidDataUpdate',
   HyperliquidConnectionChange = 'HyperliquidConnectionChange',
+  PerpsWebSocketRecovered = 'PerpsWebSocketRecovered',
+  PerpSwitchActiveInstrument = 'PerpSwitchActiveInstrument',
   BtcFreshAddressUpdated = 'BtcFreshAddressUpdated',
   BtcFreshAddressConnectDappRejected = 'BtcFreshAddressConnectDappRejected',
   ClientLogUploadProgress = 'ClientLogUploadProgress',
@@ -140,4 +161,8 @@ export enum EAppEventBusNames {
   ExecuteNotificationCommand = 'ExecuteNotificationCommand',
   ShowRookieShare = 'ShowRookieShare',
   CreateNewBrowserTab = 'CreateNewBrowserTab',
+  ClearSavedBrowserActiveTab = 'ClearSavedBrowserActiveTab',
+  NavigateModalFromBackgroundThread = 'NavigateModalFromBackgroundThread',
+  TrayActionWillNavigate = 'TrayActionWillNavigate',
+  MemoryPressureWarning = 'MemoryPressureWarning',
 }

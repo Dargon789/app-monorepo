@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 
 import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
@@ -15,17 +15,24 @@ import {
 } from '@onekeyhq/components';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import { useSpotPairDisplayMapAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { formatTime } from '@onekeyhq/shared/src/utils/dateUtils';
 import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 import {
+  getSpotTokenDisplayName,
   getValidPriceDecimals,
+  isSpotInstrument,
   parseDexCoin,
 } from '@onekeyhq/shared/src/utils/perpsUtils';
 import type { IFill } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
-import { calcCellAlign, getColumnStyle } from '../utils';
+import {
+  calcCellAlign,
+  getColumnStyle,
+  getFillDirectionDisplayInfo,
+} from '../utils';
 
 import type { IColumnConfig, IRenderMode } from '../List/CommonTableListView';
 
@@ -65,17 +72,35 @@ const TradesHistoryRow = memo(
       return (
         fill.closedPnl &&
         !new BigNumber(fill.closedPnl).isZero() &&
+        !isSpotInstrument(fill.coin) &&
         !fill.liquidation &&
         onShare
       );
-    }, [fill.closedPnl, fill.liquidation, onShare]);
+    }, [fill.closedPnl, fill.coin, fill.liquidation, onShare]);
     const actions = useHyperliquidActions();
     const intl = useIntl();
+    const [spotDisplayMap] = useSpotPairDisplayMapAtom();
     const assetSymbol = useMemo(() => {
-      const parsed = parseDexCoin(fill.coin);
-      return parsed.displayName;
-    }, [fill.coin]);
+      if (!isSpotInstrument(fill.coin)) {
+        return parseDexCoin(fill.coin).displayName;
+      }
+      // Resolve @107 → HYPE via display map atom
+      const displayName = spotDisplayMap[fill.coin];
+      if (displayName) return displayName;
+      // Fallback: canonical pairs like PURR/USDC
+      if (fill.coin.includes('/')) {
+        const [baseName] = fill.coin.split('/');
+        return getSpotTokenDisplayName(baseName);
+      }
+      return fill.coin;
+    }, [fill.coin, spotDisplayMap]);
     const rawCoin = fill.coin;
+    const handleSwitchInstrument = useCallback(() => {
+      void actions.current.switchTradeInstrument({
+        mode: isSpotInstrument(rawCoin) ? 'spot' : 'perp',
+        coin: rawCoin,
+      });
+    }, [actions, rawCoin]);
     const dateInfo = useMemo(() => {
       const timeDate = new Date(fill.time);
       const date = formatTime(timeDate, {
@@ -88,25 +113,21 @@ const TradesHistoryRow = memo(
     }, [fill.time]);
 
     const directionInfo = useMemo(() => {
-      const side = fill.side;
-      let directionColor = '$green11';
-      if (side === 'A') {
-        directionColor = '$red11';
-      }
+      const { text, color } = getFillDirectionDisplayInfo({ fill, intl });
+      let directionStr = text;
 
-      let directionStr = fill.dir;
       if (fill.liquidation) {
-        // market: common liquidation via market order
-        // backstop: rare fallback when market liquidity is insufficient
-        const liqPrefix =
-          fill.liquidation.method === 'backstop'
-            ? 'Backstop Liq'
-            : 'Market Liq';
-        directionStr = `${liqPrefix}: ${fill.dir}`;
+        const liqPrefix = intl.formatMessage({
+          id:
+            fill.liquidation.method === 'backstop'
+              ? ETranslations.perp_backstop_liquidation__title
+              : ETranslations.perp_market_liquidation__title,
+        });
+        directionStr = `${liqPrefix}: ${directionStr}`;
       }
 
-      return { directionStr, directionColor };
-    }, [fill.dir, fill.side, fill.liquidation]);
+      return { directionStr, directionColor: color };
+    }, [fill, intl]);
 
     const tradeBaseInfo = useMemo(() => {
       const price = fill.px;
@@ -198,10 +219,8 @@ const TradesHistoryRow = memo(
               <XStack
                 gap="$2"
                 alignItems="center"
-                // cursor="pointer"
-                // onPress={() =>
-                //   actions.current.changeActiveAsset({ coin: assetSymbol })
-                // }
+                onPress={handleSwitchInstrument}
+                cursor="default"
               >
                 <SizableText size="$bodyMdMedium">{assetSymbol}</SizableText>
                 <SizableText
@@ -231,6 +250,7 @@ const TradesHistoryRow = memo(
                   </SizableText>
                   {canShare ? (
                     <IconButton
+                      testID="perp-icon-btn"
                       variant="tertiary"
                       size="small"
                       icon="ShareOutline"
@@ -297,7 +317,6 @@ const TradesHistoryRow = memo(
                   <DashText
                     size="$bodySm"
                     color="$textSubdued"
-                    dashColor="$textDisabled"
                     dashThickness={0.3}
                   >
                     {tradeBaseInfo.feeFormatted}
@@ -356,9 +375,7 @@ const TradesHistoryRow = memo(
               {...getColumnStyle(columnConfigs[1])}
               justifyContent={calcCellAlign(columnConfigs[1].align)}
               alignItems="center"
-              onPress={() =>
-                actions.current.changeActiveAsset({ coin: rawCoin })
-              }
+              onPress={handleSwitchInstrument}
               cursor="default"
             >
               <SizableText
@@ -376,14 +393,16 @@ const TradesHistoryRow = memo(
               justifyContent={calcCellAlign(columnConfigs[2].align)}
               alignItems="center"
             >
-              <SizableText
-                numberOfLines={1}
-                ellipsizeMode="tail"
-                size="$bodySm"
-                color={directionInfo.directionColor}
-              >
-                {directionInfo.directionStr}
-              </SizableText>
+              <XStack gap="$1.5" alignItems="center">
+                <SizableText
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  size="$bodySm"
+                  color={directionInfo.directionColor}
+                >
+                  {directionInfo.directionStr}
+                </SizableText>
+              </XStack>
             </XStack>
 
             {/* Price */}
@@ -441,7 +460,6 @@ const TradesHistoryRow = memo(
                   <DashText
                     size="$bodySm"
                     color="$textSubdued"
-                    dashColor="$textDisabled"
                     dashThickness={0.3}
                   >
                     {tradeBaseInfo.feeFormatted}
@@ -472,6 +490,7 @@ const TradesHistoryRow = memo(
             </SizableText>
             {canShare ? (
               <IconButton
+                testID="perp-icon-btn"
                 variant="tertiary"
                 size="small"
                 icon="ShareOutline"

@@ -26,6 +26,11 @@ import { settingsAtom } from '../states/jotai/atoms';
 import { getVaultSettings } from '../vaults/settings';
 
 import ServiceBase from './ServiceBase';
+import {
+  isAccountSelectorHomeSyncSourceScene,
+  isAccountSelectorHomeSyncTargetScene,
+  shouldSyncAccountSelectorHomeAndSwapScenes,
+} from './utils/accountSelectorHomeSyncUtils';
 
 import type {
   IDBAccount,
@@ -62,34 +67,44 @@ class ServiceAccountSelector extends ServiceBase {
     sceneUrl?: string;
     num: number;
   }) {
-    const syncScenes: {
-      sceneName: EAccountSelectorSceneName;
-      num: number;
-    }[] = [
-      {
-        sceneName: EAccountSelectorSceneName.home,
-        num: 0,
-      },
-      {
-        sceneName: EAccountSelectorSceneName.swap,
-        num: 0,
-      },
-    ];
-
     const { swapToAnotherAccountSwitchOn } = await settingsAtom.get();
-    if (!swapToAnotherAccountSwitchOn) {
-      syncScenes.push({
-        sceneName: EAccountSelectorSceneName.swap,
-        num: 1,
-      });
-    }
+    return isAccountSelectorHomeSyncTargetScene({
+      scene: { sceneName, sceneUrl, num },
+      swapToAnotherAccountSwitchOn,
+    });
+  }
 
-    return syncScenes.some((item) =>
-      accountSelectorUtils.isEqualAccountSelectorScene({
-        scene1: item,
-        scene2: { sceneName, sceneUrl, num },
-      }),
-    );
+  @backgroundMethod()
+  async shouldSyncWithHomeSource(params: {
+    sceneName: EAccountSelectorSceneName;
+    sceneUrl?: string;
+    num: number;
+  }) {
+    return isAccountSelectorHomeSyncSourceScene(params);
+  }
+
+  @backgroundMethod()
+  async shouldSyncHomeAndSwapSelectedAccount({
+    sourceScene,
+    targetScene,
+  }: {
+    sourceScene: {
+      sceneName: EAccountSelectorSceneName;
+      sceneUrl?: string;
+      num: number;
+    };
+    targetScene: {
+      sceneName: EAccountSelectorSceneName;
+      sceneUrl?: string;
+      num: number;
+    };
+  }) {
+    const { swapToAnotherAccountSwitchOn } = await settingsAtom.get();
+    return shouldSyncAccountSelectorHomeAndSwapScenes({
+      sourceScene,
+      targetScene,
+      swapToAnotherAccountSwitchOn,
+    });
   }
 
   @backgroundMethod()
@@ -319,10 +334,17 @@ class ServiceAccountSelector extends ServiceBase {
         //
       }
     }
+    // Mocked/deprecated wallets are "zombie" records still in DB but no
+    // longer user-facing (e.g. HW wallet removed via isRemoveToMocked).
+    // Creating addresses on them silently fails, so gate every canCreate
+    // path (OK-51091). `hasNoUsableWallet` in accountUtils gives the same
+    // guarantee for the UI surface; this is defense-in-depth for any code
+    // path that reads canCreateAddress directly.
+    const isWalletUnusable = accountUtils.isWalletDeprecatedOrMocked(wallet);
     let canCreateAddress = false;
     if (isAllNetwork && networkId) {
       // build mocked networkAccount of all network
-      if (!isOthersWallet && indexedAccountId) {
+      if (!isOthersWallet && indexedAccountId && !isWalletUnusable) {
         try {
           account =
             await this.backgroundApi.serviceAccount.getMockedAllNetworkAccount({
@@ -333,9 +355,14 @@ class ServiceAccountSelector extends ServiceBase {
           account = undefined;
           canCreateAddress = true;
         }
-      } else if (!isOthersWallet && wallet && !indexedAccountId) {
+      } else if (
+        !isOthersWallet &&
+        wallet &&
+        !isWalletUnusable &&
+        !indexedAccountId
+      ) {
         // When all accounts are deleted, allow creating the first account
-        // for HD wallets, HW wallets, and QR wallets
+        // for HD wallets, HW wallets, and QR wallets.
         const isHdOrHwOrQrWallet =
           accountUtils.isHdWallet({ walletId: wallet.id }) ||
           accountUtils.isHwWallet({ walletId: wallet.id }) ||
@@ -346,9 +373,11 @@ class ServiceAccountSelector extends ServiceBase {
       }
     } else {
       // single network
-      canCreateAddress = !isOthersWallet && !account?.address;
+      canCreateAddress =
+        !isOthersWallet && !isWalletUnusable && !account?.address;
       if (isQrWallet && vaultSettings) {
-        canCreateAddress = !!vaultSettings.qrAccountEnabled;
+        canCreateAddress =
+          !isWalletUnusable && !!vaultSettings.qrAccountEnabled;
       }
     }
 
@@ -972,10 +1001,21 @@ class ServiceAccountSelector extends ServiceBase {
       await this.backgroundApi.serviceDeFi.getAccountsLocalDeFiOverview({
         accounts,
       });
+    // Compound-key shape consumed by `calculateAccountTotalValue`; the
+    // per-address `getAllNetworkAccountsValue` would yield Record<networkId,
+    // worth> and silently miss every compound-key lookup downstream. The
+    // batched form folds N storage reads into one (the SimpleDb entity has
+    // caching disabled, so the per-account form paid a fresh
+    // deserialization per row — a 50-row selector batch turned into 50
+    // reads).
     const accountsValue =
-      await this.backgroundApi.serviceAccountProfile.getAllNetworkAccountsValue(
+      await this.backgroundApi.serviceAccountProfile.getAllNetworkAccountsValueByAccountIdBatch(
         {
-          accounts,
+          accounts: accounts.map((a) => ({
+            accountId: a.accountId,
+            accountAddress: a.accountAddress,
+            xpub: a.xpub,
+          })),
         },
       );
     return { accountsValue, accountsDeFiOverview };

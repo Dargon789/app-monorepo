@@ -1,3 +1,8 @@
+import type {
+  IAdaBatchGetShelleyAddressByRootKeyHexParams,
+  IAdaShelleyAddressInfo,
+} from '../shelley-address';
+
 export type IGetCardanoApi = () => Promise<IAdaSdkApi>;
 
 export type IEnsureSDKReady = () => Promise<boolean>;
@@ -18,4 +23,10 @@ export interface IAdaSdkApi {
   dAppGetUtxos: typeof import('@onekeyfe/cardano-coin-selection-asmjs').dAppUtils.getUtxos;
   dAppConvertCborTxToEncodeTx: typeof import('@onekeyfe/cardano-coin-selection-asmjs').dAppUtils.convertCborTxToEncodeTx;
   dAppSignData: typeof import('@onekeyfe/cardano-coin-selection-asmjs').dAppUtils.signData;
+  parseRawTxInputs: typeof import('@onekeyfe/cardano-coin-selection-asmjs').onekeyUtils.parseRawTxInputs;
+  parseRawTxBodyStakeInfo: typeof import('@onekeyfe/cardano-coin-selection-asmjs').onekeyUtils.parseRawTxBodyStakeInfo;
+  extractStakeKeyHashFromBaseAddress: typeof import('@onekeyfe/cardano-coin-selection-asmjs').onekeyUtils.extractStakeKeyHashFromBaseAddress;
+  batchGetShelleyAddressByRootKeyHex: (
+    params: IAdaBatchGetShelleyAddressByRootKeyHexParams,
+  ) => IAdaShelleyAddressInfo[] | Promise<IAdaShelleyAddressInfo[]>;
 }

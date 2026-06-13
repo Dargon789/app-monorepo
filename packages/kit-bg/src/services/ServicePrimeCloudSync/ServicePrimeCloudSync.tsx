@@ -33,7 +33,9 @@ import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { appLocale } from '@onekeyhq/shared/src/locale/appLocale';
 import { memoizee } from '@onekeyhq/shared/src/utils/cacheUtils';
 import systemTimeUtils, {
+  ECloudSyncDataTimeSource,
   ELocalSystemTimeStatus,
+  type ICloudSyncCorrectedTime,
 } from '@onekeyhq/shared/src/utils/systemTimeUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import type { IServerNetwork } from '@onekeyhq/shared/types';
@@ -43,10 +45,12 @@ import type { IKeylessCloudSyncCredential } from '@onekeyhq/shared/types/keyless
 import { ECloudSyncMode } from '@onekeyhq/shared/types/keylessCloudSync';
 import type { IMarketWatchListItemV2 } from '@onekeyhq/shared/types/market';
 import type {
+  ICloudSyncBotWalletRecord,
   ICloudSyncCheckServerStatusPostData,
   ICloudSyncCheckServerStatusResult,
   ICloudSyncCredential,
   ICloudSyncCredentialForLock,
+  ICloudSyncDBRecord,
   ICloudSyncDownloadPostData,
   ICloudSyncDownloadResult,
   ICloudSyncRawDataJson,
@@ -69,11 +73,10 @@ import localDb from '../../dbs/local/localDb';
 import { ELocalDBStoreNames } from '../../dbs/local/localDBStoreNames';
 import {
   EIndexedDBBucketNames,
-  type IDBAccount,
   type IDBCloudSyncItem,
-  type IDBIndexedAccount,
   type IDBWallet,
 } from '../../dbs/local/types';
+import simpleDb from '../../dbs/simple/simpleDb';
 import {
   addressBookPersistAtom,
   devSettingsPersistAtom,
@@ -83,8 +86,11 @@ import {
 } from '../../states/jotai/atoms';
 import ServiceBase from '../ServiceBase';
 
+import { filterBotWalletRecordsByCurrentKeylessSyncScope } from './botWalletCloudSyncUtils';
+import { buildOnlyCheckLocalDataTypes } from './cloudSyncCheckUtils';
 import { CloudSyncFlowManagerAccount } from './CloudSyncFlowManager/CloudSyncFlowManagerAccount';
 import { CloudSyncFlowManagerAddressBook } from './CloudSyncFlowManager/CloudSyncFlowManagerAddressBook';
+import { CloudSyncFlowManagerBotWallet } from './CloudSyncFlowManager/CloudSyncFlowManagerBotWallet';
 import { CloudSyncFlowManagerBrowserBookmark } from './CloudSyncFlowManager/CloudSyncFlowManagerBrowserBookmark';
 import { CloudSyncFlowManagerCustomNetwork } from './CloudSyncFlowManager/CloudSyncFlowManagerCustomNetwork';
 import { CloudSyncFlowManagerCustomRpc } from './CloudSyncFlowManager/CloudSyncFlowManagerCustomRpc';
@@ -102,9 +108,37 @@ import type { AxiosResponse } from 'axios';
 
 const nonceZero = 0;
 
+type IApiUploadItemsParams = {
+  localItems: IDBCloudSyncItem[];
+  isFlush?: boolean;
+  isReset?: boolean;
+  skipPrimeStatusCheck?: boolean;
+  setUndefinedTimeToNow?: boolean;
+  syncCredential?: ICloudSyncCredential | undefined;
+  encryptedSecurityPasswordR1ForServer?: string;
+  noDebounceUpload?: boolean;
+};
+
+type IApiUploadFreshItemsParams = IApiUploadItemsParams;
+
+type ICloudSyncDataTimeParams = {
+  syncItemKey?: string;
+  existingDataTime?: number;
+  explicitHistoricalTime?: number;
+  allowHistoricalTime?: boolean;
+};
+
 // Guard for the first-enable window: server pwdHash can be temporarily empty
 // before initial flush/lock upload finishes.
 let oneKeyIdCloudSyncEnableFlowCount = 0;
+
+const CLOUD_SYNC_DATA_TIME_FUTURE_TOLERANCE_MS = timerUtils.getTimeDurationMs({
+  minute: 10,
+});
+const CLOUD_SYNC_LAST_ISSUED_DATA_TIME_MAX_ENTRIES = 1000;
+const CLOUD_SYNC_LAST_ISSUED_DATA_TIME_TTL_MS = timerUtils.getTimeDurationMs({
+  minute: 30,
+});
 
 @backgroundClass()
 class ServicePrimeCloudSync extends ServiceBase {
@@ -113,6 +147,112 @@ class ServicePrimeCloudSync extends ServiceBase {
   }
 
   private _lastSunsetReminderTime = 0;
+
+  private _lastIssuedCloudSyncDataTimeByKey = new Map<
+    string,
+    { dataTime: number; updatedAt: number }
+  >();
+
+  private cleanupLastIssuedCloudSyncDataTimeByKey() {
+    if (
+      this._lastIssuedCloudSyncDataTimeByKey.size <=
+      CLOUD_SYNC_LAST_ISSUED_DATA_TIME_MAX_ENTRIES
+    ) {
+      return;
+    }
+
+    const now = Date.now();
+    for (const [key, item] of this._lastIssuedCloudSyncDataTimeByKey) {
+      if (now - item.updatedAt > CLOUD_SYNC_LAST_ISSUED_DATA_TIME_TTL_MS) {
+        this._lastIssuedCloudSyncDataTimeByKey.delete(key);
+      }
+    }
+
+    if (
+      this._lastIssuedCloudSyncDataTimeByKey.size >
+      CLOUD_SYNC_LAST_ISSUED_DATA_TIME_MAX_ENTRIES
+    ) {
+      this._lastIssuedCloudSyncDataTimeByKey.clear();
+    }
+  }
+
+  private isCloudSyncDataTimeFuturePoisoned({
+    dataTime,
+    correctedNow,
+  }: {
+    dataTime: number | undefined;
+    correctedNow?: ICloudSyncCorrectedTime;
+  }) {
+    return systemTimeUtils.isCloudSyncDataTimeFuturePoisoned({
+      dataTime,
+      correctedNow,
+      tolerance: CLOUD_SYNC_DATA_TIME_FUTURE_TOLERANCE_MS,
+    });
+  }
+
+  @backgroundMethod()
+  async getCloudSyncDataTime({
+    syncItemKey,
+    existingDataTime,
+    explicitHistoricalTime,
+    allowHistoricalTime,
+  }: ICloudSyncDataTimeParams = {}): Promise<number> {
+    let correctedNow: ICloudSyncCorrectedTime;
+    if (!systemTimeUtils.hasFreshServerTimeInCurrentProcess()) {
+      void systemTimeUtils.ensureFreshServerTime().catch((error) => {
+        errorUtils.autoPrintErrorIgnore(error);
+      });
+      correctedNow =
+        systemTimeUtils.systemTimeStatus === ELocalSystemTimeStatus.INVALID
+          ? systemTimeUtils.getCorrectedCloudSyncNow()
+          : {
+              time: Date.now(),
+              source: ECloudSyncDataTimeSource.LocalFallback,
+            };
+    } else {
+      correctedNow = systemTimeUtils.getCorrectedCloudSyncNow();
+    }
+
+    if (allowHistoricalTime && !isNil(explicitHistoricalTime)) {
+      if (correctedNow.source === ECloudSyncDataTimeSource.AppBuild) {
+        return explicitHistoricalTime;
+      }
+      return Math.min(explicitHistoricalTime, correctedNow.time);
+    }
+
+    let dataTime = correctedNow.time;
+    const lastIssued = syncItemKey
+      ? this._lastIssuedCloudSyncDataTimeByKey.get(syncItemKey)?.dataTime
+      : undefined;
+
+    const existingFuturePoisoned = this.isCloudSyncDataTimeFuturePoisoned({
+      dataTime: existingDataTime,
+      correctedNow,
+    });
+    const lastIssuedFuturePoisoned = this.isCloudSyncDataTimeFuturePoisoned({
+      dataTime: lastIssued,
+      correctedNow,
+    });
+
+    const monotonicFloor = Math.max(
+      existingFuturePoisoned ? 0 : (existingDataTime ?? 0),
+      lastIssuedFuturePoisoned ? 0 : (lastIssued ?? 0),
+    );
+
+    if (dataTime <= monotonicFloor) {
+      dataTime = monotonicFloor + 1;
+    }
+
+    if (syncItemKey) {
+      this._lastIssuedCloudSyncDataTimeByKey.set(syncItemKey, {
+        dataTime,
+        updatedAt: Date.now(),
+      });
+      this.cleanupLastIssuedCloudSyncDataTimeByKey();
+    }
+
+    return dataTime;
+  }
 
   private async notifyOnekeyIdSyncSunset() {
     const now = Date.now();
@@ -139,6 +279,9 @@ class ServicePrimeCloudSync extends ServiceBase {
 
   syncManagers = {
     wallet: new CloudSyncFlowManagerWallet({
+      backgroundApi: this.backgroundApi,
+    }),
+    botWallet: new CloudSyncFlowManagerBotWallet({
       backgroundApi: this.backgroundApi,
     }),
     account: new CloudSyncFlowManagerAccount({
@@ -284,6 +427,8 @@ class ServicePrimeCloudSync extends ServiceBase {
     switch (dataType) {
       case EPrimeCloudSyncDataType.Wallet:
         return this.syncManagers.wallet;
+      case EPrimeCloudSyncDataType.BotWallet:
+        return this.syncManagers.botWallet;
       case EPrimeCloudSyncDataType.Account:
         return this.syncManagers.account;
       case EPrimeCloudSyncDataType.IndexedAccount:
@@ -404,14 +549,9 @@ class ServicePrimeCloudSync extends ServiceBase {
     isFullDBChecking?: boolean;
   } = {}): Promise<ICloudSyncCheckServerStatusResult> {
     const items = localItems || [];
-    const onlyCheckLocalDataType = isFullDBChecking
-      ? [
-          EPrimeCloudSyncDataType.Lock,
-          EPrimeCloudSyncDataType.Wallet,
-          EPrimeCloudSyncDataType.Account,
-          EPrimeCloudSyncDataType.IndexedAccount,
-        ]
-      : Object.values(EPrimeCloudSyncDataType);
+    const onlyCheckLocalDataType = buildOnlyCheckLocalDataTypes({
+      isFullDBChecking,
+    });
     const postData: ICloudSyncCheckServerStatusPostData = {
       localData: items.map((item) => ({
         key: item.id,
@@ -471,6 +611,9 @@ class ServicePrimeCloudSync extends ServiceBase {
     }
     // fix localItems dataTime which is greater than server time
     if (responseData.serverTime) {
+      systemTimeUtils.updateServerTime({
+        serverTime: responseData.serverTime,
+      });
       try {
         const wrongTimeItems = localItems?.filter(
           (item) =>
@@ -536,7 +679,7 @@ class ServicePrimeCloudSync extends ServiceBase {
         dataType: EPrimeCloudSyncDataType.Lock,
         encryptedSecurityPasswordR1ForServer,
       },
-      dataTime: await this.timeNow(),
+      dataTime: undefined,
     });
     if (!lockItem?.data) {
       throw new OneKeyError('lockItem.data is not found');
@@ -554,16 +697,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     syncCredential,
     encryptedSecurityPasswordR1ForServer,
     noDebounceUpload,
-  }: {
-    localItems: IDBCloudSyncItem[];
-    isFlush?: boolean;
-    isReset?: boolean;
-    skipPrimeStatusCheck?: boolean;
-    setUndefinedTimeToNow?: boolean;
-    syncCredential?: ICloudSyncCredential | undefined;
-    encryptedSecurityPasswordR1ForServer?: string;
-    noDebounceUpload?: boolean;
-  }) {
+  }: IApiUploadItemsParams) {
     const devSettings = await devSettingsPersistAtom.get();
     const activeMode = await this.getActiveSyncMode();
     if (!skipPrimeStatusCheck) {
@@ -625,6 +759,11 @@ class ServicePrimeCloudSync extends ServiceBase {
     });
   }
 
+  @backgroundMethod()
+  async apiUploadFreshItems(params: IApiUploadFreshItemsParams) {
+    return this.apiUploadItems(params);
+  }
+
   async callApiChangeLock({
     lockItem,
     pwdHash,
@@ -664,7 +803,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     pwdHash: string;
     setUndefinedTimeToNow: boolean | undefined;
   }) => {
-    const now = await this.timeNow();
+    const now = await this.getCloudSyncDataTime();
     const localData: ICloudSyncServerItem[] = localItems
       .map((item) => {
         let dataTimestamp = item.dataTime;
@@ -893,6 +1032,7 @@ class ServicePrimeCloudSync extends ServiceBase {
     forceSync?: boolean;
   }) {
     const walletItems: IDBCloudSyncItem[] = [];
+    const botWalletItems: IDBCloudSyncItem[] = [];
     const accountItems: IDBCloudSyncItem[] = [];
     const indexedAccountItems: IDBCloudSyncItem[] = [];
     const browserBookmarkItems: IDBCloudSyncItem[] = [];
@@ -906,6 +1046,9 @@ class ServicePrimeCloudSync extends ServiceBase {
       switch (item.dataType) {
         case EPrimeCloudSyncDataType.Wallet:
           walletItems.push(item);
+          break;
+        case EPrimeCloudSyncDataType.BotWallet:
+          botWalletItems.push(item);
           break;
         case EPrimeCloudSyncDataType.Account:
           accountItems.push(item);
@@ -952,7 +1095,12 @@ class ServicePrimeCloudSync extends ServiceBase {
       items: walletItems,
       forceSync,
     });
-    if (walletItems?.length) {
+    await this.syncManagers.botWallet.syncToScene({
+      syncCredential,
+      items: botWalletItems,
+      forceSync,
+    });
+    if (walletItems?.length || botWalletItems?.length) {
       emitEventsStack.push(() => {
         appEventBus.emit(EAppEventBusNames.WalletUpdate, undefined);
       });
@@ -1641,6 +1789,7 @@ class ServicePrimeCloudSync extends ServiceBase {
       isCloudSyncEnabled: false,
       isCloudSyncEnabledKeyless: true,
       hasEverEnabledOneKeyIdSync: true,
+      hasEverEnabledKeylessSync: true,
     }));
     await this.clearCachedSyncCredential();
     return true;
@@ -1951,6 +2100,28 @@ class ServicePrimeCloudSync extends ServiceBase {
         // for legacy data, dateTime must be undefined, so that users can manually resolve conflicts
         initDataTime: undefined,
       });
+    const botWalletMetadataMap = await simpleDb.botWallet.getMetadataMap();
+    let botWalletRecords: ICloudSyncBotWalletRecord[] = Object.entries(
+      botWalletMetadataMap,
+    ).map(([walletId, metadata]) => ({
+      walletId,
+      metadata,
+    }));
+    if ((await this.getActiveSyncMode()) === ECloudSyncMode.Keyless) {
+      const currentKeylessWalletId =
+        await this.getCurrentCloudSyncKeylessWalletId();
+      botWalletRecords = filterBotWalletRecordsByCurrentKeylessSyncScope({
+        records: botWalletRecords,
+        currentKeylessWalletId,
+      });
+    }
+    const syncItemsForBotWallets: IDBCloudSyncItem[] =
+      await this.syncManagers.botWallet.buildInitSyncDBItems({
+        dbRecords: botWalletRecords,
+        allDevices,
+        syncCredential,
+        initDataTime: undefined,
+      });
     const syncItemsForAccounts: IDBCloudSyncItem[] =
       await this.syncManagers.account.buildInitSyncDBItems({
         dbRecords: allAccounts,
@@ -2053,6 +2224,7 @@ class ServicePrimeCloudSync extends ServiceBase {
 
     const totalItems = [
       ...syncItemsForWallets,
+      ...syncItemsForBotWallets,
       ...syncItemsForAccounts,
       ...syncItemsForIndexedAccounts,
       ...syncItemsForBookmarks,
@@ -2122,6 +2294,9 @@ class ServicePrimeCloudSync extends ServiceBase {
               const itemToUpdate = await syncManager.buildSyncItem({
                 target: target as never,
                 dataTime: item.dataTime,
+                existingDataTime: item.dataTime,
+                allowHistoricalTime: !isNil(item.dataTime),
+                preserveUndefinedDataTime: isNil(item.dataTime),
                 syncCredential,
                 isDeleted: item.isDeleted,
               });
@@ -2268,7 +2443,7 @@ class ServicePrimeCloudSync extends ServiceBase {
           id: serverItem.key,
         });
         const serverPayload = serverToLocalItem?.rawDataJson?.payload;
-        let record: IDBWallet | IDBAccount | IDBIndexedAccount | undefined;
+        let record: ICloudSyncDBRecord | undefined;
         if (serverPayload) {
           record = await syncManager.getDBRecordBySyncPayload({
             payload: serverPayload as any,
@@ -2354,7 +2529,9 @@ class ServicePrimeCloudSync extends ServiceBase {
       key: localItem.id,
       dataType: localItem.dataType,
       data: localItem.data || '',
-      dataTimestamp: dataTimestamp ?? localItem.dataTime,
+      dataTimestamp: cloudSyncItemBuilder.normalizeDataTime(
+        dataTimestamp ?? localItem.dataTime,
+      ),
       isDeleted: localItem.isDeleted,
       pwdHash: localItem.pwdHash,
     };
@@ -2386,7 +2563,9 @@ class ServicePrimeCloudSync extends ServiceBase {
       rawData: '',
       dataType: serverItem.dataType, // TODO return from server
       data: serverItem.data,
-      dataTime: serverItem.dataTimestamp,
+      dataTime: cloudSyncItemBuilder.normalizeDataTime(
+        serverItem.dataTimestamp,
+      ),
       isDeleted: serverItem.isDeleted,
       pwdHash: serverItem.pwdHash || serverPwdHash,
       localSceneUpdated: false, // server item
@@ -2426,6 +2605,9 @@ class ServicePrimeCloudSync extends ServiceBase {
       lastLocalTimeDate: new Date(
         systemTimeUtils.lastLocalTime ?? 0,
       ).toISOString(),
+
+      estimatedServerTime: systemTimeUtils.getEstimatedServerTime(),
+      correctedCloudSyncTime: systemTimeUtils.getCorrectedCloudSyncNow(),
     };
   }
 

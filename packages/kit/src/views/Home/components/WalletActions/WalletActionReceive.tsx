@@ -1,7 +1,10 @@
 import type { ReactElement } from 'react';
 import { useCallback, useMemo } from 'react';
 
+import { useIntl } from 'react-intl';
+
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
 import { useReceiveToken } from '@onekeyhq/kit/src/hooks/useReceiveToken';
 import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfile';
 import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
@@ -10,9 +13,13 @@ import {
   useAllTokenListMapAtom,
   useTokenListStateAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/tokenList';
+import { showBotWalletDisabledToast } from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
+import { shouldBlockBotWalletReceive } from '@onekeyhq/kit/src/utils/botWalletStatusUtils';
 import { WALLET_TYPE_WATCHING } from '@onekeyhq/shared/src/consts/dbConsts';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import type { IWalletActionBaseParams } from '@onekeyhq/shared/src/logger/scopes/wallet/scenes/walletActions';
+
+import { HomeTestIDs } from '../../testIDs';
 
 import { RawActions } from './RawActions';
 
@@ -22,9 +29,11 @@ function WalletActionReceive({
   customization,
   renderTrigger,
   source,
+  variant,
   sameModal,
   useSelector,
   showButtonStyle,
+  highlighted,
 }: {
   customization?: IActionCustomization;
   renderTrigger?: (props: {
@@ -32,10 +41,13 @@ function WalletActionReceive({
     disabled: boolean;
   }) => ReactElement;
   source?: IWalletActionBaseParams['source'];
+  variant?: IWalletActionBaseParams['variant'];
   sameModal?: boolean;
   useSelector?: boolean;
   showButtonStyle?: boolean;
+  highlighted?: boolean;
 } = {}) {
+  const intl = useIntl();
   const {
     activeAccount: {
       network,
@@ -49,13 +61,21 @@ function WalletActionReceive({
   const [allTokens] = useAllTokenListAtom();
   const [map] = useAllTokenListMapAtom();
   const [tokenListState] = useTokenListStateAtom();
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId: wallet?.id,
+    },
+  );
 
   const isReceiveDisabled = useMemo(() => {
     if (wallet?.type === WALLET_TYPE_WATCHING) {
       return true;
     }
-    return false;
-  }, [wallet?.type]);
+    return shouldBlockBotWalletReceive({
+      isBotWallet,
+      isBotWalletDeactivated,
+    });
+  }, [wallet?.type, isBotWallet, isBotWalletDeactivated]);
 
   const { handleOnReceive } = useReceiveToken({
     accountId: account?.id ?? '',
@@ -74,6 +94,16 @@ function WalletActionReceive({
   const { isSoftwareWalletOnlyUser } = useUserWalletProfile();
   const handleReceiveOnPress = useCallback(async () => {
     if (
+      shouldBlockBotWalletReceive({
+        isBotWallet,
+        isBotWalletDeactivated,
+      })
+    ) {
+      showBotWalletDisabledToast('receive');
+      return;
+    }
+
+    if (
       await backgroundApiProxy.serviceAccount.checkIsWalletNotBackedUp({
         walletId: wallet?.id ?? '',
       })
@@ -84,6 +114,7 @@ function WalletActionReceive({
       walletType: wallet?.type ?? '',
       networkId: network?.id ?? '',
       source: source ?? 'homePage',
+      variant,
       isSoftwareWalletOnlyUser,
     });
     if (customization?.onPress) {
@@ -100,7 +131,10 @@ function WalletActionReceive({
     wallet?.type,
     network?.id,
     network?.isAllNetworks,
+    isBotWallet,
+    isBotWalletDeactivated,
     source,
+    variant,
     isSoftwareWalletOnlyUser,
     customization,
     handleOnReceive,
@@ -118,11 +152,18 @@ function WalletActionReceive({
   return (
     <RawActions.Receive
       disabled={customization?.disabled ?? isReceiveDisabled}
+      allowPressWhenDisabled={isBotWalletDeactivated}
+      highlighted={Boolean(highlighted && !isReceiveDisabled)}
       onPress={handleReceiveOnPress}
-      label={customization?.label}
+      label={
+        customization?.labelId
+          ? intl.formatMessage({ id: customization.labelId })
+          : undefined
+      }
       icon={customization?.icon}
       showButtonStyle={showButtonStyle}
       trackID="wallet-receive"
+      testID={HomeTestIDs.receiveButton}
     />
   );
 }

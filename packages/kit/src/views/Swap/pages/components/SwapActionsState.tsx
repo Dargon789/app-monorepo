@@ -1,23 +1,22 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import BigNumber from 'bignumber.js';
 import { useIntl } from 'react-intl';
 
-import type { ICheckedState } from '@onekeyhq/components';
 import {
   Badge,
   Button,
-  Checkbox,
-  Dialog,
+  DashText,
   ESwitchSize,
   Icon,
   LottieView,
   Page,
+  Popover,
   SizableText,
   Stack,
   Switch,
+  Tooltip,
   XStack,
-  YStack,
   resetToRoute,
   useIsOverlayPage,
   useMedia,
@@ -51,6 +50,7 @@ import {
   EOnboardingV2Routes,
   ERootRoutes,
 } from '@onekeyhq/shared/src/routes';
+import { EModalAddressBookRoutes } from '@onekeyhq/shared/src/routes/addressBook';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
 import { openUrlExternal } from '@onekeyhq/shared/src/utils/openUrlUtils';
 import {
@@ -64,13 +64,18 @@ import {
   useSwapRecipientAddressInfo,
 } from '../../hooks/useSwapAccount';
 import {
+  shouldBlockSwapActionForIncognitoRecipientInput,
+  useSwapIncognitoRecipientInput,
+} from '../../hooks/useSwapIncognitoRecipientInput';
+import {
   useSwapActionState,
-  useSwapQuoteEventFetching,
-  useSwapQuoteLoading,
+  useSwapQuoteProgressState,
   useSwapSlippagePercentageModeInfo,
 } from '../../hooks/useSwapState';
+import { SwapTestIDs } from '../../testIDs';
 import { buildSwapIncognitoSettingsUpdate } from '../../utils/incognitoSettings';
 
+import { SwapIncognitoRecipientInput } from './SwapIncognitoRecipientInput';
 import { PercentageStageOnKeyboard } from './SwapInputContainer';
 
 interface ISwapActionsStateProps {
@@ -79,95 +84,7 @@ interface ISwapActionsStateProps {
   onSelectPercentageStage?: (stage: number) => void;
 }
 
-function PageFooter({
-  actionComponent,
-  isModalPage,
-  md,
-  onSelectPercentageStage,
-}: {
-  onSelectPercentageStage?: (stage: number) => void;
-  isModalPage: boolean;
-  md: boolean;
-  actionComponent: React.JSX.Element;
-}) {
-  return (
-    <Page.Footer>
-      <Page.FooterActions
-        {...(isModalPage && !md ? { buttonContainerProps: { flex: 1 } } : {})}
-        confirmButton={actionComponent}
-      />
-      {!platformEnv.isNativeIOS ? (
-        <PercentageStageOnKeyboard
-          onSelectPercentageStage={onSelectPercentageStage}
-        />
-      ) : null}
-    </Page.Footer>
-  );
-}
-
-function SwapIncognitoDialogContent({
-  onConfirm,
-}: {
-  onConfirm: () => Promise<void>;
-}) {
-  const intl = useIntl();
-  const [checked, setChecked] = useState<ICheckedState>(false);
-  const incognitoHelpLink = useHelpLink({
-    path: 'articles/14430164',
-  });
-
-  const description = useMemo(
-    () =>
-      `${intl.formatMessage({
-        id: ETranslations.trade_incognito_description,
-      })} <url>${incognitoHelpLink}<underline>${intl.formatMessage({
-        id: ETranslations.trade_incognito_read_more,
-      })}</underline></url>`,
-    [incognitoHelpLink, intl],
-  );
-
-  return (
-    <YStack gap="$4">
-      <FormatHyperlinkText
-        autoExecuteParsedAction={false}
-        onAction={openUrlExternal}
-        size="$bodyLg"
-        color="$text"
-        urlTextProps={{
-          color: '$textInfo',
-        }}
-      >
-        {description}
-      </FormatHyperlinkText>
-      <XStack alignItems="flex-start" gap="$2">
-        <Checkbox
-          labelContainerProps={{
-            flex: 1,
-          }}
-          label={intl.formatMessage({
-            id: ETranslations.trade_incognito_kyc_warning,
-          })}
-          value={checked}
-          onChange={setChecked}
-          labelProps={{
-            variant: '$bodyMd',
-            color: '$textSubdued',
-          }}
-        />
-      </XStack>
-      <Dialog.Footer
-        showCancelButton={false}
-        confirmButtonProps={{
-          disabled: !checked,
-        }}
-        onConfirm={onConfirm}
-        onConfirmText={intl.formatMessage({
-          id: ETranslations.global_confirm,
-        })}
-      />
-    </YStack>
-  );
-}
+// cspell:ignore ellipsize
 
 const SwapActionsState = ({
   onPreSwap,
@@ -204,7 +121,8 @@ const SwapActionsState = ({
     setSettings,
   ] = useSettingsAtom();
   const [settingsPersistAtom] = useSettingsPersistAtom();
-  const quoteLoading = useSwapQuoteLoading();
+  const { quoteLoading, quoteEventFetching, isWaitingActionableQuote } =
+    useSwapQuoteProgressState();
   const swapRecipientAddressInfo = useSwapRecipientAddressInfo(
     swapEnableRecipientAddress,
   );
@@ -212,13 +130,162 @@ const SwapActionsState = ({
     swapSlippageRef.current = slippageItem;
   }
   const themeVariant = useThemeVariant();
-  const quoting = useSwapQuoteEventFetching();
+  const [desktopActionWidth, setDesktopActionWidth] = useState<number>();
 
   const isModalPage = useIsOverlayPage();
-  const { md } = useMedia();
+  const { gtMd, md } = useMedia();
   const isDesktopModalPage = isModalPage && !md;
+  const incognitoHelpLink = useHelpLink({
+    path: 'articles/14430164',
+  });
+  const incognitoTitle = intl.formatMessage({
+    id: ETranslations.trade_privacy_mode,
+  });
+  const incognitoTooltipDescription = useMemo(
+    () =>
+      `${intl.formatMessage({
+        id: ETranslations.trade_privacy_mode_tooltips,
+      })} <url>${incognitoHelpLink}<underline>${intl.formatMessage({
+        id: ETranslations.trade_incognito_read_more,
+      })}</underline></url>`,
+    [incognitoHelpLink, intl],
+  );
+  const incognitoTooltipContent = useMemo(
+    () => (
+      <FormatHyperlinkText
+        autoExecuteParsedAction={false}
+        onAction={openUrlExternal}
+        size="$bodyMd"
+        color="$textSubdued"
+        urlTextProps={{
+          color: '$textInfo',
+        }}
+        underlineTextProps={{
+          color: '$textInfo',
+        }}
+      >
+        {incognitoTooltipDescription}
+      </FormatHyperlinkText>
+    ),
+    [incognitoTooltipDescription],
+  );
+  const incognitoPopoverContent = useMemo(
+    () => (
+      <Stack px="$5" pt="$1" pb="$5">
+        {incognitoTooltipContent}
+      </Stack>
+    ),
+    [incognitoTooltipContent],
+  );
+
+  const shouldShowRecipient = useMemo(
+    () =>
+      !!(
+        (swapTypeSwitch === ESwapTabSwitchType.LIMIT || !swapIncognitoMode) &&
+        swapEnableRecipientAddress &&
+        swapProviderSupportReceiveAddress &&
+        fromToken &&
+        toToken
+      ),
+    [
+      swapIncognitoMode,
+      swapEnableRecipientAddress,
+      swapProviderSupportReceiveAddress,
+      fromToken,
+      swapTypeSwitch,
+      toToken,
+    ],
+  );
+
+  const shouldShowIncognitoRecipientInput = useMemo(
+    () =>
+      !!(
+        swapIncognitoMode &&
+        swapProviderSupportReceiveAddress &&
+        fromToken &&
+        toToken &&
+        swapTypeSwitch !== ESwapTabSwitchType.LIMIT
+      ),
+    [
+      fromToken,
+      swapIncognitoMode,
+      swapProviderSupportReceiveAddress,
+      swapTypeSwitch,
+      toToken,
+    ],
+  );
+
+  const clearRecipientAddressOnHide = useMemo(
+    () => swapIncognitoMode && !shouldShowRecipient,
+    [shouldShowRecipient, swapIncognitoMode],
+  );
+
+  const incognitoRecipientInput = useSwapIncognitoRecipientInput({
+    visible: shouldShowIncognitoRecipientInput,
+    clearRecipientAddressOnHide,
+    networkId: toToken?.networkId ?? swapToAddressInfo.networkId,
+    accountId:
+      swapToAddressInfo.accountInfo?.account?.id ??
+      swapToAddressInfo.activeAccount?.account?.id,
+    accountInfo:
+      swapToAddressInfo.accountInfo ?? swapToAddressInfo.activeAccount,
+    address: swapToAnotherAccountAddress.address,
+    swapToAnotherAccountSwitchOn,
+  });
+  const {
+    errorTranslationId: incognitoRecipientErrorTranslationId,
+    inputText: incognitoRecipientInputText,
+    loading: incognitoRecipientLoading,
+    onInputChange: handleIncognitoRecipientInputChange,
+    queryResult: incognitoRecipientQueryResult,
+  } = incognitoRecipientInput;
+
+  const handleAddRecipientAddressToAddressBook = useCallback(() => {
+    const recipientAddress = incognitoRecipientInputText.trim();
+    const recipientNetworkId =
+      toToken?.networkId ?? swapToAddressInfo.networkId;
+
+    if (!recipientAddress || !recipientNetworkId) {
+      return;
+    }
+
+    navigation.pushModal(EModalRoutes.AddressBookModal, {
+      screen: EModalAddressBookRoutes.EditItemModal,
+      params: {
+        address: recipientAddress,
+        networkId: recipientNetworkId,
+        isAllowListed: true,
+        onSaveSuccess: () => {
+          handleIncognitoRecipientInputChange(incognitoRecipientInputText);
+        },
+      },
+    });
+  }, [
+    handleIncognitoRecipientInputChange,
+    incognitoRecipientInputText,
+    navigation,
+    swapToAddressInfo.networkId,
+    toToken?.networkId,
+  ]);
+
+  const shouldBlockIncognitoRecipientAction =
+    shouldBlockSwapActionForIncognitoRecipientInput({
+      enabled: incognitoRecipientInput.enabled,
+      inputText: incognitoRecipientInput.inputText,
+      loading: incognitoRecipientInput.loading,
+      queryResult: incognitoRecipientInput.queryResult,
+    });
+
+  const isActionDisabled =
+    swapActionState.disabled ||
+    swapActionState.isLoading ||
+    shouldBlockIncognitoRecipientAction;
 
   const onActionHandlerBefore = useCallback(async () => {
+    if (shouldBlockIncognitoRecipientAction) {
+      return;
+    }
+
     if (swapActionState.noConnectWallet) {
       if (platformEnv.isWebDappMode) {
         navigation.pushModal(EModalRoutes.OnboardingModal, {
@@ -254,6 +321,7 @@ const SwapActionsState = ({
     navigation,
     onPreSwap,
     quoteAction,
+    shouldBlockIncognitoRecipientAction,
     swapActionState.isRefreshQuote,
     swapActionState.noConnectWallet,
     swapIncognitoMode,
@@ -262,19 +330,30 @@ const SwapActionsState = ({
     swapToAddressInfo?.address,
   ]);
 
-  const shouldShowRecipient = useMemo(
-    () =>
-      !!(
-        swapEnableRecipientAddress &&
-        swapProviderSupportReceiveAddress &&
-        fromToken &&
-        toToken
-      ),
+  const incognitoRecipientInputComponent = useMemo(
+    () => (
+      <SwapIncognitoRecipientInput
+        visible={shouldShowIncognitoRecipientInput}
+        errorTranslationId={incognitoRecipientErrorTranslationId}
+        inputText={incognitoRecipientInputText}
+        loading={incognitoRecipientLoading}
+        onAddRecipientAddressToAddressBook={
+          handleAddRecipientAddressToAddressBook
+        }
+        onOpenRecipientAddress={onOpenRecipientAddress}
+        onInputChange={handleIncognitoRecipientInputChange}
+        queryResult={incognitoRecipientQueryResult}
+      />
+    ),
     [
-      swapEnableRecipientAddress,
-      swapProviderSupportReceiveAddress,
-      fromToken,
-      toToken,
+      handleIncognitoRecipientInputChange,
+      handleAddRecipientAddressToAddressBook,
+      incognitoRecipientErrorTranslationId,
+      incognitoRecipientInputText,
+      incognitoRecipientLoading,
+      incognitoRecipientQueryResult,
+      onOpenRecipientAddress,
+      shouldShowIncognitoRecipientInput,
     ],
   );
 
@@ -356,27 +435,9 @@ const SwapActionsState = ({
 
   const onIncognitoModeChange = useCallback(
     (value: boolean) => {
-      if (!value) {
-        applyIncognitoModeChange(false);
-        return;
-      }
-
-      void Dialog.show({
-        icon: 'AnonymousHiddenOutline',
-        title: intl.formatMessage({
-          id: ETranslations.trade_incognito_title,
-        }),
-        showFooter: false,
-        renderContent: (
-          <SwapIncognitoDialogContent
-            onConfirm={async () => {
-              applyIncognitoModeChange(true);
-            }}
-          />
-        ),
-      });
+      applyIncognitoModeChange(value);
     },
-    [applyIncognitoModeChange, intl],
+    [applyIncognitoModeChange],
   );
 
   const incognitoComponent = useMemo(
@@ -389,14 +450,42 @@ const SwapActionsState = ({
               size="$5"
               color="$iconSubdued"
             />
-            <SizableText size="$bodyMd" color="$textSubdued">
-              {intl.formatMessage({
-                id: ETranslations.trade_incognito_incognito_mode,
-              })}
-            </SizableText>
+            {!platformEnv.isNative && gtMd ? (
+              <Tooltip
+                placement="top"
+                hovering
+                renderTrigger={
+                  <DashText
+                    size="$bodyMd"
+                    color="$textSubdued"
+                    dashThickness={0.5}
+                    cursor="help"
+                  >
+                    {incognitoTitle}
+                  </DashText>
+                }
+                renderContent={incognitoTooltipContent}
+              />
+            ) : (
+              <Popover
+                title={incognitoTitle}
+                renderTrigger={
+                  <DashText
+                    size="$bodyMd"
+                    color="$textSubdued"
+                    dashThickness={0.5}
+                    cursor="help"
+                  >
+                    {incognitoTitle}
+                  </DashText>
+                }
+                renderContent={incognitoPopoverContent}
+              />
+            )}
           </XStack>
           <Stack ml={platformEnv.isNative ? '$-2' : undefined}>
             <Switch
+              testID={SwapTestIDs.incognitoModeSwitch}
               size={ESwitchSize.extraSmall}
               value={swapIncognitoMode}
               onChange={onIncognitoModeChange}
@@ -404,8 +493,63 @@ const SwapActionsState = ({
           </Stack>
         </XStack>
       ),
-    [intl, onIncognitoModeChange, swapIncognitoMode, swapTypeSwitch],
+    [
+      gtMd,
+      incognitoPopoverContent,
+      incognitoTooltipContent,
+      incognitoTitle,
+      onIncognitoModeChange,
+      swapIncognitoMode,
+      swapTypeSwitch,
+    ],
   );
+
+  const recipientAccountLabel = useMemo(() => {
+    if (!swapRecipientAddressInfo?.showAddress) {
+      return '';
+    }
+
+    if (swapRecipientAddressInfo?.isExtAccount) {
+      return intl.formatMessage({
+        id: ETranslations.swap_page_recipient_external_account,
+      });
+    }
+
+    const rawRecipientAccountLabel = [
+      swapRecipientAddressInfo?.accountInfo?.walletName,
+      swapRecipientAddressInfo?.accountInfo?.accountName,
+    ]
+      .filter((item): item is string => Boolean(item))
+      .join('-');
+
+    if (!rawRecipientAccountLabel) {
+      return '';
+    }
+
+    return rawRecipientAccountLabel;
+  }, [
+    intl,
+    swapRecipientAddressInfo?.accountInfo?.accountName,
+    swapRecipientAddressInfo?.accountInfo?.walletName,
+    swapRecipientAddressInfo?.isExtAccount,
+    swapRecipientAddressInfo?.showAddress,
+  ]);
+
+  const recipientSendToLabel = intl.formatMessage({
+    id: ETranslations.swap_page_recipient_send_to,
+  });
+
+  const recipientAddLabel = intl.formatMessage({
+    id: ETranslations.swap_page_recipient_add,
+  });
+
+  const recipientAddressDisplayLabel =
+    swapRecipientAddressInfo?.showAddress ?? recipientAddLabel;
+
+  const recipientAccountDisplayLabel =
+    swapRecipientAddressInfo?.showAddress && recipientAccountLabel
+      ? `(${recipientAccountLabel})`
+      : null;
 
   const recipientComponent = useMemo(() => {
     if (shouldShowRecipientInActionRow) {
@@ -417,11 +561,9 @@ const SwapActionsState = ({
           <Stack>
             <Icon name="AddedPeopleOutline" size="$5" color="$iconSubdued" />
           </Stack>
-          <XStack flex={1} flexWrap="wrap" gap="$1.5">
+          <XStack flex={1} flexWrap="wrap" gap="$1.5" minWidth={0}>
             <SizableText flexShrink={0} size="$bodyMd" color="$textSubdued">
-              {intl.formatMessage({
-                id: ETranslations.swap_page_recipient_send_to,
-              })}
+              {recipientSendToLabel}
             </SizableText>
             <SizableText
               flexShrink={0}
@@ -430,29 +572,18 @@ const SwapActionsState = ({
               textDecorationLine="underline"
               onPress={onOpenRecipientAddress}
             >
-              {swapRecipientAddressInfo?.showAddress ??
-                intl.formatMessage({
-                  id: ETranslations.swap_page_recipient_add,
-                })}
+              {recipientAddressDisplayLabel}
             </SizableText>
-            {swapRecipientAddressInfo?.showAddress ? (
+            {recipientAccountDisplayLabel ? (
               <SizableText
-                numberOfLines={1}
-                flexShrink={0}
+                flexShrink={1}
+                minWidth={0}
                 size="$bodyMd"
                 color="$textSubdued"
+                numberOfLines={1}
+                ellipsizeMode="middle"
               >
-                {`(${
-                  !swapRecipientAddressInfo?.isExtAccount
-                    ? `${
-                        swapRecipientAddressInfo?.accountInfo?.walletName ?? ''
-                      }-${
-                        swapRecipientAddressInfo?.accountInfo?.accountName ?? ''
-                      }`
-                    : intl.formatMessage({
-                        id: ETranslations.swap_page_recipient_external_account,
-                      })
-                })`}
+                {recipientAccountDisplayLabel}
               </SizableText>
             ) : null}
           </XStack>
@@ -461,14 +592,75 @@ const SwapActionsState = ({
     }
     return null;
   }, [
-    intl,
+    recipientAccountDisplayLabel,
+    recipientAddressDisplayLabel,
+    recipientSendToLabel,
     onOpenRecipientAddress,
     isDesktopModalPage,
     shouldShowRecipientInActionRow,
-    swapRecipientAddressInfo?.accountInfo?.accountName,
-    swapRecipientAddressInfo?.accountInfo?.walletName,
-    swapRecipientAddressInfo?.isExtAccount,
-    swapRecipientAddressInfo?.showAddress,
+  ]);
+
+  const recipientFooterComponent = useMemo(() => {
+    if (!isDesktopModalPage || !shouldShowRecipient) {
+      return null;
+    }
+
+    return (
+      <XStack
+        gap="$1.5"
+        flex={1}
+        flexShrink={1}
+        minWidth={0}
+        alignItems="center"
+        overflow="hidden"
+      >
+        <Stack flexShrink={0}>
+          <Icon name="AddedPeopleOutline" size="$5" color="$iconSubdued" />
+        </Stack>
+        <XStack
+          flex={1}
+          minWidth={0}
+          gap="$1.5"
+          alignItems="center"
+          overflow="hidden"
+        >
+          <SizableText flexShrink={0} size="$bodyMd" color="$textSubdued">
+            {recipientSendToLabel}
+          </SizableText>
+          <SizableText
+            flexShrink={1}
+            minWidth={0}
+            size="$bodyMd"
+            cursor="pointer"
+            textDecorationLine="underline"
+            onPress={onOpenRecipientAddress}
+            numberOfLines={1}
+            ellipsizeMode="middle"
+          >
+            {recipientAddressDisplayLabel}
+          </SizableText>
+          {recipientAccountDisplayLabel ? (
+            <SizableText
+              flexShrink={1}
+              minWidth={0}
+              size="$bodyMd"
+              color="$textSubdued"
+              numberOfLines={1}
+              ellipsizeMode="middle"
+            >
+              {recipientAccountDisplayLabel}
+            </SizableText>
+          ) : null}
+        </XStack>
+      </XStack>
+    );
+  }, [
+    isDesktopModalPage,
+    onOpenRecipientAddress,
+    recipientAccountDisplayLabel,
+    recipientAddressDisplayLabel,
+    recipientSendToLabel,
+    shouldShowRecipient,
   ]);
 
   const recipientMetaRowComponent = useMemo(() => {
@@ -477,15 +669,11 @@ const SwapActionsState = ({
     }
 
     return (
-      <XStack
-        flex={isDesktopModalPage ? undefined : 1}
-        justifyContent={isDesktopModalPage ? undefined : 'flex-end'}
-        minWidth={0}
-      >
+      <XStack minWidth={0} maxWidth="100%">
         <XStack
           gap="$1.5"
           flexWrap="wrap"
-          justifyContent={isDesktopModalPage ? 'flex-start' : 'flex-end'}
+          justifyContent="flex-start"
           maxWidth="100%"
         >
           <Stack>
@@ -493,14 +681,12 @@ const SwapActionsState = ({
           </Stack>
           <XStack
             flexWrap="wrap"
-            justifyContent={isDesktopModalPage ? 'flex-start' : 'flex-end'}
+            justifyContent="flex-start"
             gap="$1.5"
             minWidth={0}
           >
             <SizableText flexShrink={0} size="$bodyMd" color="$textSubdued">
-              {intl.formatMessage({
-                id: ETranslations.swap_page_recipient_send_to,
-              })}
+              {recipientSendToLabel}
             </SizableText>
             <SizableText
               flexShrink={0}
@@ -509,29 +695,18 @@ const SwapActionsState = ({
               textDecorationLine="underline"
               onPress={onOpenRecipientAddress}
             >
-              {swapRecipientAddressInfo?.showAddress ??
-                intl.formatMessage({
-                  id: ETranslations.swap_page_recipient_add,
-                })}
+              {recipientAddressDisplayLabel}
             </SizableText>
-            {swapRecipientAddressInfo?.showAddress ? (
+            {recipientAccountDisplayLabel ? (
               <SizableText
-                numberOfLines={1}
                 flexShrink={1}
+                minWidth={0}
                 size="$bodyMd"
                 color="$textSubdued"
+                numberOfLines={1}
+                ellipsizeMode="middle"
               >
-                {`(${
-                  !swapRecipientAddressInfo?.isExtAccount
-                    ? `${
-                        swapRecipientAddressInfo?.accountInfo?.walletName ?? ''
-                      }-${
-                        swapRecipientAddressInfo?.accountInfo?.accountName ?? ''
-                      }`
-                    : intl.formatMessage({
-                        id: ETranslations.swap_page_recipient_external_account,
-                      })
-                })`}
+                {recipientAccountDisplayLabel}
               </SizableText>
             ) : null}
           </XStack>
@@ -539,14 +714,11 @@ const SwapActionsState = ({
       </XStack>
     );
   }, [
-    isDesktopModalPage,
-    intl,
     onOpenRecipientAddress,
+    recipientAccountDisplayLabel,
+    recipientAddressDisplayLabel,
+    recipientSendToLabel,
     shouldShowRecipientInMetaRow,
-    swapRecipientAddressInfo?.accountInfo?.accountName,
-    swapRecipientAddressInfo?.accountInfo?.walletName,
-    swapRecipientAddressInfo?.isExtAccount,
-    swapRecipientAddressInfo?.showAddress,
   ]);
 
   const costSavingsComponent = useMemo(() => {
@@ -555,7 +727,7 @@ const SwapActionsState = ({
       new BigNumber(currentQuoteRes?.fee?.costSavings || 0).gt(0);
 
     if (hasCostSavings) {
-      const isLoadingQuote = quoting || quoteLoading;
+      const isLoadingQuote = quoteEventFetching || quoteLoading;
       const shouldShow = hasEverShownCostSavingsRef.current || !isLoadingQuote;
 
       if (shouldShow) {
@@ -597,10 +769,79 @@ const SwapActionsState = ({
   }, [
     currentQuoteRes?.fee?.costSavings,
     settingsPersistAtom.currencyInfo.symbol,
-    quoting,
+    quoteEventFetching,
     quoteLoading,
     intl,
   ]);
+
+  useEffect(() => {
+    if (!costSavingsComponent) {
+      setDesktopActionWidth(undefined);
+    }
+  }, [costSavingsComponent]);
+
+  const onDesktopActionTagLayout = useCallback(
+    (event: { nativeEvent: { layout: { width: number } } }) => {
+      const nextWidth = event?.nativeEvent?.layout?.width;
+
+      if (typeof nextWidth !== 'number' || Number.isNaN(nextWidth)) {
+        return;
+      }
+
+      setDesktopActionWidth((prevWidth) =>
+        prevWidth === nextWidth ? prevWidth : nextWidth,
+      );
+    },
+    [],
+  );
+
+  const desktopActionWidthProps = useMemo(
+    () =>
+      desktopActionWidth
+        ? {
+            width: desktopActionWidth,
+            minWidth: desktopActionWidth,
+          }
+        : undefined,
+    [desktopActionWidth],
+  );
+
+  const actionButtonChildren = useMemo(
+    () =>
+      isWaitingActionableQuote || swapActionState.isWaitingAutoSlippage ? (
+        <LottieView
+          source={
+            themeVariant === 'light'
+              ? require('@onekeyhq/kit/assets/animations/swap_quote_loading_light.json')
+              : require('@onekeyhq/kit/assets/animations/swap_quote_loading_dark.json')
+          }
+          autoPlay
+          loop
+          style={{
+            width: 40,
+            height: 24,
+          }}
+        />
+      ) : (
+        <SizableText
+          flex={platformEnv.isNativeAndroid ? 1 : undefined}
+          flexShrink={1}
+          minWidth={0}
+          maxWidth="100%"
+          size="$bodyLgMedium"
+          color="$textInverse"
+          textAlign="center"
+        >
+          {swapActionState.label}
+        </SizableText>
+      ),
+    [
+      isWaitingActionableQuote,
+      swapActionState.isWaitingAutoSlippage,
+      swapActionState.label,
+      themeVariant,
+    ],
+  );
 
   const actionRowComponent = useMemo(
     () => (
@@ -621,29 +862,15 @@ const SwapActionsState = ({
           {/* In desktop modal: show savings above button; otherwise show below */}
           {isDesktopModalPage ? costSavingsComponent : null}
           <Button
+            testID={SwapTestIDs.swapButton}
             onPress={onActionHandlerBefore}
             size={isDesktopModalPage ? 'medium' : 'large'}
             variant="primary"
-            disabled={swapActionState.disabled || swapActionState.isLoading}
+            disabled={isActionDisabled}
             borderRadius="$full"
+            childrenAsText={false}
           >
-            {quoting || quoteLoading ? (
-              <LottieView
-                source={
-                  themeVariant === 'light'
-                    ? require('@onekeyhq/kit/assets/animations/swap_quote_loading_light.json')
-                    : require('@onekeyhq/kit/assets/animations/swap_quote_loading_dark.json')
-                }
-                autoPlay
-                loop
-                style={{
-                  width: 40,
-                  height: 24,
-                }}
-              />
-            ) : (
-              swapActionState.label
-            )}
+            {actionButtonChildren}
           </Button>
           {/* In regular pages and non-desktop modal: show savings below button */}
           {!isDesktopModalPage ? costSavingsComponent : null}
@@ -652,15 +879,11 @@ const SwapActionsState = ({
     ),
     [
       onActionHandlerBefore,
+      actionButtonChildren,
+      isActionDisabled,
       isDesktopModalPage,
-      quoteLoading,
-      quoting,
       recipientComponent,
       shouldShowRecipientInActionRow,
-      swapActionState.disabled,
-      swapActionState.isLoading,
-      swapActionState.label,
-      themeVariant,
       costSavingsComponent,
     ],
   );
@@ -678,6 +901,7 @@ const SwapActionsState = ({
         <XStack
           gap="$4"
           alignItems="center"
+          flexWrap="wrap"
           justifyContent="space-between"
           width="100%"
         >
@@ -698,16 +922,98 @@ const SwapActionsState = ({
           : {})}
       >
         {metaRow}
+        {incognitoRecipientInputComponent}
         {actionRowComponent}
       </Stack>
     );
   }, [
     actionRowComponent,
+    incognitoRecipientInputComponent,
     incognitoComponent,
     showRecipientInMetaRow,
     isDesktopModalPage,
     recipientMetaRowComponent,
   ]);
+
+  const desktopModalRecipientSection = useMemo(() => {
+    if (!incognitoComponent && !incognitoRecipientInputComponent) {
+      return null;
+    }
+
+    return (
+      <Stack gap="$4">
+        {incognitoComponent}
+        {incognitoRecipientInputComponent}
+      </Stack>
+    );
+  }, [incognitoComponent, incognitoRecipientInputComponent]);
+
+  const desktopFooterComponent = useMemo(
+    () => (
+      <Page.Footer>
+        <Stack p="$5" bg="$bgApp" gap="$2">
+          {costSavingsComponent ? (
+            <XStack width="100%" justifyContent="flex-end">
+              <Stack
+                flexShrink={0}
+                alignItems="stretch"
+                {...desktopActionWidthProps}
+              >
+                <Stack alignItems="center" onLayout={onDesktopActionTagLayout}>
+                  {costSavingsComponent}
+                </Stack>
+              </Stack>
+            </XStack>
+          ) : null}
+          <XStack width="100%" alignItems="center" gap="$4">
+            <XStack
+              flex={1}
+              minWidth={0}
+              gap="$6"
+              alignItems="center"
+              overflow="hidden"
+            >
+              {recipientFooterComponent}
+            </XStack>
+            <Stack
+              flexShrink={0}
+              alignItems="stretch"
+              gap="$2"
+              {...desktopActionWidthProps}
+            >
+              <Button
+                testID={SwapTestIDs.actionPrimaryButton}
+                onPress={onActionHandlerBefore}
+                size="medium"
+                variant="primary"
+                disabled={isActionDisabled}
+                borderRadius="$full"
+                {...(desktopActionWidth ? { width: '100%' } : {})}
+              >
+                {actionButtonChildren}
+              </Button>
+            </Stack>
+          </XStack>
+        </Stack>
+        {!platformEnv.isNativeIOS ? (
+          <PercentageStageOnKeyboard
+            onSelectPercentageStage={onSelectPercentageStage}
+          />
+        ) : null}
+      </Page.Footer>
+    ),
+    [
+      actionButtonChildren,
+      costSavingsComponent,
+      desktopActionWidth,
+      desktopActionWidthProps,
+      isActionDisabled,
+      onActionHandlerBefore,
+      onDesktopActionTagLayout,
+      onSelectPercentageStage,
+      recipientFooterComponent,
+    ],
+  );
 
   const actionComponentCoverFooter = useMemo(
     () => (
@@ -728,12 +1034,10 @@ const SwapActionsState = ({
   return (
     <>
       {isDesktopModalPage ? (
-        <PageFooter
-          onSelectPercentageStage={onSelectPercentageStage}
-          actionComponent={actionComponent}
-          isModalPage={isModalPage}
-          md={md}
-        />
+        <>
+          {desktopModalRecipientSection}
+          {desktopFooterComponent}
+        </>
       ) : (
         actionComponentCoverFooter
       )}

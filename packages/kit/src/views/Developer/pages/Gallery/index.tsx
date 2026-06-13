@@ -73,11 +73,6 @@ const ErrorToastGallery = LazyLoadPage(
     import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/ErrorToastGallery'),
 );
 
-const FirmwareUpdateGallery = LazyLoadPage(
-  () =>
-    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/FirmwareUpdateGallery'),
-);
-
 const QRWalletGallery = LazyLoadPage(
   () =>
     import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/QRWalletGallery'),
@@ -90,6 +85,10 @@ const FormGallery = LazyLoadPage(
 const HardwareGallery = LazyLoadPage(
   () =>
     import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/Hardware'),
+);
+const LedgerAppOpsGallery = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/LedgerAppOps'),
 );
 const IconGallery = LazyLoadPage(
   () =>
@@ -268,6 +267,10 @@ const WebviewGallery = LazyLoadPage(
   () =>
     import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/WebView'),
 );
+const WebViewOverlayGallery = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/WebViewOverlay'),
+);
 const AddressInputGallery = LazyLoadPage(
   () =>
     import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/AddressInput'),
@@ -381,6 +384,11 @@ const KeylessWalletGallery = LazyLoadPage(
 const TradingViewGallery = LazyLoadPage(
   () =>
     import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TradingView'),
+);
+
+const TradingViewV2Gallery = LazyLoadPage(
+  () =>
+    import('@onekeyhq/kit/src/views/Developer/pages/Gallery/Components/stories/TradingViewV2'),
 );
 
 const TradingViewPerpsV2Gallery = LazyLoadPage(
@@ -628,10 +636,6 @@ export const galleryScreenList: {
   { name: EGalleryRoutes.ComponentLocalDB, component: LocalDBGallery },
   { name: EGalleryRoutes.ComponentErrorToast, component: ErrorToastGallery },
   {
-    name: EGalleryRoutes.ComponentFirmwareUpdate,
-    component: FirmwareUpdateGallery,
-  },
-  {
     name: EGalleryRoutes.ComponentQRWallet,
     component: QRWalletGallery,
   },
@@ -660,6 +664,10 @@ export const galleryScreenList: {
     component: WebviewGallery,
   },
   {
+    name: EGalleryRoutes.ComponentWebViewOverlay,
+    component: WebViewOverlayGallery,
+  },
+  {
     name: EGalleryRoutes.ComponentRefreshControl,
     component: RefreshControlGallery,
   },
@@ -682,6 +690,10 @@ export const galleryScreenList: {
   {
     name: EGalleryRoutes.ComponentHardware,
     component: HardwareGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentLedgerAppOps,
+    component: LedgerAppOpsGallery,
   },
   {
     name: EGalleryRoutes.ComponentImage,
@@ -758,6 +770,10 @@ export const galleryScreenList: {
   {
     name: EGalleryRoutes.ComponentTradingViewGallery,
     component: TradingViewGallery,
+  },
+  {
+    name: EGalleryRoutes.ComponentTradingViewV2Gallery,
+    component: TradingViewV2Gallery,
   },
   {
     name: EGalleryRoutes.ComponentTradingViewPerpsV2Gallery,

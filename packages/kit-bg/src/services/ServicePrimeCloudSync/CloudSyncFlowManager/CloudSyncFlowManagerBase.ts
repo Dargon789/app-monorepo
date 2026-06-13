@@ -187,12 +187,16 @@ export abstract class CloudSyncFlowManagerBase<
     allDevices,
     isDeleted,
     dataTime,
+    allowHistoricalTime,
+    existingDataTime,
     syncCredential,
   }: {
     dbRecord: TRecord;
     allDevices?: IDBDevice[];
     isDeleted: boolean | undefined;
     dataTime: number | undefined;
+    allowHistoricalTime?: boolean;
+    existingDataTime?: number;
     syncCredential: ICloudSyncCredential | undefined;
   }): Promise<IDBCloudSyncItem | undefined> {
     const target = await this.buildSyncTargetByDBQuery({
@@ -202,6 +206,8 @@ export abstract class CloudSyncFlowManagerBase<
     return this.buildSyncItem({
       target,
       dataTime,
+      allowHistoricalTime,
+      existingDataTime,
       syncCredential,
       isDeleted,
     });
@@ -210,11 +216,17 @@ export abstract class CloudSyncFlowManagerBase<
   async buildSyncItem({
     target,
     dataTime,
+    allowHistoricalTime,
+    existingDataTime,
+    preserveUndefinedDataTime,
     syncCredential,
     isDeleted,
   }: {
     target: ICloudSyncTargetMap[T];
     dataTime: number | undefined;
+    allowHistoricalTime?: boolean;
+    existingDataTime?: number;
+    preserveUndefinedDataTime?: boolean;
     syncCredential: ICloudSyncCredential | undefined;
     isDeleted?: boolean;
   }): Promise<IDBCloudSyncItem | undefined> {
@@ -228,6 +240,17 @@ export abstract class CloudSyncFlowManagerBase<
           target,
           callerName: 'buildSyncItem',
         });
+      const finalDataTime =
+        preserveUndefinedDataTime && dataTime === undefined
+          ? undefined
+          : await this.backgroundApi.servicePrimeCloudSync.getCloudSyncDataTime(
+              {
+                syncItemKey: key,
+                existingDataTime,
+                explicitHistoricalTime: dataTime,
+                allowHistoricalTime,
+              },
+            );
       const item = await cloudSyncItemBuilder.buildSyncItemFromRawDataJson({
         key,
         rawDataJson: {
@@ -236,7 +259,7 @@ export abstract class CloudSyncFlowManagerBase<
           dataType: dataType as any,
         },
         syncCredential,
-        dataTime,
+        dataTime: finalDataTime,
       });
       item.localSceneUpdated = true;
       item.serverUploaded = false;
@@ -320,7 +343,8 @@ export abstract class CloudSyncFlowManagerBase<
   async buildExistingSyncItemsInfo({
     tx,
     targets,
-    useCreateGenesisTime,
+    useCreateGenesisTime: shouldUseCreateGenesisTime,
+    buildSyncItemDataTime,
     onExistingSyncItemsInfo,
   }: {
     tx: ILocalDBTransaction | undefined;
@@ -328,6 +352,10 @@ export abstract class CloudSyncFlowManagerBase<
     useCreateGenesisTime?: (params: {
       target: ICloudSyncTargetMap[T];
     }) => Promise<boolean>;
+    buildSyncItemDataTime?: (params: {
+      target: ICloudSyncTargetMap[T];
+      existingSyncItem: IDBCloudSyncItem | undefined;
+    }) => Promise<number | undefined>;
     onExistingSyncItemsInfo: (
       existingSyncItemsInfo: IExistingSyncItemsInfo<T>,
     ) => Promise<void>;
@@ -358,33 +386,149 @@ export abstract class CloudSyncFlowManagerBase<
       canSyncWithoutServer ||
       (await this.backgroundApi.servicePrimeCloudSync.isCloudSyncIsAvailable());
 
+    if (!buildSyncItemDataTime) {
+      for (const target of targets) {
+        let existingSyncItem: IDBCloudSyncItem | undefined;
+
+        if (shouldSync) {
+          if (tx) {
+            existingSyncItem = await this.txGetSyncItem({
+              tx,
+              shouldDecrypt: true,
+              target,
+              syncCredential,
+            });
+          } else {
+            existingSyncItem = await this.getSyncItem({
+              // tx,
+              shouldDecrypt: true,
+              target,
+              syncCredential,
+            });
+          }
+        }
+
+        if (
+          existingSyncItem?.rawDataJson &&
+          existingSyncItem?.rawDataJson.dataType === this.dataType &&
+          existingSyncItem?.rawDataJson.payload
+        ) {
+          const syncPayload = existingSyncItem?.rawDataJson.payload;
+
+          if (target.targetId) {
+            existingSyncItemsInfo[target.targetId] = {
+              syncPayload: syncPayload as any,
+              syncItem: existingSyncItem,
+              target,
+            };
+          }
+          existingSyncItems.push(existingSyncItem);
+        } else if (
+          canSyncWithoutServer &&
+          existingSyncItem &&
+          existingSyncItem.rawData
+        ) {
+          try {
+            const rawDataJson = JSON.parse(
+              existingSyncItem.rawData,
+            ) as ICloudSyncRawDataJson;
+            if (rawDataJson.payload) {
+              if (target.targetId) {
+                existingSyncItemsInfo[target.targetId] = {
+                  syncPayload: rawDataJson.payload as any,
+                  syncItem: existingSyncItem,
+                  target,
+                };
+              }
+              existingSyncItems.push(existingSyncItem);
+            }
+          } catch (error) {
+            console.error('parse rawData error', error);
+          }
+        } else {
+          let dataTime: number | undefined;
+          let allowHistoricalTime = false;
+          if (shouldUseCreateGenesisTime) {
+            if (await shouldUseCreateGenesisTime({ target })) {
+              console.log(
+                'useCreateGenesisTime PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME',
+                PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME,
+              );
+              dataTime = PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME;
+              allowHistoricalTime = true;
+            }
+          }
+          const newSyncItem = await this.buildSyncItem({
+            syncCredential,
+            target,
+            dataTime,
+            allowHistoricalTime,
+          });
+          if (newSyncItem) {
+            newSyncItems.push(newSyncItem);
+          }
+        }
+      }
+
+      await onExistingSyncItemsInfo(existingSyncItemsInfo);
+
+      return {
+        existingSyncItemsInfo,
+        existingSyncItems,
+        newSyncItems,
+      };
+    }
+
+    const targetSyncStateList: Array<{
+      target: ICloudSyncTargetMap[T];
+      existingSyncItem: IDBCloudSyncItem | undefined;
+    }> = [];
+
     for (const target of targets) {
       let existingSyncItem: IDBCloudSyncItem | undefined;
+      let decryptedSyncItem: IDBCloudSyncItem | undefined;
 
-      if (shouldSync) {
-        if (tx) {
-          existingSyncItem = await this.txGetSyncItem({
-            tx,
-            shouldDecrypt: true,
-            target,
+      if (tx) {
+        existingSyncItem = await this.txGetSyncItem({
+          tx,
+          shouldDecrypt: false,
+          target,
+          syncCredential,
+        });
+      } else {
+        existingSyncItem = await this.getSyncItem({
+          // tx,
+          shouldDecrypt: false,
+          target,
+          syncCredential,
+        });
+      }
+
+      if (
+        shouldSync &&
+        existingSyncItem &&
+        existingSyncItem.dataType === this.dataType
+      ) {
+        try {
+          const { dbItem } = await cloudSyncItemBuilder.decryptSyncItem({
+            item: {
+              ...existingSyncItem,
+            },
             syncCredential,
           });
-        } else {
-          existingSyncItem = await this.getSyncItem({
-            // tx,
-            shouldDecrypt: true,
-            target,
-            syncCredential,
-          });
+          decryptedSyncItem = dbItem;
+        } catch (error) {
+          errorUtils.autoPrintErrorIgnore(error);
         }
       }
 
       if (
-        existingSyncItem?.rawDataJson &&
-        existingSyncItem?.rawDataJson.dataType === this.dataType &&
-        existingSyncItem?.rawDataJson.payload
+        existingSyncItem &&
+        decryptedSyncItem?.rawDataJson &&
+        decryptedSyncItem?.rawDataJson.dataType === this.dataType &&
+        decryptedSyncItem?.rawDataJson.payload
       ) {
-        const syncPayload = existingSyncItem?.rawDataJson.payload;
+        const syncPayload = decryptedSyncItem.rawDataJson.payload;
 
         if (target.targetId) {
           existingSyncItemsInfo[target.targetId] = {
@@ -393,7 +537,6 @@ export abstract class CloudSyncFlowManagerBase<
             target,
           };
         }
-        existingSyncItems.push(existingSyncItem);
       } else if (
         canSyncWithoutServer &&
         existingSyncItem &&
@@ -411,37 +554,73 @@ export abstract class CloudSyncFlowManagerBase<
                 target,
               };
             }
-            existingSyncItems.push(existingSyncItem);
           }
         } catch (error) {
           console.error('parse rawData error', error);
         }
+      }
+
+      targetSyncStateList.push({
+        target,
+        existingSyncItem,
+      });
+    }
+
+    await onExistingSyncItemsInfo(existingSyncItemsInfo);
+
+    for (const { target, existingSyncItem } of targetSyncStateList) {
+      if (existingSyncItem) {
+        const updatedDataTime = await buildSyncItemDataTime({
+          target,
+          existingSyncItem,
+        });
+
+        if (updatedDataTime !== undefined) {
+          const updatedSyncItem = await this.buildSyncItem({
+            syncCredential,
+            target,
+            dataTime: updatedDataTime,
+            existingDataTime: existingSyncItem.dataTime,
+            allowHistoricalTime: true,
+          });
+          if (updatedSyncItem) {
+            newSyncItems.push(updatedSyncItem);
+          } else {
+            existingSyncItems.push(existingSyncItem);
+          }
+        } else {
+          existingSyncItems.push(existingSyncItem);
+        }
       } else {
+        const dataTime = await buildSyncItemDataTime({
+          target,
+          existingSyncItem: undefined,
+        });
+
+        let historicalDataTime = dataTime;
+        let allowHistoricalTime = dataTime !== undefined;
+        if (dataTime === undefined && shouldUseCreateGenesisTime) {
+          if (await shouldUseCreateGenesisTime({ target })) {
+            console.log(
+              'useCreateGenesisTime PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME',
+              PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME,
+            );
+            historicalDataTime = PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME;
+            allowHistoricalTime = true;
+          }
+        }
+
         const newSyncItem = await this.buildSyncItem({
           syncCredential,
           target,
-          // eslint-disable-next-line react-hooks/rules-of-hooks
-          // oxlint-disable-next-line eslint-plugin-react-hooks/rules-of-hooks
-          dataTime: await (async () => {
-            if (useCreateGenesisTime) {
-              if (await useCreateGenesisTime({ target })) {
-                console.log(
-                  'useCreateGenesisTime PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME',
-                  PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME,
-                );
-                return PRIME_CLOUD_SYNC_CREATE_GENESIS_TIME;
-              }
-            }
-            return this.timeNow();
-          })(),
+          dataTime: historicalDataTime,
+          allowHistoricalTime,
         });
         if (newSyncItem) {
           newSyncItems.push(newSyncItem);
         }
       }
     }
-
-    await onExistingSyncItemsInfo(existingSyncItemsInfo);
 
     return {
       existingSyncItemsInfo,
@@ -562,7 +741,8 @@ export abstract class CloudSyncFlowManagerBase<
               //     });
               //   }
               // }
-              if (target) {
+              // Mirror the isSupportSync gate used on the upload side.
+              if (target && (await this.isSupportSync(target))) {
                 const keyInfo = await this.buildSyncKeyAndPayload({
                   target,
                   callerName: 'syncToScene',
@@ -660,6 +840,7 @@ export abstract class CloudSyncFlowManagerBase<
           const item = await this.buildSyncItem({
             target,
             dataTime: initDataTime,
+            preserveUndefinedDataTime: true,
             syncCredential,
           });
           return item;

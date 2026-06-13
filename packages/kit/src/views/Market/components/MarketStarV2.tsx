@@ -14,6 +14,7 @@ import type { EWatchlistFrom } from '@onekeyhq/shared/src/logger/scopes/dex';
 import { equalTokenNoCaseSensitive } from '@onekeyhq/shared/src/utils/tokenUtils';
 
 import { useMarketWatchListV2Atom } from '../../../states/jotai/contexts/marketV2';
+import { MarketTestIDs } from '../testIDs';
 
 import { useWatchListV2Action } from './watchListHooksV2';
 
@@ -87,6 +88,7 @@ function BasicMarketStarV2({
   from,
   tokenSymbol,
   isNative = false,
+  customIconSize,
   ...props
 }: {
   size?: IIconButtonProps['size'];
@@ -95,6 +97,7 @@ function BasicMarketStarV2({
   from: EWatchlistFrom;
   tokenSymbol?: string;
   isNative?: boolean;
+  customIconSize?: string;
 } & IStackProps) {
   const intl = useIntl();
   const { onPress, checked } = useStarV2Checked({
@@ -107,6 +110,9 @@ function BasicMarketStarV2({
 
   return (
     <IconButton
+      testID={
+        tokenSymbol ? MarketTestIDs.tokenStarButton(tokenSymbol) : undefined
+      }
       title={intl.formatMessage({
         id: checked
           ? ETranslations.market_remove_from_favorites
@@ -118,6 +124,7 @@ function BasicMarketStarV2({
       iconSize={size ? undefined : '$5'}
       iconProps={{
         color: checked ? '$iconActive' : '$iconSubdued',
+        ...(customIconSize ? { size: customIconSize } : {}),
       }}
       onPress={onPress}
       {...(props as IXStackProps)}
@@ -170,6 +177,7 @@ function BasicMarketPerpsStarV2({
 
   return (
     <IconButton
+      testID="market-intl-icon-btn"
       title={intl.formatMessage({
         id: checked
           ? ETranslations.market_remove_from_favorites

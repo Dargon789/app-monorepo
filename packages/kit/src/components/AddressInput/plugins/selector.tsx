@@ -4,9 +4,12 @@ import { useIntl } from 'react-intl';
 
 import { ActionList, IconButton } from '@onekeyhq/components';
 import { useAccountSelectorTrigger } from '@onekeyhq/kit/src/components/AccountSelector/hooks/useAccountSelectorTrigger';
+import type { IAccountSelectorActiveAccountInfo } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
 import { useAccountSelectorActions } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector/actions';
 import { useAddressBookPick } from '@onekeyhq/kit/src/views/AddressBook/hooks/useAddressBook';
 import type { IAddressItem } from '@onekeyhq/kit/src/views/AddressBook/type';
+import { appEventBus } from '@onekeyhq/shared/src/eventBus/appEventBus';
+import { EAppEventBusNames } from '@onekeyhq/shared/src/eventBus/appEventBusNames';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
@@ -72,7 +75,7 @@ const AddressBookPlugin: FC<ISelectorPluginProps> = ({
           })}
           variant="tertiary"
           icon="DotVerOutline"
-          testID={testID}
+          testID={testID ?? 'address-input-contacts-btn'}
         />
       }
     />
@@ -96,6 +99,7 @@ const AccountSelectorAddressBookPlugin: FC<ISelectorPluginProps> = ({
   const intl = useIntl();
   const accountSelectorNum = num ?? 0;
   const accountSelectorOpen = useRef<boolean>(false);
+  const selectionSequence = useRef<number>(0);
   const showAddressBook = useAddressBookPick();
   const actions = useAccountSelectorActions();
   const { hideNonBackedUpWallet } = useContext(AddressInputContext);
@@ -106,23 +110,80 @@ const AccountSelectorAddressBookPlugin: FC<ISelectorPluginProps> = ({
       hideNonBackedUpWallet,
     });
 
-  useEffect(() => {
-    if (
-      activeAccountFromSelector?.account?.address &&
-      accountSelectorOpen.current
-    ) {
-      onActiveAccountChange?.(activeAccountFromSelector);
+  const handleActiveAccountSelected = useCallback(
+    async (activeAccount: IAccountSelectorActiveAccountInfo | undefined) => {
+      if (!activeAccount?.account?.address || !accountSelectorOpen.current) {
+        return;
+      }
+
+      // Guard against stale async callbacks: if a newer selection starts while
+      // onActiveAccountChange is awaiting, bail out so the old address is not
+      // written back into the input.
+      selectionSequence.current += 1;
+      const currentSequence = selectionSequence.current;
+
+      const shouldContinue = await onActiveAccountChange?.(activeAccount);
+      if (currentSequence !== selectionSequence.current) {
+        return;
+      }
+      if (shouldContinue === false) {
+        accountSelectorOpen.current = false;
+        return;
+      }
       onChange?.({
-        text: activeAccountFromSelector?.account?.address,
+        text: activeAccount.account.address,
         inputType: EInputAddressChangeType.AccountSelector,
       });
       accountSelectorOpen.current = false;
-    }
+    },
+    [onActiveAccountChange, onChange],
+  );
+
+  useEffect(() => {
+    void handleActiveAccountSelected(activeAccountFromSelector);
+  }, [activeAccountFromSelector, handleActiveAccountSelected]);
+
+  useEffect(() => {
+    const handleConfirmAccountSelected = (payload: {
+      num: number;
+      indexedAccountId?: string;
+      othersWalletAccountId?: string;
+    }) => {
+      if (
+        payload.num !== accountSelectorNum ||
+        !activeAccountFromSelector ||
+        !accountSelectorOpen.current
+      ) {
+        return;
+      }
+
+      const isSameIndexedAccount =
+        payload.indexedAccountId &&
+        payload.indexedAccountId ===
+          activeAccountFromSelector.indexedAccount?.id;
+      const isSameOthersWalletAccount =
+        payload.othersWalletAccountId &&
+        payload.othersWalletAccountId === activeAccountFromSelector.account?.id;
+
+      if (isSameIndexedAccount || isSameOthersWalletAccount) {
+        void handleActiveAccountSelected(activeAccountFromSelector);
+      }
+    };
+
+    appEventBus.on(
+      EAppEventBusNames.ConfirmAccountSelected,
+      handleConfirmAccountSelected,
+    );
+    return () => {
+      appEventBus.off(
+        EAppEventBusNames.ConfirmAccountSelected,
+        handleConfirmAccountSelected,
+      );
+    };
   }, [
+    accountSelectorNum,
     activeAccountFromSelector,
-    onChange,
-    onExtraDataChange,
-    onActiveAccountChange,
+    handleActiveAccountSelected,
   ]);
 
   const onContacts = useCallback(() => {
@@ -203,8 +264,8 @@ const AccountSelectorAddressBookPlugin: FC<ISelectorPluginProps> = ({
         })}
         disabled={disabled}
         variant="tertiary"
-        icon="PeopleCircleOutline"
-        testID={testID}
+        icon="PeopleOutline"
+        testID={testID ?? 'address-input-account-selector-btn'}
         onPress={onShowAccountSelector}
       />
     );
@@ -243,8 +304,8 @@ const AccountSelectorAddressBookPlugin: FC<ISelectorPluginProps> = ({
           })}
           disabled={disabled}
           variant="tertiary"
-          icon="PeopleCircleOutline"
-          testID={testID}
+          icon="PeopleOutline"
+          testID={testID ?? 'address-input-selector-btn'}
         />
       }
     />

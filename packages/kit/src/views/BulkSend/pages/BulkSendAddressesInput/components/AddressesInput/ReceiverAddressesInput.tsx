@@ -1,22 +1,32 @@
 /* eslint-disable no-continue */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef } from 'react';
 
 import { useWatch } from 'react-hook-form';
 import { useIntl } from 'react-intl';
 
 import {
   Form,
+  type IFieldErrorProps,
   SizableText,
   YStack,
   useFormContext,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { useIsEnableTransferAllowList } from '@onekeyhq/kit/src/components/AddressInput/hooks';
+import { HyperlinkText } from '@onekeyhq/kit/src/components/HyperlinkText';
 import { useAccountData } from '@onekeyhq/kit/src/hooks/useAccountData';
+import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import type { IAccountSelectorActiveAccountInfo } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import { isAddressOwnedByDeactivatedBotWallet } from '@onekeyhq/kit/src/utils/botWalletAccountUtils';
+import {
+  getBotWalletDisabledMessage,
+  showBotWalletDisabledToast,
+} from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
 import { useDebouncedValidation } from '@onekeyhq/kit/src/views/BulkSend/hooks/useDebouncedValidation';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
+import { EModalRoutes } from '@onekeyhq/shared/src/routes';
+import { EModalAddressBookRoutes } from '@onekeyhq/shared/src/routes/addressBook';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { EBulkSendMode } from '@onekeyhq/shared/types/bulkSend';
@@ -36,6 +46,19 @@ import { useMultiLineAddressValidation } from './useMultiLineAddressValidation';
 type IReceiverAddressesInputProps = {
   maxLines?: number;
 };
+
+type IParsedAllowlistMessage =
+  | {
+      key: string;
+      lineNumber: number;
+    }
+  | {
+      key: string;
+      message: string;
+    };
+
+const BULK_SEND_ALLOWLIST_ERROR_ID =
+  ETranslations.wallet_bulk_send_error_address_not_in_allowlist;
 
 function buildReceiverSelectorAccountItem(
   activeAccount: IAccountSelectorActiveAccountInfo,
@@ -57,13 +80,145 @@ function buildReceiverSelectorAccountItem(
   };
 }
 
+function BulkSendReceiverAllowlistErrorMessage({ error }: IFieldErrorProps) {
+  const form = useFormContext();
+  const navigation = useAppNavigation();
+  const {
+    selectedAccountId,
+    selectedNetworkId,
+    receiverValidationErrors,
+    setReceiverValidationErrors,
+  } = useBulkSendAddressesInputContext();
+
+  const handleAddressBookSaved = useCallback(() => {
+    setReceiverValidationErrors([]);
+    void form.trigger('receiverAddresses');
+  }, [form, setReceiverValidationErrors]);
+
+  const handleOpenAddressBook = useCallback(
+    async (lineNumber?: number) => {
+      const receiverAddresses =
+        (form.getValues('receiverAddresses') as string | undefined) ?? '';
+      const lines = receiverAddresses.split('\n');
+      const targetLine =
+        typeof lineNumber === 'number' ? lines[lineNumber - 1]?.trim() : '';
+      const address = targetLine?.split(',')[0]?.trim();
+
+      if (!address || !selectedNetworkId) {
+        return;
+      }
+
+      const { addressBookId, isAllowListed } =
+        await backgroundApiProxy.serviceAccountProfile.queryAddress({
+          accountId: selectedAccountId,
+          networkId: selectedNetworkId,
+          address,
+          enableAddressBook: true,
+          enableWalletName: true,
+          skipValidateAddress: true,
+        });
+
+      if (isAllowListed) {
+        return;
+      }
+
+      navigation.pushModal(EModalRoutes.AddressBookModal, {
+        screen: EModalAddressBookRoutes.EditItemModal,
+        params: {
+          id: addressBookId,
+          address,
+          networkId: selectedNetworkId,
+          isAllowListed: true,
+          onSaveSuccess: handleAddressBookSaved,
+        },
+      });
+    },
+    [
+      form,
+      handleAddressBookSaved,
+      navigation,
+      selectedAccountId,
+      selectedNetworkId,
+    ],
+  );
+
+  const parsedMessages = useMemo<IParsedAllowlistMessage[]>(() => {
+    const blockingAllowlistErrors = receiverValidationErrors.filter(
+      (item) =>
+        item.translationId === ETranslations.send_address_not_allowlist_error &&
+        item.lineNumber > 0,
+    );
+
+    if (blockingAllowlistErrors.length > 0) {
+      return blockingAllowlistErrors.map((item) => ({
+        key: `${item.lineNumber}`,
+        lineNumber: item.lineNumber,
+      }));
+    }
+
+    if (!error?.message) {
+      return [];
+    }
+
+    return [
+      {
+        key: 'fallback',
+        message: error.message,
+      },
+    ];
+  }, [error?.message, receiverValidationErrors]);
+
+  return (
+    <>
+      {parsedMessages.map((item, index) => (
+        <Fragment key={item.key}>
+          {index > 0 ? '\n' : null}
+          {'lineNumber' in item ? (
+            <HyperlinkText
+              color="$textCritical"
+              size="$bodyMd"
+              translationId={ETranslations.send_address_not_allowlist_error}
+              autoExecuteParsedAction={false}
+              onAction={(actionId) => {
+                if (actionId === 'to_add_address_page') {
+                  void handleOpenAddressBook(item.lineNumber);
+                }
+              }}
+            />
+          ) : (
+            <SizableText color="$textCritical" size="$bodyMd">
+              {item.message}
+            </SizableText>
+          )}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+const renderBulkSendReceiverAllowlistErrorMessage = (
+  props: IFieldErrorProps,
+) => <BulkSendReceiverAllowlistErrorMessage {...props} />;
+
 function useReceiverSelectorAccountItems() {
   const selectorAccountItemsRef = useRef<
     Record<string, IBulkSendSelectorAccountItem>
   >({});
 
   const handleActiveAccountChange = useCallback(
-    (activeAccount: IAccountSelectorActiveAccountInfo) => {
+    async (activeAccount: IAccountSelectorActiveAccountInfo) => {
+      const walletId = activeAccount.wallet?.id;
+      if (
+        accountUtils.isBotWallet({ walletId }) &&
+        walletId &&
+        (await backgroundApiProxy.serviceAccount.isBotWalletDeactivated({
+          walletId,
+        }))
+      ) {
+        showBotWalletDisabledToast('beReceiver');
+        return false;
+      }
+
       const selectorAccountItem =
         buildReceiverSelectorAccountItem(activeAccount);
       if (selectorAccountItem) {
@@ -72,6 +227,7 @@ function useReceiverSelectorAccountItems() {
         ] = selectorAccountItem;
         void backgroundApiProxy.serviceAccount.clearAccountNameFromAddressCache();
       }
+      return true;
     },
     [],
   );
@@ -85,8 +241,12 @@ function useReceiverSelectorAccountItems() {
 // ManyToOne: single-line receiver input
 function SingleLineReceiverInput() {
   const intl = useIntl();
-  const { selectedAccountId, selectedNetworkId, setDuplicateAddressCount } =
-    useBulkSendAddressesInputContext();
+  const {
+    selectedAccountId,
+    selectedNetworkId,
+    setDuplicateAddressCount,
+    setReceiverValidationErrors,
+  } = useBulkSendAddressesInputContext();
   const { network } = useAccountData({ networkId: selectedNetworkId });
   const isEnableTransferAllowList = useIsEnableTransferAllowList();
   const validationSeqRef = useRef(0);
@@ -99,6 +259,7 @@ function SingleLineReceiverInput() {
 
       if (!value) {
         setDuplicateAddressCount(0);
+        setReceiverValidationErrors([]);
         return intl.formatMessage({
           id: ETranslations.wallet_bulk_send_error_receiver_required,
         });
@@ -114,6 +275,7 @@ function SingleLineReceiverInput() {
         });
 
       if (!result.isValid) {
+        setReceiverValidationErrors([]);
         let networkName = network?.name ?? '';
         if (networkId && networkId !== network?.id) {
           try {
@@ -132,6 +294,24 @@ function SingleLineReceiverInput() {
           },
           { network: networkName },
         );
+      }
+
+      // Reject when the receiver address resolves to a deactivated Bot Wallet
+      // account. The helper falls back to BTC fresh-address resolution to
+      // match the allowlist resolver below. Surface a toast in addition to
+      // the inline error so users see the rejection prominently — the form
+      // continues to block submission via the inline error.
+      if (selectedNetworkId) {
+        const isDeactivatedBotReceiver =
+          await isAddressOwnedByDeactivatedBotWallet({
+            networkId: selectedNetworkId,
+            address: trimmedAddress,
+          });
+        if (isDeactivatedBotReceiver) {
+          setReceiverValidationErrors([]);
+          showBotWalletDisabledToast('beReceiver');
+          return getBotWalletDisabledMessage('beReceiver');
+        }
       }
 
       // Allowlist check
@@ -198,12 +378,22 @@ function SingleLineReceiverInput() {
           }
         }
         if (!isAllowed) {
+          setReceiverValidationErrors([
+            {
+              lineNumber: 1,
+              message: intl.formatMessage({
+                id: BULK_SEND_ALLOWLIST_ERROR_ID,
+              }),
+              translationId: ETranslations.send_address_not_allowlist_error,
+            },
+          ]);
           return intl.formatMessage({
-            id: ETranslations.wallet_bulk_send_error_address_not_in_allowlist,
+            id: BULK_SEND_ALLOWLIST_ERROR_ID,
           });
         }
       }
 
+      setReceiverValidationErrors([]);
       return true;
     },
     [
@@ -213,6 +403,7 @@ function SingleLineReceiverInput() {
       network?.id,
       isEnableTransferAllowList,
       setDuplicateAddressCount,
+      setReceiverValidationErrors,
       selectorAccountItemsRef,
     ],
   );
@@ -225,6 +416,7 @@ function SingleLineReceiverInput() {
       label={intl.formatMessage({
         id: ETranslations.wallet_bulk_send_section_receiving_address,
       })}
+      renderErrorMessage={renderBulkSendReceiverAllowlistErrorMessage}
       rules={{
         validate: debouncedValidate,
       }}
@@ -252,8 +444,12 @@ function SingleLineReceiverInput() {
 // ManyToMany: multi-line, address-only, with count matching validation
 function ManyToManyReceiverInput({ maxLines }: { maxLines?: number }) {
   const intl = useIntl();
-  const { selectedAccountId, selectedNetworkId, selectedToken } =
-    useBulkSendAddressesInputContext();
+  const {
+    selectedAccountId,
+    selectedNetworkId,
+    selectedToken,
+    setReceiverValidationErrors,
+  } = useBulkSendAddressesInputContext();
   const { selectorAccountItemsRef, handleActiveAccountChange } =
     useReceiverSelectorAccountItems();
 
@@ -274,6 +470,8 @@ function ManyToManyReceiverInput({ maxLines }: { maxLines?: number }) {
     checkAllowlist: true,
     selectedAccountId,
     selectorAccountItemsRef,
+    onErrorsChange: setReceiverValidationErrors,
+    rejectDeactivatedBotWalletReceiver: true,
   });
 
   const validate = useCallback(
@@ -352,6 +550,7 @@ function ManyToManyReceiverInput({ maxLines }: { maxLines?: number }) {
         description={intl.formatMessage({
           id: ETranslations.wallet_bulk_send_label_receiving_desc,
         })}
+        renderErrorMessage={renderBulkSendReceiverAllowlistErrorMessage}
         rules={{
           required: true,
           validate: platformEnv.isNativeAndroid ? validate : debouncedValidate,
@@ -391,6 +590,7 @@ function OneToManyReceiverInput({ maxLines }: { maxLines?: number }) {
     selectedNetworkId,
     selectedToken,
     setDuplicateAddressCount,
+    setReceiverValidationErrors,
   } = useBulkSendAddressesInputContext();
   const { selectorAccountItemsRef, handleActiveAccountChange } =
     useReceiverSelectorAccountItems();
@@ -407,6 +607,8 @@ function OneToManyReceiverInput({ maxLines }: { maxLines?: number }) {
     duplicateWarningMode: true,
     onDuplicateAddressCountChange: setDuplicateAddressCount,
     selectorAccountItemsRef,
+    onErrorsChange: setReceiverValidationErrors,
+    rejectDeactivatedBotWalletReceiver: true,
   });
 
   const validate = useCallback(
@@ -442,6 +644,7 @@ function OneToManyReceiverInput({ maxLines }: { maxLines?: number }) {
         label={intl.formatMessage({
           id: ETranslations.wallet_bulk_send_label_receiving_addresses,
         })}
+        renderErrorMessage={renderBulkSendReceiverAllowlistErrorMessage}
         rules={{
           required: true,
           validate: platformEnv.isNativeAndroid ? validate : debouncedValidate,

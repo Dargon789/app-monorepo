@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useMemo } from 'react';
 
 import { type IProps } from '.';
 
-import { isNil } from 'lodash';
 import { useIntl } from 'react-intl';
 
 import {
@@ -18,15 +17,22 @@ import {
   useTabIsRefreshingFocused,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { Currency } from '@onekeyhq/kit/src/components/Currency';
 import NumberSizeableTextWrapper from '@onekeyhq/kit/src/components/NumberSizeableTextWrapper';
 import { ReviewControl } from '@onekeyhq/kit/src/components/ReviewControl';
 import { useAccountData } from '@onekeyhq/kit/src/hooks/useAccountData';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
 import { useCopyAccountAddress } from '@onekeyhq/kit/src/hooks/useCopyAccountAddress';
 import { useDisplayAccountAddress } from '@onekeyhq/kit/src/hooks/useDisplayAccountAddress';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useReceiveToken } from '@onekeyhq/kit/src/hooks/useReceiveToken';
 import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfile';
+import { showBotWalletDisabledToast } from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
+import {
+  shouldBlockBotWalletCopyAddress,
+  shouldBlockBotWalletReceive,
+} from '@onekeyhq/kit/src/utils/botWalletStatusUtils';
 import { RawActions } from '@onekeyhq/kit/src/views/Home/components/WalletActions/RawActions';
 import { useSettingsPersistAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
@@ -47,6 +53,10 @@ import cacheUtils from '@onekeyhq/shared/src/utils/cacheUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import timerUtils from '@onekeyhq/shared/src/utils/timerUtils';
 import {
+  displayFiatValueOrUnavailable,
+  displayOrUnavailable,
+} from '@onekeyhq/shared/src/utils/tokenValueUtils';
+import {
   ESwapSource,
   ESwapTabSwitchType,
 } from '@onekeyhq/shared/types/swap/types';
@@ -54,6 +64,8 @@ import type {
   IAccountToken,
   IFetchTokenDetailItem,
 } from '@onekeyhq/shared/types/token';
+
+import { AssetDetailsTestIDs } from '../../testIDs';
 
 import ActionBuy from './ActionBuy';
 import { useTokenDetailsContext } from './TokenDetailsContext';
@@ -68,7 +80,74 @@ const tokenDetailsCache = new cacheUtils.LRUCache<
   ttlAutopurge: true,
 });
 
-function TokenDetailsHeader(props: IProps) {
+type ITokenDetailsAddressBlockProps = {
+  shouldShow: boolean;
+  label: string;
+  address: string;
+  onPress: () => void;
+  testID?: string;
+  disabled?: boolean;
+};
+
+const TokenDetailsAddressBlock = memo(
+  ({
+    shouldShow,
+    label,
+    address,
+    onPress,
+    testID,
+    disabled,
+  }: ITokenDetailsAddressBlockProps) => {
+    if (!shouldShow) {
+      return null;
+    }
+
+    return (
+      <>
+        <Divider />
+        <YStack
+          testID={testID}
+          userSelect="none"
+          onPress={onPress}
+          opacity={disabled ? 0.5 : 1}
+          px="$5"
+          py="$3"
+          gap="$1"
+          {...listItemPressStyle}
+        >
+          <SizableText size="$bodyMd" color="$textSubdued">
+            {label}
+          </SizableText>
+          <XStack gap="$4">
+            <SizableText
+              size="$bodyMd"
+              color="$text"
+              flexShrink={1}
+              $platform-web={{
+                wordBreak: 'break-word',
+              }}
+            >
+              {address}
+            </SizableText>
+            <Icon
+              name="Copy3Outline"
+              color="$iconSubdued"
+              size="$5"
+              flexShrink={0}
+              marginLeft="auto"
+            />
+          </XStack>
+        </YStack>
+      </>
+    );
+  },
+);
+TokenDetailsAddressBlock.displayName = 'TokenDetailsAddressBlock';
+
+function TokenDetailsHeaderContent({
+  focusParam,
+  ...props
+}: IProps & { focusParam: boolean }) {
   const {
     accountId,
     networkId,
@@ -146,18 +225,31 @@ function TokenDetailsHeader(props: IProps) {
     indexedAccountId: indexedAccountId ?? '',
   });
 
-  const { isFocused } = useTabIsRefreshingFocused();
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId,
+    },
+  );
+  const isBotWalletReceiveBlocked = shouldBlockBotWalletReceive({
+    isBotWallet,
+    isBotWalletDeactivated,
+  });
+  const isBotWalletCopyBlocked = shouldBlockBotWalletCopyAddress({
+    isBotWallet,
+    isBotWalletDeactivated,
+  });
+
   const tokenDetailsPromiseOptions = useMemo(
     () => ({
       watchLoading: true,
       overrideIsFocused: (isPageFocused: boolean) =>
-        isPageFocused && (isTabView ? isFocused : true),
+        isPageFocused && (isTabView ? focusParam : true),
       debounced: POLLING_DEBOUNCE_INTERVAL,
       ...(cachedTokenDetails !== undefined
         ? { initResult: cachedTokenDetails }
         : {}),
     }),
-    [cachedTokenDetails, isFocused, isTabView],
+    [cachedTokenDetails, focusParam, isTabView],
   );
   const { result: tokenDetailsResult, isLoading: isLoadingTokenDetails } =
     usePromiseResult(
@@ -171,19 +263,18 @@ function TokenDetailsHeader(props: IProps) {
 
         const data = tokensDetails?.[0];
 
+        // Chart price-line surface cannot render '--'; coerce to 0. Header
+        // price/balance render '--' via displayOrUnavailable below.
         updateTokenMetadata({
           price: data?.price ?? 0,
           priceChange24h: data?.price24h ?? 0,
           coingeckoId: data?.info?.coingeckoId ?? '',
+          currency: data?.currency,
         });
 
         if (!data) {
           tokenDetailsCache.delete(tokenDetailsCacheKey);
           return undefined;
-        }
-
-        if (isNil(data.fiatValue)) {
-          data.fiatValue = '0';
         }
 
         tokenDetailsCache.set(tokenDetailsCacheKey, data);
@@ -213,11 +304,13 @@ function TokenDetailsHeader(props: IProps) {
       return;
     }
 
+    // Cached-only path: same '--' coercion rationale as the fetch path above.
     updateTokenMetadata({
       price: cachedTokenDetails.price ?? 0,
       priceChange24h: cachedTokenDetails.price24h ?? 0,
       coingeckoId:
         cachedTokenDetails.info?.coingeckoId ?? tokenInfo.coingeckoId ?? '',
+      currency: cachedTokenDetails.currency,
     });
   }, [
     cachedTokenDetails,
@@ -348,6 +441,55 @@ function TokenDetailsHeader(props: IProps) {
     return true;
   }, [wallet?.type, networkId, wallet?.backuped, hideAccountAddress]);
 
+  const addressBlockLabel = useMemo(
+    () =>
+      intl.formatMessage({
+        id: ETranslations.global_my_address,
+      }),
+    [intl],
+  );
+
+  const addressBlockValue = useMemo(() => {
+    const address = account?.address ?? '';
+
+    // For deactivated bot wallets the address must not be exposed in full —
+    // copying is blocked, and showing the full string would let users still
+    // grab the address via long-press / OS-level select. Mask it the same
+    // way the account selector shortens addresses.
+    if (isBotWalletCopyBlocked) {
+      return accountUtils.shortenAddress({ address });
+    }
+
+    if (
+      accountUtils.isHwWallet({ walletId }) ||
+      accountUtils.isQrWallet({ walletId })
+    ) {
+      return accountUtils.shortenAddress({ address });
+    }
+
+    return address;
+  }, [account?.address, walletId, isBotWalletCopyBlocked]);
+
+  const handleCopyAddressPress = useCallback(() => {
+    if (isBotWalletCopyBlocked) {
+      showBotWalletDisabledToast('copyAddress');
+      return;
+    }
+    void copyAccountAddress({
+      accountId,
+      networkId,
+      token: tokenInfo,
+      deriveInfo,
+    });
+  }, [
+    copyAccountAddress,
+    accountId,
+    networkId,
+    tokenInfo,
+    deriveInfo,
+    isBotWalletCopyBlocked,
+  ]);
+
   return (
     <DebugRenderTracker position="top-right" name="TokenDetailsHeader">
       <>
@@ -373,26 +515,27 @@ function TokenDetailsHeader(props: IProps) {
               </Skeleton.Group>
             ) : (
               <>
-                <NumberSizeableTextWrapper
+                <Currency
                   hideValue
                   splitDecimal
                   formatter="value"
-                  formatterOptions={{
-                    currency: settings.currencyInfo.symbol,
-                  }}
+                  sourceCurrency={tokenDetails?.currency}
                   fontSize={48}
                   lineHeight={48}
                   fontWeight={500}
                 >
-                  {tokenDetails?.fiatValue ?? '0'}
-                </NumberSizeableTextWrapper>
+                  {displayFiatValueOrUnavailable(
+                    tokenDetails?.fiatValue,
+                    tokenDetails?.balanceParsed,
+                  )}
+                </Currency>
                 <NumberSizeableTextWrapper
                   hideValue
                   formatter="balance"
                   color="$textSubdued"
                   size="$bodyLg"
                 >
-                  {tokenDetails?.balanceParsed ?? '0'}
+                  {displayOrUnavailable(tokenDetails?.balanceParsed)}
                 </NumberSizeableTextWrapper>
               </>
             )}
@@ -400,12 +543,19 @@ function TokenDetailsHeader(props: IProps) {
           {/* Actions */}
           <RawActions>
             <RawActions.Send
+              testID={AssetDetailsTestIDs.sendBtn}
               onPress={handleSendPress}
               trackID="wallet-token-details-send"
             />
             <RawActions.Receive
-              disabled={isWatchOnly}
+              testID={AssetDetailsTestIDs.receiveBtn}
+              disabled={isWatchOnly || isBotWalletReceiveBlocked}
+              allowPressWhenDisabled={isBotWalletReceiveBlocked}
               onPress={async () => {
+                if (isBotWalletReceiveBlocked) {
+                  showBotWalletDisabledToast('receive');
+                  return;
+                }
                 if (
                   await backgroundApiProxy.serviceAccount.checkIsWalletNotBackedUp(
                     {
@@ -428,6 +578,7 @@ function TokenDetailsHeader(props: IProps) {
               trackID="wallet-token-details-receive"
             />
             <RawActions.Swap
+              testID={AssetDetailsTestIDs.swapBtn}
               onPress={handleOnSwap}
               disabled={disableSwapAction}
               trackID="wallet-token-details-swap"
@@ -456,61 +607,33 @@ function TokenDetailsHeader(props: IProps) {
           walletType={wallet?.type}
           tokenLogoURI={tokenInfo.logoURI}
         />
-        {shouldShowAddressBlock ? (
-          <>
-            <Divider />
-            <YStack
-              userSelect="none"
-              onPress={() =>
-                copyAccountAddress({
-                  accountId,
-                  networkId,
-                  token: tokenInfo,
-                  deriveInfo,
-                })
-              }
-              px="$5"
-              py="$3"
-              gap="$1"
-              {...listItemPressStyle}
-            >
-              <SizableText size="$bodyMd" color="$textSubdued">
-                {intl.formatMessage({
-                  id: ETranslations.global_my_address,
-                })}
-              </SizableText>
-              <XStack gap="$4">
-                <SizableText
-                  size="$bodyMd"
-                  color="$text"
-                  flexShrink={1}
-                  $platform-web={{
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {accountUtils.isHwWallet({ walletId }) ||
-                  accountUtils.isQrWallet({ walletId })
-                    ? accountUtils.shortenAddress({
-                        address: account?.address ?? '',
-                      })
-                    : account?.address}
-                </SizableText>
-                <Icon
-                  name="Copy3Outline"
-                  color="$iconSubdued"
-                  size="$5"
-                  flexShrink={0}
-                  marginLeft="auto"
-                />
-              </XStack>
-            </YStack>
-          </>
-        ) : null}
+        <TokenDetailsAddressBlock
+          shouldShow={shouldShowAddressBlock}
+          label={addressBlockLabel}
+          address={addressBlockValue}
+          onPress={handleCopyAddressPress}
+          testID={AssetDetailsTestIDs.copyAddressBtn}
+          disabled={isBotWalletCopyBlocked}
+        />
         {/* History */}
         <Divider mb="$3" />
       </>
     </DebugRenderTracker>
   );
+}
+
+function TokenDetailsHeaderWithTabFocus(props: IProps) {
+  const { isFocused } = useTabIsRefreshingFocused();
+
+  return <TokenDetailsHeaderContent {...props} focusParam={isFocused} />;
+}
+
+function TokenDetailsHeader(props: IProps) {
+  if (props.isTabView) {
+    return <TokenDetailsHeaderWithTabFocus {...props} />;
+  }
+
+  return <TokenDetailsHeaderContent {...props} focusParam />;
 }
 
 export default memo(TokenDetailsHeader);

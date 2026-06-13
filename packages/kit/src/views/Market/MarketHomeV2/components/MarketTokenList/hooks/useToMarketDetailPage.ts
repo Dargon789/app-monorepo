@@ -41,6 +41,8 @@ interface IUseToDetailPageOptions {
   from?: EEnterWay;
 }
 
+const EXTENSION_POPUP_CLOSE_DELAY_MS = 100;
+
 export function useToDetailPage(options?: IUseToDetailPageOptions) {
   const navigation =
     useAppNavigation<IPageNavigationProp<ITabMarketParamList>>();
@@ -65,35 +67,33 @@ export function useToDetailPage(options?: IUseToDetailPageOptions) {
         platformEnv.isExtensionUiPopup ||
         platformEnv.isExtensionUiSidePanel
       ) {
-        // Open in expand tab for extension popup/side panel
-        // Use path format to match the rewrite pattern: /market/token/:network/:tokenAddress
-        const path = `/market/token/${params.network}/${params.tokenAddress}`;
-
         // Determine the appropriate enter source
         const enterSource = platformEnv.isExtensionUiPopup
           ? EEnterWay.ExtensionPopup
           : EEnterWay.ExtensionSidePanel;
 
-        await backgroundApiProxy.serviceApp.openExtensionExpandTab({
-          path,
-          params: {
-            isNative: params.isNative,
-            from: params.from || enterSource,
-          },
+        await backgroundApiProxy.serviceApp.openExtensionMarketTokenDetail({
+          ...params,
+          from: params.from || enterSource,
         });
+        if (platformEnv.isExtensionUiPopup) {
+          // Keep the popup alive long enough for caller-side follow-up timers,
+          // such as recent-search persistence, to run before the page closes.
+          setTimeout(() => {
+            globalThis.close();
+          }, EXTENSION_POPUP_CLOSE_DELAY_MS);
+        }
       } else if (options?.switchToMarketTabFirst) {
         // Clear token detail before navigation
         tokenDetailActions.current.clearTokenDetail();
 
-        // First switch to the appropriate tab to highlight it
         const targetTab = platformEnv.isNative
           ? ETabRoutes.Discovery
           : ETabRoutes.Market;
-        navigation.switchTab(targetTab);
 
-        // Then navigate to detail page using rootNavigationRef
-        // because the current navigation context is from modal, not from the target tab
-        setTimeout(() => {
+        if (platformEnv.isNative) {
+          // Navigate directly to the nested detail route to avoid briefly
+          // revealing the Discovery root page before entering Market detail.
           rootNavigationRef.current?.navigate(ERootRoutes.Main, {
             screen: targetTab,
             params: {
@@ -101,7 +101,22 @@ export function useToDetailPage(options?: IUseToDetailPageOptions) {
               params,
             },
           });
-        }, 500);
+        } else {
+          // First switch to the appropriate tab to highlight it
+          navigation.switchTab(targetTab);
+
+          // Then navigate to detail page using rootNavigationRef
+          // because the current navigation context is from modal, not from the target tab
+          setTimeout(() => {
+            rootNavigationRef.current?.navigate(ERootRoutes.Main, {
+              screen: targetTab,
+              params: {
+                screen: ETabMarketRoutes.MarketDetailV2,
+                params,
+              },
+            });
+          }, 500);
+        }
       } else {
         // Clear token detail before navigation
         tokenDetailActions.current.clearTokenDetail();

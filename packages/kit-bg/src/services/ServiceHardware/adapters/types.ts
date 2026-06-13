@@ -1,0 +1,61 @@
+import type { EHardwareVendor } from '@onekeyhq/shared/types/device';
+
+import type { EThirdPartyHardwareUiAction } from '../../../states/jotai/atoms/hardware';
+import type {
+  DeviceInfo,
+  IConnector,
+  IHardwareWallet,
+  Response,
+  UiResponseEvent,
+} from '@onekeyfe/hwk-adapter-core';
+
+export type { DeviceInfo, IHardwareWallet, Response, IConnector };
+
+export type IThirdPartyHardwareSearchOptions = {
+  resetSession?: boolean;
+};
+
+export type IAdapterUiRequestType =
+  | EThirdPartyHardwareUiAction.requestDeviceNotFound
+  | EThirdPartyHardwareUiAction.requestBtcHighIndexConfirm;
+
+export type IAdapterUiRequest = {
+  kind: 'request';
+  type: IAdapterUiRequestType;
+  payload?: {
+    /** Vendor that emitted the request, e.g. 'ledger'. */
+    vendor?: string;
+    /** Why the SDK is asking for a reconnect (e.g. 'device-not-found'). */
+    reason?: string;
+    /** Best-effort English fallback when vendor+reason isn't recognized. */
+    message?: string;
+    /** BIP-44 path the SDK is asking about (BTC high-index confirm). */
+    path?: string;
+    /** Account index parsed from the path (BTC high-index confirm). */
+    accountIndex?: number;
+  };
+};
+
+export type IAdapterUiEvent = IAdapterUiRequest;
+
+/** Alias of SDK's UiResponseEvent — the (type, payload) contract is SDK-owned. */
+export type IAdapterUiResponse = UiResponseEvent;
+
+export interface IThirdPartyHardwareAdapter {
+  readonly vendor: EHardwareVendor;
+  readonly hw: IHardwareWallet;
+  readonly supportsAllNetworkGetAddress?: boolean;
+
+  onUiEvent(handler: (event: IAdapterUiEvent) => void): () => void;
+  uiResponse(response: IAdapterUiResponse): void;
+  cancel(connectId?: string): void;
+
+  searchDevices(
+    options?: IThirdPartyHardwareSearchOptions,
+  ): Promise<DeviceInfo[]>;
+  connectDevice(
+    connectId: string,
+  ): Promise<Response<{ connectId: string; deviceId: string }>>;
+  disconnect(connectId: string): Promise<void>;
+  reset(): void;
+}

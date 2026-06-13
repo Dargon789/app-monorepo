@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useRoute } from '@react-navigation/core';
 import BigNumber from 'bignumber.js';
@@ -14,8 +14,8 @@ import {
   Icon,
   Page,
   Popover,
-  Select,
   SizableText,
+  Stack,
   XStack,
   YStack,
   useMedia,
@@ -32,12 +32,18 @@ import type {
   IModalSwapParamList,
 } from '@onekeyhq/shared/src/routes/swap';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
+import { isPrivateSendSwapHistoryItem } from '@onekeyhq/shared/src/utils/swapHistoryUtils';
 import {
   EProtocolOfExchange,
   ESwapCleanHistorySource,
+  ESwapLimitOrderStatus,
   ESwapTxHistoryStatus,
 } from '@onekeyhq/shared/types/swap/types';
 
+import {
+  getSwapMarketPendingHistoryCount,
+  getSwapMarketPendingHistoryKey,
+} from '../../utils/swapMarketHistory';
 import SwapMarketHistoryList from '../components/SwapMarketHistoryList';
 import { SwapProviderMirror } from '../SwapProviderMirror';
 
@@ -60,7 +66,17 @@ const SwapHistoryListModal = ({
   const [historyType, setHistoryType] = useState<EProtocolOfExchange>(
     type ?? EProtocolOfExchange.SWAP,
   );
-  const [{ swapHistoryPendingList }] = useInAppNotificationAtom();
+  const [{ swapHistoryPendingList, swapLimitOrders }] =
+    useInAppNotificationAtom();
+  const marketPendingKey = useMemo(
+    () => getSwapMarketPendingHistoryKey(swapHistoryPendingList),
+    [swapHistoryPendingList],
+  );
+
+  useEffect(() => {
+    void backgroundApiProxy.serviceSwap.refreshSwapHistoryPendingStatusOnce();
+  }, []);
+
   const { result: swapTxHistoryList } = usePromiseResult(
     async () => {
       const histories =
@@ -68,8 +84,14 @@ const SwapHistoryListModal = ({
       return histories;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [swapHistoryPendingList],
-    { watchLoading: true },
+    [marketPendingKey],
+  );
+  const swapMarketTxHistoryList = useMemo(
+    () =>
+      (swapTxHistoryList ?? []).filter(
+        (item) => !isPrivateSendSwapHistoryItem(item),
+      ),
+    [swapTxHistoryList],
   );
 
   // Default fee percentage for savings calculation (0.3%)
@@ -77,11 +99,11 @@ const SwapHistoryListModal = ({
 
   // Calculate cumulative savings from all completed successful orders
   const cumulativeSavings = useMemo(() => {
-    if (!swapTxHistoryList) return '$0';
+    if (!swapMarketTxHistoryList.length) return '$0';
 
     let total = new BigNumber(0);
 
-    for (const history of swapTxHistoryList) {
+    for (const history of swapMarketTxHistoryList) {
       // Only count completed successful orders
       // eslint-disable-next-line no-continue
       if (history.status !== ESwapTxHistoryStatus.SUCCESS) continue;
@@ -108,11 +130,160 @@ const SwapHistoryListModal = ({
       formatter: 'value',
       formatterOptions: { currency: '$' },
     });
-  }, [swapTxHistoryList]);
+  }, [swapMarketTxHistoryList]);
+
+  const marketPendingHistoryCount = useMemo(
+    () => getSwapMarketPendingHistoryCount(swapHistoryPendingList),
+    [swapHistoryPendingList],
+  );
+
+  const limitPendingHistoryCount = useMemo(
+    () =>
+      swapLimitOrders.filter(
+        (item) =>
+          item.status === ESwapLimitOrderStatus.OPEN ||
+          item.status === ESwapLimitOrderStatus.PRESIGNATURE_PENDING,
+      ).length,
+    [swapLimitOrders],
+  );
+
+  const showHistoryInfoDot =
+    marketPendingHistoryCount + limitPendingHistoryCount > 0;
+
+  const historyTypeTitle = useMemo(
+    () =>
+      historyType === EProtocolOfExchange.LIMIT
+        ? intl.formatMessage({
+            id: ETranslations.swap_page_limit_dialog_title,
+          })
+        : intl.formatMessage({
+            id: ETranslations.perp_trade_market,
+          }),
+    [historyType, intl],
+  );
+
+  const renderHistoryTypeBadge = useCallback((count: number) => {
+    if (count <= 0) {
+      return null;
+    }
+
+    return (
+      <Stack
+        w="$5"
+        h="$5"
+        userSelect="none"
+        borderRadius="$full"
+        borderColor="$icon"
+        borderWidth={1.2}
+        alignItems="center"
+        justifyContent="center"
+        flexShrink={0}
+      >
+        <SizableText color="$text" size="$bodySm">
+          {count}
+        </SizableText>
+      </Stack>
+    );
+  }, []);
+
+  const handleSelectSwapHistoryType = useCallback(() => {
+    setHistoryType(EProtocolOfExchange.SWAP);
+  }, []);
+
+  const handleSelectLimitHistoryType = useCallback(() => {
+    setHistoryType(EProtocolOfExchange.LIMIT);
+  }, []);
+
+  const renderSwapHistoryTypeLabel = useCallback(
+    () => (
+      <XStack alignItems="center" gap="$2" flex={1}>
+        <SizableText size="$bodyMd" $gtMd={{ size: '$bodyLg' }}>
+          {intl.formatMessage({
+            id: ETranslations.perp_trade_market,
+          })}
+        </SizableText>
+        {renderHistoryTypeBadge(marketPendingHistoryCount)}
+      </XStack>
+    ),
+    [intl, marketPendingHistoryCount, renderHistoryTypeBadge],
+  );
+
+  const renderLimitHistoryTypeLabel = useCallback(
+    () => (
+      <XStack alignItems="center" gap="$2" flex={1}>
+        <SizableText size="$bodyMd" $gtMd={{ size: '$bodyLg' }}>
+          {intl.formatMessage({
+            id: ETranslations.swap_page_limit_dialog_title,
+          })}
+        </SizableText>
+        {renderHistoryTypeBadge(limitPendingHistoryCount)}
+      </XStack>
+    ),
+    [intl, limitPendingHistoryCount, renderHistoryTypeBadge],
+  );
+
+  const historyTypeItems = useMemo(
+    () => [
+      {
+        label: intl.formatMessage({
+          id: ETranslations.perp_trade_market,
+        }),
+        renderLabel: renderSwapHistoryTypeLabel,
+        extra:
+          historyType === EProtocolOfExchange.SWAP ? (
+            <Icon name="CheckLargeOutline" size="$4" color="$iconActive" />
+          ) : undefined,
+        onPress: handleSelectSwapHistoryType,
+      },
+      {
+        label: intl.formatMessage({
+          id: ETranslations.swap_page_limit_dialog_title,
+        }),
+        renderLabel: renderLimitHistoryTypeLabel,
+        extra:
+          historyType === EProtocolOfExchange.LIMIT ? (
+            <Icon name="CheckLargeOutline" size="$4" color="$iconActive" />
+          ) : undefined,
+        onPress: handleSelectLimitHistoryType,
+      },
+    ],
+    [
+      handleSelectLimitHistoryType,
+      handleSelectSwapHistoryType,
+      historyType,
+      intl,
+      renderLimitHistoryTypeLabel,
+      renderSwapHistoryTypeLabel,
+    ],
+  );
+
+  const historyTypeTrigger = useMemo(
+    () => (
+      <XStack
+        testID="swap-render-header-title-select"
+        alignItems="center"
+        gap="$1"
+        cursor="pointer"
+      >
+        <SizableText size="$headingLg">{historyTypeTitle}</SizableText>
+        {showHistoryInfoDot ? (
+          <Stack
+            w="$2"
+            h="$2"
+            borderRadius="$full"
+            backgroundColor="$textInfo"
+            pointerEvents="none"
+          />
+        ) : null}
+        <Icon name="ChevronDownSmallSolid" size="$5" />
+      </XStack>
+    ),
+    [historyTypeTitle, showHistoryInfoDot],
+  );
 
   const onDeleteHistory = useCallback(() => {
     // dialog
-    if (!swapTxHistoryList?.length) return;
+    if (!swapMarketTxHistoryList.length) return;
     Dialog.show({
       icon: 'BroomOutline',
       // description: intl.formatMessage({
@@ -122,7 +293,9 @@ const SwapHistoryListModal = ({
         id: ETranslations.swap_history_all_history_title,
       }),
       onConfirm: async () => {
-        await backgroundApiProxy.serviceSwap.cleanSwapHistoryItems();
+        await backgroundApiProxy.serviceSwap.cleanSwapHistoryItems(undefined, {
+          excludeProtocols: [EProtocolOfExchange.PRIVATE_SEND],
+        });
         void backgroundApiProxy.serviceApp.showToast({
           method: 'success',
           title: intl.formatMessage({
@@ -138,12 +311,12 @@ const SwapHistoryListModal = ({
       }),
       onCancelText: intl.formatMessage({ id: ETranslations.global_cancel }),
     });
-  }, [intl, swapTxHistoryList?.length]);
+  }, [intl, swapMarketTxHistoryList.length]);
 
   const onDeletePendingHistory = useCallback(() => {
     // dialog
     if (
-      !swapTxHistoryList?.some(
+      !swapMarketTxHistoryList.some(
         (item) => item.status === ESwapTxHistoryStatus.PENDING,
       )
     )
@@ -157,9 +330,10 @@ const SwapHistoryListModal = ({
         id: ETranslations.swap_history_pending_history_title,
       }),
       onConfirm: () => {
-        void backgroundApiProxy.serviceSwap.cleanSwapHistoryItems([
-          ESwapTxHistoryStatus.PENDING,
-        ]);
+        void backgroundApiProxy.serviceSwap.cleanSwapHistoryItems(
+          [ESwapTxHistoryStatus.PENDING],
+          { excludeProtocols: [EProtocolOfExchange.PRIVATE_SEND] },
+        );
         defaultLogger.swap.cleanSwapOrder.cleanSwapOrder({
           cleanFrom: ESwapCleanHistorySource.LIST,
         });
@@ -169,46 +343,12 @@ const SwapHistoryListModal = ({
       }),
       onCancelText: intl.formatMessage({ id: ETranslations.global_cancel }),
     });
-  }, [intl, swapTxHistoryList]);
+  }, [intl, swapMarketTxHistoryList]);
 
   const savingsPopoverContent = useMemo(
     () => (
       <YStack gap="$2" py="$2" w="100%">
         <YStack gap="$5" px="$4" py="$2">
-          <XStack
-            px="$1"
-            alignItems="flex-start"
-            justifyContent="space-between"
-            gap="$2"
-          >
-            <XStack gap="$3" alignItems="flex-start" flex={1} minWidth={0}>
-              <Icon
-                name="DollarSolid"
-                size="$5"
-                color="$textSubdued"
-                flexShrink={0}
-              />
-              <YStack gap="$1" flex={1} minWidth={0}>
-                <SizableText size="$bodyMdMedium" color="$text">
-                  {intl.formatMessage({
-                    id: ETranslations.swap_provider_panel_feature_zero_fee,
-                  })}
-                </SizableText>
-                <SizableText size="$bodySm" color="$textSubdued">
-                  {intl.formatMessage({
-                    id: ETranslations.swap_provider_panel_feature_zero_fee_desc,
-                  })}
-                </SizableText>
-              </YStack>
-            </XStack>
-            <Icon
-              name="CheckRadioSolid"
-              size="$5"
-              color="$iconSuccess"
-              flexShrink={0}
-            />
-          </XStack>
-
           <XStack
             px="$1"
             alignItems="flex-start"
@@ -352,7 +492,7 @@ const SwapHistoryListModal = ({
             },
           ]}
           renderTrigger={
-            <Button variant="tertiary">
+            <Button variant="tertiary" testID="swap-btn">
               {intl.formatMessage({ id: ETranslations.global_clear })}
             </Button>
           }
@@ -369,48 +509,18 @@ const SwapHistoryListModal = ({
     ],
   );
 
-  const headerSelectType = useMemo(() => {
-    const title =
-      historyType === EProtocolOfExchange.LIMIT
-        ? intl.formatMessage({
-            id: ETranslations.swap_page_limit_dialog_title,
-          })
-        : intl.formatMessage({
-            id: ETranslations.perp_trade_market,
-          });
-    const renderHeaderTitle = () => (
+  const headerSelectType = useCallback(
+    () => (
       <LazyHeaderTitle>
-        <Select
-          title={title}
-          items={[
-            {
-              label: intl.formatMessage({
-                id: ETranslations.perp_trade_market,
-              }),
-              value: EProtocolOfExchange.SWAP,
-            },
-            {
-              label: intl.formatMessage({
-                id: ETranslations.swap_page_limit_dialog_title,
-              }),
-              value: EProtocolOfExchange.LIMIT,
-            },
-          ]}
-          onChange={(value) => {
-            setHistoryType(value as EProtocolOfExchange);
-          }}
-          value={historyType}
-          renderTrigger={(props) => (
-            <XStack {...props} alignItems="center" gap="$1" cursor="pointer">
-              <SizableText size="$headingLg">{title}</SizableText>
-              <Icon name="ChevronDownSmallSolid" size="$5" />
-            </XStack>
-          )}
+        <ActionList
+          title={historyTypeTitle}
+          items={historyTypeItems}
+          renderTrigger={historyTypeTrigger}
         />
       </LazyHeaderTitle>
-    );
-    return renderHeaderTitle;
-  }, [historyType, intl]);
+    ),
+    [historyTypeItems, historyTypeTitle, historyTypeTrigger],
+  );
 
   const savingsBanner = useMemo(() => {
     if (

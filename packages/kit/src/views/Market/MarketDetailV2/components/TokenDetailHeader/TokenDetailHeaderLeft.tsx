@@ -1,7 +1,4 @@
-import { useMemo } from 'react';
-
 import { SUI_TYPE_ARG } from '@mysten/sui/utils';
-import { useWindowDimensions } from 'react-native';
 
 import {
   Divider,
@@ -9,7 +6,6 @@ import {
   SizableText,
   XStack,
   YStack,
-  useIsSplitView,
   useMedia,
 } from '@onekeyhq/components';
 import { Token } from '@onekeyhq/kit/src/components/Token';
@@ -47,11 +43,6 @@ export function TokenDetailHeaderLeft({
   showMediaAndSecurity = true,
   isNative = false,
 }: ITokenDetailHeaderLeftProps) {
-  const isLandscape = useIsSplitView();
-  const { width: windowScreenWidth } = useWindowDimensions();
-  const screenWidth = useMemo(() => {
-    return isLandscape ? windowScreenWidth / 2 : windowScreenWidth;
-  }, [isLandscape, windowScreenWidth]);
   const { md } = useMedia();
 
   // Use hook to get network logo with async fallback
@@ -85,7 +76,8 @@ export function TokenDetailHeaderLeft({
     <MarketStarV2
       chainId={networkId}
       contractAddress={address}
-      size="medium"
+      size="small"
+      customIconSize="$4"
       from={EWatchlistFrom.Detail}
       tokenSymbol={symbol}
       isNative={isNative}
@@ -102,17 +94,8 @@ export function TokenDetailHeaderLeft({
   ) : null;
 
   return (
-    <XStack
-      ai="center"
-      gap="$3"
-      jc="space-between"
-      {...(md
-        ? {
-            width: screenWidth - 60,
-          }
-        : {})}
-    >
-      <XStack gap="$3" ai="center">
+    <XStack ai="center" flex={1} gap="$3" jc="space-between" minWidth={0}>
+      <XStack gap="$3" ai="center" flex={1} minWidth={0}>
         {md ? (
           <Token
             size="md"
@@ -128,7 +111,7 @@ export function TokenDetailHeaderLeft({
           </>
         )}
 
-        <YStack>
+        <YStack flex={1} minWidth={0}>
           <XStack ai="center" gap="$1">
             {md ? (
               <SizableText
@@ -147,13 +130,14 @@ export function TokenDetailHeaderLeft({
                 communityRecognized={communityRecognized}
                 stock={stock}
                 showAllInTrigger
+                noTruncateSubtitle
               />
             ) : (
               <>
                 <StockSourceLogo stock={stock} />
                 {communityRecognized ? <CommunityRecognizedBadge /> : null}
                 {stock?.subtitle ? (
-                  <SubtitleBadge subtitle={stock.subtitle} />
+                  <SubtitleBadge subtitle={stock.subtitle} noTruncate />
                 ) : null}
                 {stock ? <StockIsOpenBadge stock={stock} /> : null}
               </>
@@ -179,6 +163,7 @@ export function TokenDetailHeaderLeft({
                 </SizableText>
 
                 <InteractiveIcon
+                  testID="market-icon"
                   icon="Copy3Outline"
                   size="$4"
                   onPress={handleCopyAddress}
@@ -204,6 +189,7 @@ export function TokenDetailHeaderLeft({
                     <XStack gap="$2" ai="center">
                       {website ? (
                         <InteractiveIcon
+                          testID="market-icon"
                           icon="GlobusOutline"
                           onPress={handleOpenWebsite}
                           size="$4"
@@ -212,6 +198,7 @@ export function TokenDetailHeaderLeft({
 
                       {twitter ? (
                         <InteractiveIcon
+                          testID="market-icon"
                           icon="Xbrand"
                           onPress={handleOpenTwitter}
                           size="$4"
@@ -220,6 +207,7 @@ export function TokenDetailHeaderLeft({
 
                       {address ? (
                         <InteractiveIcon
+                          testID="market-icon"
                           icon="SearchOutline"
                           onPress={handleOpenXSearch}
                           size="$4"

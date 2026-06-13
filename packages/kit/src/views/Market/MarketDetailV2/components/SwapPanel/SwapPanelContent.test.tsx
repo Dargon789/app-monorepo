@@ -12,6 +12,11 @@ import {
 } from './SwapPanelContent';
 
 const actionButtonMock = jest.fn();
+const setAmountEnterTypeMock = jest.fn();
+const setSlippageSettingMock = jest.fn();
+const resetAnalyticsMock = jest.fn();
+const logSwapActionMock = jest.fn();
+const tokenInputSectionMock = jest.fn();
 
 jest.mock('@onekeyhq/components', () => ({
   SizableText: ({ children }: { children?: ReactNode }) => (
@@ -31,8 +36,10 @@ jest.mock('react-intl', () => ({
 
 jest.mock('./hooks/useSwapAnalytics', () => ({
   useSwapAnalytics: () => ({
-    setAmountEnterType: jest.fn(),
-    logSwapAction: jest.fn(),
+    setAmountEnterType: setAmountEnterTypeMock,
+    setSlippageSetting: setSlippageSettingMock,
+    resetAnalytics: resetAnalyticsMock,
+    logSwapAction: logSwapActionMock,
   }),
 }));
 
@@ -46,7 +53,26 @@ jest.mock('./components/SwapPanelTop', () => ({
 }));
 
 jest.mock('./components/TokenInputSection', () => ({
-  TokenInputSection: () => <div data-testid="token-input" />,
+  TokenInputSection: jest
+    .requireActual<typeof import('react')>('react')
+    .forwardRef(
+      (
+        {
+          tradeType,
+        }: {
+          tradeType: ESwapDirection;
+        },
+        ref,
+      ) => {
+        const React = jest.requireActual<typeof import('react')>('react');
+        const setValue = jest.fn();
+        React.useImperativeHandle(ref, () => ({
+          setValue,
+        }));
+        tokenInputSectionMock({ tradeType, setValue });
+        return <div data-testid="token-input" />;
+      },
+    ),
 }));
 
 jest.mock('./components/RateDisplay', () => ({
@@ -62,15 +88,14 @@ jest.mock('./components/SlippageSetting', () => ({
   SlippageSetting: () => <div data-testid="slippage" />,
 }));
 
+jest.mock('./components/MarketPresetSelector', () => ({
+  MarketPresetSelector: () => <div data-testid="market-preset-selector" />,
+}));
+
 jest.mock('./components/ActionButton', () => ({
-  ActionButton: ({
-    disabled,
-    onPress,
-  }: {
-    onPress: () => void;
-    disabled?: boolean;
-  }) => {
-    actionButtonMock({ disabled, onPress });
+  ActionButton: (props: { onPress: () => void; disabled?: boolean }) => {
+    const { disabled, onPress } = props;
+    actionButtonMock(props);
     return (
       <button
         data-testid="action-button"
@@ -104,6 +129,7 @@ function createProps(): ISwapPanelContentProps {
       sellAmount: new BigNumber(1),
       setSellAmount: jest.fn(),
       setPaymentAmount: jest.fn(),
+      resetAmounts: jest.fn(),
       setPaymentToken: jest.fn(),
       tradeType: ESwapDirection.BUY,
       setTradeType: jest.fn(),
@@ -151,12 +177,23 @@ function createProps(): ISwapPanelContentProps {
 describe('SwapPanelContent', () => {
   beforeEach(() => {
     actionButtonMock.mockReset();
+    setAmountEnterTypeMock.mockReset();
+    setSlippageSettingMock.mockReset();
+    resetAnalyticsMock.mockReset();
+    logSwapActionMock.mockReset();
+    tokenInputSectionMock.mockReset();
   });
 
   it('routes the main action button to the review swap handler', () => {
     const props = createProps();
 
     render(<SwapPanelContent {...props} />);
+
+    expect(actionButtonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentToken: props.swapPanel.paymentToken,
+      }),
+    );
 
     fireEvent.click(screen.getByTestId('action-button'));
 
@@ -188,5 +225,108 @@ describe('SwapPanelContent', () => {
         disabled: true,
       }),
     );
+  });
+
+  it('disables the preview entry without showing loading for guarded states', () => {
+    const props = createProps();
+    props.isActionDisabled = true;
+
+    render(<SwapPanelContent {...props} />);
+
+    const actionButton = screen.getByTestId('action-button');
+
+    expect((actionButton as HTMLButtonElement).disabled).toBe(true);
+    expect(actionButtonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        disabled: true,
+        loading: false,
+      }),
+    );
+  });
+
+  it('resets panel state when the market token changes', () => {
+    const props = createProps();
+    const { rerender } = render(<SwapPanelContent {...props} />);
+
+    expect(props.swapPanel.resetAmounts).not.toHaveBeenCalled();
+    expect(resetAnalyticsMock).not.toHaveBeenCalled();
+
+    tokenInputSectionMock.mockClear();
+
+    rerender(
+      <SwapPanelContent
+        {...props}
+        currentMarketToken={{
+          networkId: 'evm--10',
+          contractAddress: '0xmarket-2',
+          symbol: 'ETH',
+          decimals: 18,
+          isNative: true,
+        }}
+      />,
+    );
+
+    expect(props.swapPanel.resetAmounts).toHaveBeenCalledTimes(1);
+    expect(resetAnalyticsMock).toHaveBeenCalledTimes(1);
+
+    const renderedInputs = tokenInputSectionMock.mock.calls.map(
+      ([renderedProps]) =>
+        renderedProps as {
+          setValue: jest.Mock;
+        },
+    );
+    expect(renderedInputs).toHaveLength(2);
+    expect(renderedInputs[0].setValue).toHaveBeenCalledWith('');
+    expect(renderedInputs[1].setValue).toHaveBeenCalledWith('');
+  });
+
+  it('uses Market preset settings instead of the standalone slippage setting', () => {
+    const props = createProps();
+    props.marketPresetSettings = {
+      config: undefined,
+      enabled: true,
+      isLoading: false,
+      presets: [],
+      presetCustomizedMap: {},
+      priorityFeeUnit: 'Gwei',
+      savedSettings: undefined,
+      selectedPresetKey: 'auto',
+      selectedPreset: undefined,
+      selectedDirectionSettings: {
+        slippage: {
+          key: 'auto',
+        },
+        priorityFee: {
+          type: 'market',
+        },
+      },
+      selectedNetworkFeeLevel: 'medium',
+      selectedSlippageValue: 0.5,
+      defaultSlippageValue: 0.5,
+      tradeSide: 'buy',
+      onPresetChange: jest.fn(),
+      onSavePresetDirectionSettings: jest.fn(),
+      onResetPresetDirectionSettings: jest.fn(),
+      getDirectionSettings: jest.fn(),
+      getSavedDirectionSettings: jest.fn(),
+    } as never;
+
+    render(<SwapPanelContent {...props} />);
+
+    expect(screen.getByTestId('market-preset-selector')).toBeTruthy();
+    expect(screen.queryByTestId('slippage')).toBeNull();
+  });
+
+  it('suppresses the standalone slippage setting while Market preset config is loading', () => {
+    const props = createProps();
+    props.marketPresetSettings = {
+      enabled: false,
+      isLoading: true,
+    } as never;
+
+    render(<SwapPanelContent {...props} />);
+
+    expect(screen.queryByTestId('market-preset-selector')).toBeNull();
+    expect(screen.queryByTestId('slippage')).toBeNull();
   });
 });

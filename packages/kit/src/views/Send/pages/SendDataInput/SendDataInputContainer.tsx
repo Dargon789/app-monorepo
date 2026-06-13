@@ -17,6 +17,7 @@ import {
   Page,
   SizableText,
   TextArea,
+  Toast,
   XStack,
   useForm,
   useMedia,
@@ -34,6 +35,9 @@ import { useAccountData } from '@onekeyhq/kit/src/hooks/useAccountData';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useSignatureConfirm } from '@onekeyhq/kit/src/hooks/useSignatureConfirm';
+import { useValidateMemoField } from '@onekeyhq/kit/src/hooks/useValidateMemoField';
+import { isAddressOwnedByDeactivatedBotWallet } from '@onekeyhq/kit/src/utils/botWalletAccountUtils';
+import { SendTestIDs } from '@onekeyhq/kit/src/views/Send/testIDs';
 import type {
   IChainValue,
   IQRCodeHandlerParseResult,
@@ -72,9 +76,12 @@ import { SendConfirmProviderMirror } from '../../components/SendConfirmProvider/
 import RecipientQuickSelect from './RecipientQuickSelect';
 import {
   normalizeOptionalRecipientText,
+  shouldSkipAmountInputForNFT,
   shouldSkipResolvedRecipientUpdate,
 } from './recipientSelectionUtils';
+import { useWebDappRecipientOptions } from './useWebDappRecipientOptions';
 
+import type { IRecipientQuickSelectTab } from './recipientQuickSelectTabUtils';
 import type { RouteProp } from '@react-navigation/core';
 
 interface IFormValues {
@@ -93,6 +100,10 @@ type IQuickSelectRecipient = {
   address: string;
   memo?: string;
   note?: string;
+  quickSelectTab?: 'recent' | 'account' | 'addressBook';
+  isSearchMode?: boolean;
+  searchKeyLength?: number;
+  matchCount?: number;
 };
 
 type ISendInputFlowParamList = IModalSendParamList &
@@ -143,11 +154,17 @@ function SendDataInputContainer() {
     networkId,
   });
 
-  const [quickSelectActiveTab, setQuickSelectActiveTab] = useState<
-    'recent' | 'account' | 'addressBook'
-  >('recent');
+  const { hiddenTabs: recipientHiddenTabs, keylessWalletsOnly } =
+    useWebDappRecipientOptions();
+
+  const [quickSelectActiveTab, setQuickSelectActiveTab] =
+    useState<IRecipientQuickSelectTab>('recent');
   const [hasQuickSelectMatches, setHasQuickSelectMatches] = useState(false);
   const [scannedAmount, setScannedAmount] = useState('');
+  // Skip-amount paths (ERC-721, fixed Lightning invoice) build the unsigned
+  // tx inside this handler, which can take seconds on mobile — the Next
+  // button needs a visible loading state during that wait.
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const pushAmountInput = useCallback(
     (params: ISendAmountInputParams) => {
@@ -180,7 +197,6 @@ function SendDataInputContainer() {
     numericOnlyMemo,
     displayNoteForm,
     noteMaxLength,
-    supportsMemoValidation,
   ] = useMemo(() => {
     return [
       vaultSettings?.withMemo,
@@ -189,9 +205,11 @@ function SendDataInputContainer() {
       vaultSettings?.numericOnlyMemo,
       vaultSettings?.withNote,
       vaultSettings?.noteMaxLength,
-      vaultSettings?.supportMemoValidation,
     ];
   }, [vaultSettings]);
+
+  // Algo uses Note instead of Memo; history memos should map to the note field
+  const isNoteOnlyChain = displayNoteForm && !displayMemoForm;
 
   const { result: [tokenDetails] = [] } = usePromiseResult(
     async () => {
@@ -288,11 +306,14 @@ function SendDataInputContainer() {
   const memoValue = form.watch('memo') as string | undefined;
   const noteValue = form.watch('note') as string | undefined;
   const paymentIdValue = form.watch('paymentId') as string | undefined;
+  // Don't include isValidating — async memo validation (XRP vault) would
+  // otherwise make the Next button flicker on every keystroke (OK-52883).
+  // handleNavigateToAmountInput awaits form.trigger() as the final guard, so
+  // it's safe to keep the button enabled while async validation is pending.
   const isNextDisabled = Boolean(
     form.formState.errors.memo ||
     form.formState.errors.paymentId ||
-    form.formState.errors.note ||
-    form.formState.isValidating,
+    form.formState.errors.note,
   );
 
   const toValue = form.watch('to') as IAddressInputValue | undefined;
@@ -357,9 +378,25 @@ function SendDataInputContainer() {
   const handleNavigateToAmountInput = useCallback(async () => {
     if (isNavigatingRef.current) return;
     isNavigatingRef.current = true;
+    setIsSubmitting(true);
     try {
       // Use already-watched toResolved instead of re-getting from form
       if (!toResolved) return;
+
+      // Reject sending to a deactivated Bot Wallet account. The helper covers
+      // the BTC fresh-address fallback so the regular index miss does not
+      // silently let the deactivated Bot Wallet through.
+      const isDeactivatedBotReceiver =
+        await isAddressOwnedByDeactivatedBotWallet({
+          networkId: currentAccount.networkId,
+          address: toResolved,
+        });
+      if (isDeactivatedBotReceiver) {
+        Toast.error({
+          title: '该 Bot 钱包已停用，无法作为接收地址',
+        });
+        return;
+      }
 
       // Validate memo/paymentId/note fields before navigating
       const isValid = await form.trigger();
@@ -472,6 +509,53 @@ function SendDataInputContainer() {
         return;
       }
 
+      // ERC-721 NFTs are 1-of-1 so there is nothing to enter on the amount
+      // page — skip straight to confirm with a fixed quantity of 1 (OK-53248).
+      const nftItem = nfts?.[0];
+      if (
+        nftItem &&
+        shouldSkipAmountInputForNFT({
+          isNFT,
+          nft: nftItem,
+        }) &&
+        account
+      ) {
+        const transfersInfo: ITransferInfo[] = [
+          {
+            from: account.address,
+            to: toResolved,
+            amount: '1',
+            nftInfo: {
+              nftId: nftItem.itemId,
+              nftAddress: nftItem.collectionAddress,
+              nftType: nftItem.collectionType,
+            },
+            memo: nextMemoValue || undefined,
+            paymentId: nextPaymentIdValue || undefined,
+            note: nextNoteValue || undefined,
+          },
+        ];
+        await signatureConfirm.navigationToTxConfirm({
+          transfersInfo,
+          sameModal: true,
+          onSuccess,
+          onFail,
+          onCancel,
+          transferPayload: {
+            amountToSend: '1',
+            isMaxSend: false,
+            isNFT: true,
+            originalRecipient: toResolved,
+            isToContract: !!toVal?.isContract,
+            memo: nextMemoValue || undefined,
+            paymentId: nextPaymentIdValue || undefined,
+            note: nextNoteValue || undefined,
+          },
+          isInternalTransfer: true,
+        });
+        return;
+      }
+
       pushAmountInput({
         networkId: currentAccount.networkId,
         accountId: currentAccount.accountId,
@@ -494,6 +578,7 @@ function SendDataInputContainer() {
       console.error('Navigate to amount input failed:', e);
     } finally {
       isNavigatingRef.current = false;
+      setIsSubmitting(false);
     }
   }, [
     account,
@@ -514,43 +599,13 @@ function SendDataInputContainer() {
     onCancel,
   ]);
 
-  const validateMemoField = useCallback(
-    async (value: string): Promise<string | undefined> => {
-      if (vaultSettings?.supportMemoValidation) {
-        try {
-          const result = await backgroundApiProxy.serviceSend.validateMemo({
-            networkId: currentAccount.networkId,
-            accountId: currentAccount.accountId,
-            memo: value,
-          });
-          if (!result.isValid) {
-            return result.errorMessage;
-          }
-          return undefined;
-        } catch (error) {
-          console.error('Vault memo validation failed:', error);
-        }
-      }
-
-      const validateErrMsg = numericOnlyMemo
-        ? intl.formatMessage({
-            id: ETranslations.send_field_only_integer,
-          })
-        : undefined;
-      const memoRegExp = numericOnlyMemo ? /^[0-9]+$/ : undefined;
-
-      if (!value || !memoRegExp) return undefined;
-      const result = !memoRegExp.test(value);
-      return result ? validateErrMsg : undefined;
-    },
-    [
-      currentAccount.accountId,
-      currentAccount.networkId,
-      intl,
-      numericOnlyMemo,
-      vaultSettings?.supportMemoValidation,
-    ],
-  );
+  const validateMemoField = useValidateMemoField({
+    networkId: currentAccount.networkId,
+    accountId: currentAccount.accountId,
+    numericOnlyMemo,
+    supportMemoValidation: vaultSettings?.supportMemoValidation,
+    tokenAddress: tokenInfo?.address,
+  });
 
   const renderMemoForm = useCallback(() => {
     if (!displayMemoForm) return null;
@@ -584,23 +639,22 @@ function SendDataInputContainer() {
             ) : undefined
           }
           rules={{
-            maxLength: supportsMemoValidation
-              ? undefined
-              : {
-                  value: maxLength,
-                  message: intl.formatMessage(
-                    {
-                      id: ETranslations.dapp_connect_msg_description_can_be_up_to_int_characters,
-                    },
-                    {
-                      number: maxLength,
-                    },
-                  ),
+            maxLength: {
+              value: maxLength,
+              message: intl.formatMessage(
+                {
+                  id: ETranslations.dapp_connect_msg_description_can_be_up_to_int_characters,
                 },
+                {
+                  number: maxLength,
+                },
+              ),
+            },
             validate: validateMemoField,
           }}
         >
           <TextArea
+            testID={SendTestIDs.memoTextarea}
             numberOfLines={memoInputLines}
             size={media.gtMd ? 'medium' : 'large'}
             placeholder={intl.formatMessage({
@@ -621,7 +675,6 @@ function SendDataInputContainer() {
     memoMaxLength,
     memoValue,
     numericOnlyMemo,
-    supportsMemoValidation,
     validateMemoField,
   ]);
 
@@ -666,6 +719,7 @@ function SendDataInputContainer() {
           }}
         >
           <TextArea
+            testID={SendTestIDs.paymentIdTextarea}
             numberOfLines={2}
             size={media.gtMd ? 'medium' : 'large'}
             placeholder="Payment ID"
@@ -715,6 +769,7 @@ function SendDataInputContainer() {
         }}
       >
         <TextArea
+          testID={SendTestIDs.noteTextarea}
           numberOfLines={2}
           size={media.gtMd ? 'medium' : 'large'}
           placeholder={intl.formatMessage({
@@ -797,10 +852,12 @@ function SendDataInputContainer() {
       selectedMemo?: string;
       selectedNote?: string;
     }) => {
-      form.setValue('memo', normalizeOptionalRecipientText(selectedMemo), {
+      const memoText = normalizeOptionalRecipientText(selectedMemo);
+      const noteText = normalizeOptionalRecipientText(selectedNote);
+      form.setValue('memo', displayMemoForm ? memoText : '', {
         shouldValidate: true,
       });
-      form.setValue('note', normalizeOptionalRecipientText(selectedNote), {
+      form.setValue('note', noteText || (isNoteOnlyChain ? memoText : ''), {
         shouldValidate: true,
       });
 
@@ -835,7 +892,7 @@ function SendDataInputContainer() {
         },
       );
     },
-    [form],
+    [displayMemoForm, isNoteOnlyChain, form],
   );
 
   const shouldStayOnDataStepForQuickSelect = useCallback(
@@ -847,10 +904,12 @@ function SendDataInputContainer() {
       selectedNote?: string;
     }) => {
       const hasSelectedMemo = Boolean(selectedMemo?.trim());
+      const hasSelectedNote = Boolean(selectedNote?.trim());
       const needsMemoInput = vaultSettings?.withMemo && !hasSelectedMemo;
       const needsPaymentId =
         vaultSettings?.withPaymentId && !form.getValues('paymentId');
-      const needsNote = vaultSettings?.withNote && !selectedNote;
+      const needsNote =
+        vaultSettings?.withNote && !hasSelectedNote && !hasSelectedMemo;
       return needsMemoInput || needsPaymentId || needsNote;
     },
     [
@@ -873,6 +932,7 @@ function SendDataInputContainer() {
     }) => {
       if (isNavigatingRef.current) return;
       isNavigatingRef.current = true;
+      setIsSubmitting(true);
       try {
         const queryResult =
           await backgroundApiProxy.serviceAccountProfile.queryAddress({
@@ -907,6 +967,59 @@ function SendDataInputContainer() {
           addressInputMethod: addressInputChangeType.current,
         });
 
+        const effectiveNote =
+          selectedNote || (isNoteOnlyChain ? selectedMemo?.trim() : undefined);
+        const recipientMemo = displayMemoForm
+          ? selectedMemo?.trim() || undefined
+          : undefined;
+        const recipientPaymentId = form.getValues('paymentId') || undefined;
+        const recipientNote = effectiveNote || undefined;
+        const nftItem = nfts?.[0];
+
+        if (
+          nftItem &&
+          shouldSkipAmountInputForNFT({
+            isNFT,
+            nft: nftItem,
+          }) &&
+          account
+        ) {
+          const transfersInfo: ITransferInfo[] = [
+            {
+              from: account.address,
+              to: resolvedAddress,
+              amount: '1',
+              nftInfo: {
+                nftId: nftItem.itemId,
+                nftAddress: nftItem.collectionAddress,
+                nftType: nftItem.collectionType,
+              },
+              memo: recipientMemo,
+              paymentId: recipientPaymentId,
+              note: recipientNote,
+            },
+          ];
+          await signatureConfirm.navigationToTxConfirm({
+            transfersInfo,
+            sameModal: true,
+            onSuccess,
+            onFail,
+            onCancel,
+            transferPayload: {
+              amountToSend: '1',
+              isMaxSend: false,
+              isNFT: true,
+              originalRecipient: resolvedAddress,
+              isToContract: queryResult.isContract ?? false,
+              memo: recipientMemo,
+              paymentId: recipientPaymentId,
+              note: recipientNote,
+            },
+            isInternalTransfer: true,
+          });
+          return;
+        }
+
         pushAmountInput({
           networkId: currentAccount.networkId,
           accountId: currentAccount.accountId,
@@ -915,9 +1028,9 @@ function SendDataInputContainer() {
           nfts,
           recipientAddress: resolvedAddress,
           recipientIsContract: queryResult.isContract ?? false,
-          recipientMemo: selectedMemo?.trim() || undefined,
-          recipientPaymentId: form.getValues('paymentId') || undefined,
-          recipientNote: selectedNote || undefined,
+          recipientMemo,
+          recipientPaymentId,
+          recipientNote,
           amount: scannedAmount || sendAmount || undefined,
           isAllNetworks,
           onSuccess,
@@ -933,11 +1046,15 @@ function SendDataInputContainer() {
         });
       } finally {
         isNavigatingRef.current = false;
+        setIsSubmitting(false);
       }
     },
     [
       currentAccount.accountId,
       currentAccount.networkId,
+      account,
+      displayMemoForm,
+      isNoteOnlyChain,
       fillRecipientFromQuickSelect,
       form,
       enableAllowListValidation,
@@ -948,6 +1065,7 @@ function SendDataInputContainer() {
       onFail,
       onSuccess,
       pushAmountInput,
+      signatureConfirm,
       scannedAmount,
       sendAmount,
       tokenInfo,
@@ -959,6 +1077,10 @@ function SendDataInputContainer() {
       address: selectedAddress,
       memo: selectedMemo,
       note: selectedNote,
+      quickSelectTab,
+      isSearchMode: selectIsSearchMode,
+      searchKeyLength: selectSearchKeyLength,
+      matchCount: selectMatchCount,
     }: IQuickSelectRecipient) => {
       const isFromAccount =
         addressInputChangeType.current ===
@@ -966,15 +1088,37 @@ function SendDataInputContainer() {
       const isFromAddressBook =
         addressInputChangeType.current === EInputAddressChangeType.AddressBook;
 
+      let recipientType: 'walletAccount' | 'addressBook' | 'recentRecipient' =
+        'recentRecipient';
+      if (isFromAccount) recipientType = 'walletAccount';
+      else if (isFromAddressBook) recipientType = 'addressBook';
+
+      if (quickSelectTab) {
+        defaultLogger.transaction.send.quickSelectTap({
+          network: currentAccount.networkId,
+          tab: quickSelectTab,
+          recipientType,
+          isSearchMode: selectIsSearchMode ?? false,
+          searchKeyLength: selectSearchKeyLength ?? 0,
+          matchCount: selectMatchCount ?? 0,
+        });
+      }
+
       if (isFromAccount || isFromAddressBook) {
-        if (
-          shouldStayOnDataStepForQuickSelect({
-            selectedMemo,
-            selectedNote,
-          })
-        ) {
-          // Chain still needs memo/paymentId/note input, so keep
-          // the user on the data step instead of skipping ahead.
+        const willSkip = !shouldStayOnDataStepForQuickSelect({
+          selectedMemo,
+          selectedNote,
+        });
+
+        if (quickSelectTab) {
+          defaultLogger.transaction.send.quickSelectNavigation({
+            network: currentAccount.networkId,
+            tab: quickSelectTab,
+            skippedToAmount: willSkip,
+          });
+        }
+
+        if (!willSkip) {
           fillRecipientFromQuickSelect({
             selectedAddress,
             selectedMemo,
@@ -1000,6 +1144,13 @@ function SendDataInputContainer() {
 
       // For recent recipients / paste / manual: fill the input
       // and let the user review before proceeding.
+      if (quickSelectTab) {
+        defaultLogger.transaction.send.quickSelectNavigation({
+          network: currentAccount.networkId,
+          tab: quickSelectTab,
+          skippedToAmount: false,
+        });
+      }
       fillRecipientFromQuickSelect({
         selectedAddress,
         selectedMemo,
@@ -1007,6 +1158,7 @@ function SendDataInputContainer() {
       });
     },
     [
+      currentAccount.networkId,
       fillRecipientFromQuickSelect,
       navigateQuickSelectRecipientToAmount,
       shouldStayOnDataStepForQuickSelect,
@@ -1153,11 +1305,13 @@ function SendDataInputContainer() {
               onInputTypeChange={handleAddressInputChangeType}
               onMatchStatusChange={setHasQuickSelectMatches}
               onSelect={handleQuickSelectRecipient}
+              hideTabs={recipientHiddenTabs}
+              keylessWalletsOnly={keylessWalletsOnly}
             />
           </Form>
         </AccountSelectorProviderMirror>
       </Page.Body>
-      {toResolved && !toPending ? (
+      {(toResolved && !toPending) || isSubmitting ? (
         <Page.Footer>
           <Page.FooterActions
             onConfirm={handleNavigateToAmountInput}
@@ -1165,7 +1319,7 @@ function SendDataInputContainer() {
               id: ETranslations.global_next,
             })}
             confirmButtonProps={{
-              loading: false,
+              loading: isSubmitting,
               // Don't use form.formState.isValid here — the async address
               // validation (AddressInput queryAddress) can leave isValid stale.
               // toResolved && !toPending already gates address validity.

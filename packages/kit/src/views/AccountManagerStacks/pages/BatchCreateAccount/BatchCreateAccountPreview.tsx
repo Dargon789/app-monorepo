@@ -159,6 +159,9 @@ function BatchCreateAccountPreviewPage({
   const deselectedExistingAccountsRef = useRef<{
     [pathIndex: number]: IBatchCreateAccount;
   }>({});
+  const deselectedExistingIndexesRef = useRef<{
+    [pathIndex: number]: true;
+  }>({});
   const selectedIndexesCount = useMemo(
     () => Object.values(normalSelectedIndexes).filter(Boolean).length,
     [normalSelectedIndexes],
@@ -167,6 +170,8 @@ function BatchCreateAccountPreviewPage({
     () => Object.values(deselectedExistingIndexes).filter(Boolean).length,
     [deselectedExistingIndexes],
   );
+  // Keep ref in sync with state to avoid stale closures
+  deselectedExistingIndexesRef.current = deselectedExistingIndexes;
 
   const pageSize = 10;
   const minPage = 1;
@@ -223,6 +228,7 @@ function BatchCreateAccountPreviewPage({
       setAdvancedExcludedIndexes({});
       setNormalSelectedIndexes({});
       setDeselectedExistingIndexes({});
+      deselectedExistingIndexesRef.current = {};
       deselectedExistingAccountsRef.current = {};
       setFrom(values.from);
       setCount(values.count);
@@ -327,13 +333,18 @@ function BatchCreateAccountPreviewPage({
 
   useEffect(() => {
     if (networkId) {
-      // reset deriveType and deselection state after network changed
+      // Both normalSelectedIndexes and deselectedExistingIndexes are kept
+      // global across network/deriveType changes (OK-51089). The user's
+      // intent — add at index 6, remove at index 3 — is wallet-level: add
+      // creates indexedAccounts, remove drops indexedAccounts which
+      // cascades to all networks under the wallet. So when the user
+      // switches networks the same checked pattern is what they expect to
+      // see, not a fresh canvas.
       setDeriveType(undefined);
       setResult([]);
-      setDeselectedExistingIndexes({});
-      deselectedExistingAccountsRef.current = {};
       // DeriveTypeSelectorFormInput shouldResetDeriveTypeWhenNetworkChanged will handle this internally
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [networkId, setResult]);
 
   const buildBalanceMapKey = useCallback(
@@ -515,8 +526,6 @@ function BatchCreateAccountPreviewPage({
           onChange={(v) => {
             if (deriveType !== v) {
               setDeriveType(v);
-              setDeselectedExistingIndexes({});
-              deselectedExistingAccountsRef.current = {};
             }
           }}
           networkId={networkId || ''}
@@ -841,6 +850,7 @@ function BatchCreateAccountPreviewPage({
               </SizableText>
               <XStack justifyContent="center">
                 <Button
+                  testID="account-manager-btn"
                   width="auto"
                   variant="primary"
                   onPress={() => {
@@ -993,6 +1003,7 @@ function BatchCreateAccountPreviewPage({
           >
             <Stack>
               <Checkbox
+                testID="account-manager-checkbox"
                 onChange={(val) => {
                   selectCheckBox({
                     val,
@@ -1027,6 +1038,7 @@ function BatchCreateAccountPreviewPage({
             </Stack>
             <Stack flex={1} />
             <IconButton
+              testID="account-manager-state-icon-btn"
               icon="SliderThreeOutline"
               mr="$3"
               borderRadius="$2"

@@ -21,6 +21,7 @@ import {
 import type { ITabContainerRef } from '@onekeyhq/components';
 import type { IPageNavigationProp } from '@onekeyhq/components/src/layouts/Navigation';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
+import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
 import { LazyPageContainer } from '@onekeyhq/kit/src/components/LazyPageContainer';
 import { TabletHomeContainer } from '@onekeyhq/kit/src/components/TabletHomeContainer';
 import { TabPageHeader } from '@onekeyhq/kit/src/components/TabPageHeader';
@@ -188,7 +189,7 @@ function MobileBrowser() {
       RouteProp<ITabDiscoveryParamList, ETabDiscoveryRoutes.TabDiscovery>
     >();
   const isLandscape = useIsSplitView();
-  const { earnTab } = route?.params || {};
+  const { defaultTab, earnTab } = route?.params || {};
   const [settings] = useSettingsPersistAtom();
   const selectedHeaderTab =
     settings.selectedBrowserTab || ETranslations.global_browser;
@@ -245,6 +246,18 @@ function MobileBrowser() {
     }
   }, [tabs?.length]);
 
+  const previousDefaultTab = useRef<ETranslations | undefined>(undefined);
+  useEffect(() => {
+    if (previousDefaultTab.current !== defaultTab) {
+      previousDefaultTab.current = defaultTab;
+      if (defaultTab) {
+        void backgroundApiProxy.serviceSetting.setSelectedBrowserTab(
+          defaultTab,
+        );
+      }
+    }
+  }, [defaultTab]);
+
   useEffect(() => {
     if (!showDiscoveryPage) {
       return;
@@ -279,10 +292,12 @@ function MobileBrowser() {
 
   const closeCurrentWebTab = useCallback(async () => {
     showTabBar();
-    return activeTabId
-      ? closeWebTab({ tabId: activeTabId, entry: 'Menu' })
-      : Promise.resolve();
-  }, [activeTabId, closeWebTab]);
+    if (activeTabId) {
+      closeWebTab({ tabId: activeTabId, entry: 'Menu' });
+      setDisplayHomePage(true);
+    }
+    return Promise.resolve();
+  }, [activeTabId, closeWebTab, setDisplayHomePage]);
 
   useEffect(() => {
     const listener = async (event: {
@@ -408,9 +423,15 @@ function MobileBrowser() {
   const earnTabsRef = useRef<ITabContainerRef>(null);
   const earnBorrowPagerRef = useRef<IEarnBorrowPagerViewRef>(null);
 
-  // Determine if outer PagerView should be used (phone only, not tablet/dual-screen)
-  const useOuterPager =
-    !isTabletMainView && !isTabletDetailView && !isDualScreen;
+  // Determine if outer PagerView should be used (phone-style layout).
+  // Only the legacy tablet layout requires display:none gating across panes;
+  // that layout is only meaningful when SplitView is actually active (the
+  // SplitViewContext provider wraps the routers). When the user disables
+  // enableSplitView on a foldable / dual-screen device, neither main nor sub
+  // view is set — fall back to the phone-style pager so Market/Earn/Browser
+  // can still render. Without this, dual-screen Android with split-screen
+  // off renders a blank Market/DeFi page.
+  const useOuterPager = !isTabletMainView && !isTabletDetailView;
   const handleExploreTabSwipe = useCallback(() => {
     exploreTabSwitchTypeRef.current = 'swipe';
   }, []);
@@ -490,7 +511,7 @@ function MobileBrowser() {
             earnContent={
               <EarnHomeWithProvider
                 showHeader={false}
-                showContent
+                showContent={selectedHeaderTab === ETranslations.global_earn}
                 defaultTab={earnTab}
                 tabsRef={earnTabsRef}
                 useSwipePager={useOuterPager}
@@ -647,9 +668,17 @@ function MobileBrowser() {
 
 function BaseMobileBrowser() {
   return (
-    <LazyPageContainer>
-      <MobileBrowser />
-    </LazyPageContainer>
+    <AccountSelectorProviderMirror
+      config={{
+        sceneName: EAccountSelectorSceneName.home,
+        sceneUrl: '',
+      }}
+      enabledNum={[0]}
+    >
+      <LazyPageContainer>
+        <MobileBrowser />
+      </LazyPageContainer>
+    </AccountSelectorProviderMirror>
   );
 }
 

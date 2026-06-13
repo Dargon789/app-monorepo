@@ -36,6 +36,7 @@ export const HwWalletAvatarImages: Record<
   [EDeviceType.Mini]: require('../assets/wallet/avatar/Mini.png'),
   [EDeviceType.Touch]: require('../assets/wallet/avatar/Touch.png'),
   [EDeviceType.Pro]: require('../assets/wallet/avatar/ProBlack.png'),
+  [EDeviceType.Pro2]: require('../assets/wallet/avatar/ProBlack.png'),
   [`${EDeviceType.Pro}Black`]: require('../assets/wallet/avatar/ProBlack.png'),
   [`${EDeviceType.Pro}White`]: require('../assets/wallet/avatar/ProWhite.png'),
 };
@@ -46,11 +47,16 @@ export const OthersWalletAvatarImages = {
   othersWatching: require('../assets/wallet/avatar/others-watching.png'),
 };
 
+export const ThirdPartyWalletAvatarImages = {
+  ledger: require('../assets/wallet/avatar/Ledger.png'),
+};
+
 export const AllWalletAvatarImages = {
   cardDividers: require('../assets/wallet/avatar/CardDividers.png'),
   ...OthersWalletAvatarImages,
   ...HdWalletAvatarImages,
   ...HwWalletAvatarImages,
+  ...ThirdPartyWalletAvatarImages,
 };
 
 export type IAllWalletAvatarImageNames = keyof typeof AllWalletAvatarImages;

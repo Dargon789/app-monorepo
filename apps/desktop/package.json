@@ -13,7 +13,7 @@
     "install-app-deps": "electron-builder install-app-deps",
     "dev": "npx concurrently \"yarn build:main:dev\" \"yarn dev:renderer\" \"cross-env LAUNCH_ELECTRON=true node scripts/dev.js\"",
     "dev:rspack": "npx concurrently \"yarn build:main:dev\" \"yarn dev:renderer:rspack\" \"cross-env LAUNCH_ELECTRON=true node scripts/dev.js\"",
-    "dev:main": "electron --inspect=5858 app/dist/app.js",
+    "dev:main": "electron --inspect=5858 --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 app/dist/app.js",
     "dev:renderer": "TRANSFORM_REGENERATOR_DISABLED=true BROWSER=none WEB_PORT=3001 webpack serve",
     "dev:renderer:rspack": "TRANSFORM_REGENERATOR_DISABLED=true BROWSER=none WEB_PORT=3001 rspack serve",
     "build:main:dev": "rimraf ./app/dist && cross-env node scripts/build.js",
@@ -34,13 +34,13 @@
     "build:winms": "cross-env NODE_ENV=production yarn clean:build && yarn build:renderer && yarn build:main && yarn install-app-deps && yarn build:electron:winms --publish never",
     "publish:all": "cross-env NODE_ENV=production yarn clean:build && yarn build:renderer && yarn build:main && yarn install-app-deps && yarn build:electron --publish always",
     "publish:winms": "cross-env NODE_ENV=production yarn clean:build && yarn build:renderer && yarn build:main && yarn install-app-deps && yarn build:electron:winms --publish always",
-    "_folderslint": "yarn folderslint",
-    "build:JsBundle": "cross-env NODE_ENV=production BUILD_BUNDLE_UPDATE=true NODE_OPTIONS=--max-old-space-size=8192 webpack build"
+    "build:JsBundle": "cross-env NODE_ENV=production BUILD_BUNDLE_UPDATE=true NODE_OPTIONS=--max-old-space-size=8192 webpack build",
+    "test:e2e:browser": "node e2e/open-url.e2e.js"
   },
   "dependencies": {
     "@onekeyfe/electron-mac-icloud": "1.2.6",
     "@sentry/electron": "5.8.0",
-    "@stoprocent/noble": "2.3.10",
+    "@stoprocent/noble": "2.3.16",
     "adm-zip": "^0.5.10",
     "electron-check-biometric-auth-changed": "1.0.0",
     "electron-context-menu": "^3.5.0",
@@ -51,7 +51,7 @@
     "node-fetch": "^2.6.7",
     "passport-desktop": "0.1.2",
     "passport-desktop-win32-x64-msvc": "0.1.2",
-    "semver": "7.5.4"
+    "semver": "7.7.4"
   },
   "devDependencies": {
     "@electron/notarize": "2.3.2",
@@ -61,12 +61,11 @@
     "@types/node-fetch": "^2.6.1",
     "concurrently": "9.2.1",
     "cross-env": "7.0.3",
-    "electron": "39.8.4",
+    "electron": "39.8.9",
     "electron-builder": "26.4.0",
     "esbuild": "0.27.2",
-    "folderslint": "1.2.0",
     "glob": "^7.2.0",
     "rimraf": "3.0.2",
-    "webpack": "5.90.3"
+    "webpack": "5.104.1"
   }
 }

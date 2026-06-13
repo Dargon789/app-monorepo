@@ -16,11 +16,11 @@ import {
   XStack,
   YStack,
   useClipboard,
-  useTabContainerWidth,
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { useOneKeyAuth } from '@onekeyhq/kit/src/components/OneKeyAuth/useOneKeyAuth';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { useTabContainerWidth } from '@onekeyhq/kit/src/hooks/useTabContainerWidth';
 import type { IDBCloudSyncItem } from '@onekeyhq/kit-bg/src/dbs/local/types';
 import {
   useDevSettingsPersistAtom,
@@ -124,6 +124,19 @@ function buildRawDataSummary(
           ? `device ${shortText(rawDataJson.payload.hwDeviceId)}`
           : undefined,
       ].filter((item): item is string => Boolean(item)),
+    };
+  }
+
+  if (rawDataJson.dataType === EPrimeCloudSyncDataType.BotWallet) {
+    return {
+      title:
+        rawDataJson.payload.name || shortText(rawDataJson.payload.walletId),
+      details: [
+        `parent ${shortText(rawDataJson.payload.parentKeylessWalletId)}`,
+        `index ${rawDataJson.payload.index}`,
+        rawDataJson.payload.visible ? 'visible' : 'hidden',
+        rawDataJson.payload.status,
+      ],
     };
   }
 
@@ -288,6 +301,18 @@ function RawDataJsonView({
           rawDataJson.payload.walletType,
           rawDataJson.payload.name,
           rawDataJson.payload.avatar?.img,
+        ].join('>>')}
+      </SizableText>
+    );
+  }
+  if (rawDataJson.dataType === EPrimeCloudSyncDataType.BotWallet) {
+    return (
+      <SizableText>
+        {[
+          rawDataJson.payload.name,
+          rawDataJson.payload.parentKeylessWalletId,
+          rawDataJson.payload.index,
+          rawDataJson.payload.status,
         ].join('>>')}
       </SizableText>
     );
@@ -643,6 +668,7 @@ function SyncItemTable({ activeTab }: { activeTab: ITabType }) {
             { label: '全部', value: '$ALL' },
             { label: 'Lock', value: EPrimeCloudSyncDataType.Lock },
             { label: 'Wallet', value: EPrimeCloudSyncDataType.Wallet },
+            { label: 'BotWallet', value: EPrimeCloudSyncDataType.BotWallet },
             {
               label: 'IndexedAccount',
               value: EPrimeCloudSyncDataType.IndexedAccount,
