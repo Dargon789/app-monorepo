@@ -191,7 +191,7 @@ function DeviceListItem({
       );
     }
 
-    if (gtMd) {
+    if (gtMd && item.firmwareVersionDisplay) {
       return (
         <SizableText size="$bodyMd" color="$textDisabled">
           {item.firmwareVersionDisplay}
@@ -334,9 +334,11 @@ function DeviceManagementV2ListWeb() {
         const shouldUpdate = deviceDetectStatus?.hasUpgrade;
         const updateVersionDisplay = deviceDetectStatus?.toVersion;
         item.firmwareTypeBadge = firmwareTypeBadge;
-        item.firmwareVersionDisplay = `v${
-          deviceVersion.firmwareVersion ?? '-'
-        }`;
+        item.firmwareVersionDisplay = deviceUtils.isValidDeviceVersion(
+          deviceVersion.firmwareVersion,
+        )
+          ? `v${deviceVersion.firmwareVersion}`
+          : undefined;
         item.shouldUpdate = shouldUpdate;
         item.updateVersionDisplay =
           updateVersionDisplay && !isEmpty(updateVersionDisplay)

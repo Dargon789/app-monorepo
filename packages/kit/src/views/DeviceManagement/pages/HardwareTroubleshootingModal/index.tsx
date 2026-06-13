@@ -62,7 +62,7 @@ function HardwareTroubleshootingModal() {
 
   const defaultInfo = useMemo(
     () => ({
-      firmwareVersion: '-',
+      firmwareVersion: undefined,
       walletAvatarBadge: undefined,
       serialNumber: '--',
     }),
@@ -81,7 +81,11 @@ function HardwareTroubleshootingModal() {
       });
 
       return {
-        firmwareVersion: versions?.firmwareVersion ?? '-',
+        firmwareVersion: deviceUtils.isValidDeviceVersion(
+          versions?.firmwareVersion,
+        )
+          ? versions.firmwareVersion
+          : undefined,
         walletAvatarBadge: undefined,
         serialNumber:
           deviceUtils.getDeviceSerialNoFromFeatures(device.featuresInfo) ??
@@ -164,12 +168,16 @@ function HardwareTroubleshootingModal() {
           </XStack>
           {isQrWallet ? null : (
             <XStack mt="$1.5" gap="$2" ai="center" flexShrink={1}>
-              <Badge badgeSize="sm" badgeType="default">
-                {`v${deviceInfo.firmwareVersion}`}
-              </Badge>
-              <SizableText size="$bodySmMedium" color="$textSubdued">
-                •
-              </SizableText>
+              {deviceInfo.firmwareVersion ? (
+                <>
+                  <Badge badgeSize="sm" badgeType="default">
+                    {`v${deviceInfo.firmwareVersion}`}
+                  </Badge>
+                  <SizableText size="$bodySmMedium" color="$textSubdued">
+                    •
+                  </SizableText>
+                </>
+              ) : null}
               <SizableText
                 size="$bodyMd"
                 color="$textSubdued"
