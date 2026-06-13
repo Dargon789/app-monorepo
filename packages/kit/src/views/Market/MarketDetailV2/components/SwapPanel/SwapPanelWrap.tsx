@@ -26,7 +26,10 @@ import {
 
 import { useTokenDetail } from '../../hooks/useTokenDetail';
 
-import { EMarketPresetTradeSide } from './hooks/marketPresetSettings';
+import {
+  EMarketPresetTradeSide,
+  shouldShowMarketPresetReviewCustomNetworkFeeOption,
+} from './hooks/marketPresetSettings';
 import { useMarketPresetSettings } from './hooks/useMarketPresetSettings';
 import { useSpeedSwapActions } from './hooks/useSpeedSwapActions';
 import { useSpeedSwapInit } from './hooks/useSpeedSwapInit';
@@ -35,6 +38,10 @@ import { ESwapDirection } from './hooks/useTradeType';
 import { MarketSwapReviewDialog } from './MarketSwapReviewDialog';
 import { SwapPanelContent } from './SwapPanelContent';
 
+import type {
+  IEstimateMarketPresetPriorityFeeFiatValues,
+  IMarketPresetPriorityFeeFiatEstimateMap,
+} from './components/MarketPresetSelector';
 import type { IToken } from './types';
 
 interface ISwapPanelWrapProps {
@@ -79,6 +86,7 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
   const {
     isLoading: speedSwapInitLoading,
     speedConfig,
+    speedConfigReady,
     supportSpeedSwap: originalSupportSpeedSwap,
     onlySupportCrossChain,
     defaultTokens,
@@ -92,6 +100,8 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
       tradeType === ESwapDirection.SELL
         ? EMarketPresetTradeSide.SELL
         : EMarketPresetTradeSide.BUY,
+    speedConfig,
+    speedConfigReady,
   });
   const { activeAccount } = useActiveAccount({ num: 0 });
 
@@ -201,7 +211,10 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
   const effectiveCustomPriorityFee = marketPresetSettings.enabled
     ? marketPresetSettings.selectedPriorityFeeOverride
     : undefined;
-
+  const currentFromTokenAmount =
+    tradeType === ESwapDirection.BUY
+      ? paymentAmount.toFixed()
+      : sellAmount.toFixed();
   const useSpeedSwapActionsParams = {
     slippage: effectiveSlippage,
     spenderAddress: speedConfig.spenderAddress,
@@ -225,11 +238,10 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
     },
     provider,
     tradeType: tradeType || ESwapDirection.BUY,
-    fromTokenAmount:
-      tradeType === ESwapDirection.BUY
-        ? paymentAmount.toFixed()
-        : sellAmount.toFixed(),
-    antiMEV: swapMevNetConfig?.includes(swapPanel.networkId ?? ''),
+    fromTokenAmount: currentFromTokenAmount,
+    antiMEV: Array.isArray(swapMevNetConfig)
+      ? swapMevNetConfig.includes(swapPanel.networkId ?? '')
+      : false,
     isCustomRpcUnavailable,
     isReviewDialogOpen,
     onCloseDialog,
@@ -249,6 +261,7 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
     isWrapped,
     speedCheckError,
     speedCheckLoading,
+    estimateMarketPresetNetworkFees,
     prepareMarketSwapReview,
     sendMarketApproveTx,
     sendMarketSwapTx,
@@ -464,6 +477,26 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
     ],
   );
 
+  const estimatePriorityFeeFiatValues =
+    useCallback<IEstimateMarketPresetPriorityFeeFiatValues>(
+      async ({ items }) => {
+        const estimates: IMarketPresetPriorityFeeFiatEstimateMap = {};
+        const feeValues = await estimateMarketPresetNetworkFees({
+          items: items.map((item) => ({
+            customPriorityFee: item.customPriorityFee,
+            networkFeeLevel: item.networkFeeLevel,
+          })),
+        });
+
+        items.forEach((item, index) => {
+          estimates[item.type] = feeValues[index];
+        });
+
+        return estimates;
+      },
+      [estimateMarketPresetNetworkFees],
+    );
+
   const isActionLoading = useMemo(() => {
     return (
       speedSwapBuildTxLoading ||
@@ -491,6 +524,10 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
       const requestId = reviewDialogRequestIdRef.current + 1;
       reviewDialogRequestIdRef.current = requestId;
       setIsReviewOpening(true);
+      const showReviewCustomNetworkFeeOption =
+        shouldShowMarketPresetReviewCustomNetworkFeeOption(
+          marketPresetSettings,
+        );
 
       try {
         const nextReviewState = await prepareMarketSwapReview({
@@ -527,6 +564,7 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
               adapter={reviewAdapter}
               defaultNetworkFeeLevel={effectiveNetworkFeeLevel}
               defaultCustomPriorityFee={effectiveCustomPriorityFee}
+              showCustomNetworkFeeOption={showReviewCustomNetworkFeeOption}
               reviewState={nextReviewState}
               onDone={() => void dialog?.close()}
             />
@@ -563,7 +601,7 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
       isReviewOpening,
       effectiveCustomPriorityFee,
       effectiveNetworkFeeLevel,
-      marketPresetSettings.isLoading,
+      marketPresetSettings,
       prepareMarketSwapReview,
       reviewAdapter,
     ],
@@ -630,9 +668,8 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
       balance={balance ?? new BigNumber(0)}
       balanceToken={balanceToken as IToken}
       balanceLoading={fetchBalanceLoading}
-      isLoading={
-        isActionLoading || isReviewOpening || marketPresetSettings.isLoading
-      }
+      isLoading={isActionLoading || isReviewOpening}
+      isActionDisabled={marketPresetSettings.isLoading}
       hasInitialReady={hasInitialReady}
       onSwap={handleSwap}
       slippageAutoValue={speedConfig?.slippage}
@@ -643,6 +680,7 @@ export function SwapPanelWrap({ onCloseDialog }: ISwapPanelWrapProps) {
       speedCheckError={speedCheckError}
       disableNativeToken={disableNativeToken}
       marketPresetSettings={marketPresetSettings}
+      estimatePriorityFeeFiatValues={estimatePriorityFeeFiatValues}
     />
   );
 }

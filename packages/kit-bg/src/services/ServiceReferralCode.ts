@@ -12,12 +12,13 @@ import {
   FIRST_EVM_ADDRESS_PATH,
 } from '@onekeyhq/shared/src/engine/engineConsts';
 import { OneKeyLocalError } from '@onekeyhq/shared/src/errors';
+import { getVendorProfile } from '@onekeyhq/shared/src/hardware/vendorProfile';
+import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import { resolveWalletCreatedAtForCreationRecord } from '@onekeyhq/shared/src/referralCode/creationRecordUtils';
 import { EBtcRewardErrorCode } from '@onekeyhq/shared/src/referralCode/type';
 import type {
   EExportTimeRange,
   IBatchCheckWalletItem,
-  IBatchCheckWalletResponse,
   IBatchCheckWalletV2Response,
   IBtcRewardCommitData,
   IBtcRewardCommitParams,
@@ -62,6 +63,7 @@ import type {
   IWalletDevUnbindResponse,
 } from '@onekeyhq/shared/src/referralCode/type';
 import accountUtils from '@onekeyhq/shared/src/utils/accountUtils';
+import { normalizeTokenContractAddress } from '@onekeyhq/shared/src/utils/tokenUtils';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 import type { IHyperLiquidSignatureRSV } from '@onekeyhq/shared/types/hyperliquid/webview';
 
@@ -69,6 +71,14 @@ import ServiceBase from './ServiceBase';
 
 import type { IDBWallet } from '../dbs/local/types';
 import type { IWalletReferralCode } from '../dbs/simple/entity/SimpleDbEntityReferralCode';
+
+// Background best-effort referral endpoints share this options bag: in
+// production we don't want unhealthy backends to surface scary error toasts
+// to users; in dev/test we keep the toast so issues are visible during QA.
+// `as any` because `autoHandleError` is read from the axios config by
+// OneKey's interceptor but isn't on axios's own AxiosRequestConfig type.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SILENT_IN_PROD = { autoHandleError: !platformEnv.isProduction } as any;
 
 @backgroundClass()
 class ServiceReferralCode extends ServiceBase {
@@ -527,21 +537,12 @@ class ServiceReferralCode extends ServiceBase {
     });
     if (walletReferralCode) {
       const { address, networkId } = walletReferralCode;
-      const batchResult = await this.batchCheckWalletsBoundReferralCode([
-        { address, networkId },
-      ]);
-      const key = `${networkId}:${address}`;
-      const alreadyBound = batchResult[key] ?? false;
-      const newWalletReferralCode = {
-        ...walletReferralCode,
-        isBound: alreadyBound,
-      };
-      await this.backgroundApi.simpleDb.referralCode.setWalletReferralCode({
-        walletId,
-        referralCodeInfo: newWalletReferralCode,
+      const bindStatus = await this.checkWalletBindStatus({
+        address,
+        networkId,
       });
-      if (alreadyBound) {
-        return newWalletReferralCode;
+      if (bindStatus.data) {
+        return walletReferralCode;
       }
     }
     return undefined;
@@ -589,33 +590,6 @@ class ServiceReferralCode extends ServiceBase {
   }
 
   @backgroundMethod()
-  async checkWalletIsBoundReferralCode({
-    address,
-    networkId,
-  }: {
-    address: string;
-    networkId: string;
-  }) {
-    const client = await this.getClient(EServiceEndpointEnum.Rebate);
-    const response = await client.get<{
-      data: { data: boolean };
-    }>('/rebate/v1/wallet/check', {
-      params: { address, networkId },
-    });
-    return response.data.data.data;
-  }
-
-  @backgroundMethod()
-  async batchCheckWalletsBoundReferralCode(items: IBatchCheckWalletItem[]) {
-    const client = await this.getClient(EServiceEndpointEnum.Rebate);
-    const response = await client.post<{
-      data: IBatchCheckWalletResponse;
-    }>('/rebate/v1/wallet/batch-check', { items });
-    // Response: { code: 0, message: "success", data: { "networkId:address": boolean } }
-    return response.data.data;
-  }
-
-  @backgroundMethod()
   async getBoundReferralCodeUnsignedMessage({
     address,
     networkId,
@@ -633,7 +607,8 @@ class ServiceReferralCode extends ServiceBase {
       networkId,
       inviteCode,
     });
-    return response.data.data.message;
+    const message = response.data.data.message;
+    return message;
   }
 
   @backgroundMethod()
@@ -663,9 +638,11 @@ class ServiceReferralCode extends ServiceBase {
 
   @backgroundMethod()
   async getWalletReferralCode({ walletId }: { walletId: string }) {
-    return this.backgroundApi.simpleDb.referralCode.getWalletReferralCode({
-      walletId,
-    });
+    const result =
+      await this.backgroundApi.simpleDb.referralCode.getWalletReferralCode({
+        walletId,
+      });
+    return result;
   }
 
   @backgroundMethod()
@@ -684,7 +661,9 @@ class ServiceReferralCode extends ServiceBase {
 
   @backgroundMethod()
   async getCachedInviteCode() {
-    return this.backgroundApi.simpleDb.referralCode.getCachedInviteCode();
+    const cachedInviteCode =
+      await this.backgroundApi.simpleDb.referralCode.getCachedInviteCode();
+    return cachedInviteCode;
   }
 
   @backgroundMethod()
@@ -694,9 +673,17 @@ class ServiceReferralCode extends ServiceBase {
 
   @backgroundMethod()
   async recordWalletCreation(items: IWalletCreationRecordItem[]) {
-    if (items.length === 0) return;
+    if (items.length === 0) {
+      return;
+    }
     const client = await this.getClient(EServiceEndpointEnum.Rebate);
-    await client.post('/rebate/v1/wallet/creation-records', { items });
+    // Best-effort background write; the startup migration retries from the
+    // cached creation timestamp on failure.
+    await client.post(
+      '/rebate/v1/wallet/creation-records',
+      { items },
+      SILENT_IN_PROD,
+    );
   }
 
   @backgroundMethod()
@@ -759,7 +746,7 @@ class ServiceReferralCode extends ServiceBase {
         networkId: walletInfo.networkId,
       });
     } catch {
-      // Keep the debug action usable even if the follow-up status refresh fails.
+      // Leave refreshed status unknown if the follow-up server check fails.
     }
 
     await this.backgroundApi.simpleDb.referralCode.setWalletReferralCode({
@@ -770,10 +757,8 @@ class ServiceReferralCode extends ServiceBase {
         networkId: walletInfo.networkId,
         pubkey: existingReferralCodeInfo?.pubkey ?? '',
         isBound: bindStatus?.data ?? false,
-        bindable:
-          bindStatus?.bindable ?? existingReferralCodeInfo?.bindable ?? true,
-        bindWindowReason:
-          bindStatus?.reason ?? existingReferralCodeInfo?.bindWindowReason,
+        bindable: bindStatus?.bindable,
+        bindWindowReason: bindStatus?.reason,
       },
     });
 
@@ -787,9 +772,11 @@ class ServiceReferralCode extends ServiceBase {
   @backgroundMethod()
   async batchCheckWalletsBoundReferralCodeV2(items: IBatchCheckWalletItem[]) {
     const client = await this.getClient(EServiceEndpointEnum.Rebate);
+    // Bind-status checks gate dialogs / nudges; skip the prompt silently in
+    // production rather than toast a backend error to the user.
     const response = await client.post<{
       data: IBatchCheckWalletV2Response;
-    }>('/rebate/v1/wallet/batch-check-v2', { items });
+    }>('/rebate/v1/wallet/batch-check-v2', { items }, SILENT_IN_PROD);
     return response.data.data;
   }
 
@@ -801,21 +788,31 @@ class ServiceReferralCode extends ServiceBase {
     address: string;
     networkId: string;
   }) {
-    const client = await this.getClient(EServiceEndpointEnum.Rebate);
-    // Server wraps response as { code, data: { data, bindable?, reason? } }
-    // matching the existing triple-nested structure of checkWalletIsBoundReferralCode
-    const response = await client.get<{
-      data: { data: boolean; bindable?: boolean; reason?: string };
-    }>('/rebate/v1/wallet/check', {
-      params: { address, networkId },
-    });
-    const serverData = response.data.data;
-    const result: ICheckWalletBindStatusResponse = {
-      data: serverData.data,
-      bindable: serverData.bindable ?? !serverData.data,
-      reason: serverData.reason,
+    const requestAddress =
+      normalizeTokenContractAddress({
+        networkId,
+        contractAddress: address,
+      }) || address;
+    const batchResult = await this.batchCheckWalletsBoundReferralCodeV2([
+      {
+        address: requestAddress,
+        networkId,
+      },
+    ]);
+    const requestedKey = `${networkId}:${requestAddress}`;
+    const serverData = batchResult[requestedKey];
+    if (!serverData) {
+      throw new OneKeyLocalError('Missing wallet referral bind status');
+    }
+    const isBound = Boolean(
+      serverData.bound || serverData.reason === 'already_bound',
+    );
+    const isExpired = serverData.reason === 'exceeded_bind_window';
+    return {
+      data: isBound,
+      bindable: !isBound && !isExpired,
+      reason: isBound ? undefined : serverData.reason,
     };
-    return result;
   }
 
   @backgroundMethod()
@@ -833,6 +830,13 @@ class ServiceReferralCode extends ServiceBase {
       if (accountUtils.isHwHiddenWallet({ wallet })) {
         return null;
       }
+      // Referral binding is a OneKey-specific feature. Third-party hardware
+      // (Ledger / Trezor) hides the ActionList entry in WalletEditButton via
+      // `isThirdPartyVendorWallet`; mirror that here so the onboarding
+      // invite-code dialog also skips these wallets.
+      if (getVendorProfile(wallet?.associatedDeviceInfo?.vendor).isThirdParty) {
+        return null;
+      }
     } catch {
       return null;
     }
@@ -848,7 +852,9 @@ class ServiceReferralCode extends ServiceBase {
           accountId,
           networkId,
         });
-        if (!account) return null;
+        if (!account) {
+          return null;
+        }
         return { walletId, networkId, accountId, address: account.address };
       } catch {
         return null;
@@ -862,7 +868,9 @@ class ServiceReferralCode extends ServiceBase {
         accountId,
         networkId,
       });
-      if (!account) return null;
+      if (!account) {
+        return null;
+      }
       return { walletId, networkId, accountId, address: account.address };
     } catch {
       return null;

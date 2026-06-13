@@ -21,7 +21,7 @@ import type {
 } from '@onekeyhq/shared/src/routes';
 
 import backgroundApiProxy from '../../../background/instance/backgroundApiProxy';
-import { isForceUpdateStrategy } from '../../../components/UpdateReminder/hooks';
+import { isForceUpdateStrategy } from '../../../components/AppUpdate';
 import { UpdatePreviewActionButton } from '../components/UpdatePreviewActionButton';
 import { ViewUpdateHistory } from '../components/ViewUpdateHistory';
 
@@ -69,9 +69,15 @@ function UpdatePreview({
       });
   }, []);
 
-  const isForceUpdate = updateInfo
-    ? isForceUpdateStrategy(updateInfo?.updateStrategy)
-    : isForceUpdateParam;
+  // `updateInfo` is seeded from the useAppUpdatePersistAtom() snapshot, which
+  // during the jotai hydration race is still the non-force placeholder on the
+  // first paint. Deriving the lock purely from it would leave a mandatory
+  // update briefly dismissible until fetchAppUpdateInfo() resolves. The route
+  // param is derived from authoritative state at navigation time, so a force
+  // param must win on the first frame (fail-safe toward locked).
+  const isForceUpdate =
+    Boolean(isForceUpdateParam) ||
+    isForceUpdateStrategy(updateInfo?.updateStrategy);
   const changeLog = updateInfo?.changeLog;
   usePreventRemove(!!isForceUpdate, () => {});
 

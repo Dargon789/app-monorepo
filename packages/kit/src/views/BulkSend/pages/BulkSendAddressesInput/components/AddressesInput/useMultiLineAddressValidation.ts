@@ -8,6 +8,11 @@ import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/background
 import { useIsEnableTransferAllowList } from '@onekeyhq/kit/src/components/AddressInput/hooks';
 import { useAccountData } from '@onekeyhq/kit/src/hooks/useAccountData';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { isAddressOwnedByDeactivatedBotWallet } from '@onekeyhq/kit/src/utils/botWalletAccountUtils';
+import {
+  getBotWalletDisabledMessage,
+  showBotWalletDisabledToast,
+} from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
 import {
   getBulkSendMinTransferAmount,
   getBulkSendMinTransferDisplayAmount,
@@ -50,6 +55,7 @@ type IUseMultiLineAddressValidationParams = {
     Record<string, IBulkSendSelectorAccountItem>
   >;
   onErrorsChange?: (errors: ILineError[]) => void;
+  rejectDeactivatedBotWalletReceiver?: boolean;
 };
 
 function useMultiLineAddressValidation(
@@ -73,6 +79,7 @@ function useMultiLineAddressValidation(
     connectedDeviceIds,
     selectorAccountItemsRef,
     onErrorsChange,
+    rejectDeactivatedBotWalletReceiver = false,
   } = params;
 
   const intl = useIntl();
@@ -569,6 +576,48 @@ function useMultiLineAddressValidation(
           }
         }
 
+        // Reject any address that resolves to a deactivated Bot Wallet
+        // account. The helper resolves owners through the regular address
+        // index and falls back to fresh-address resolution for BTC, matching
+        // the allowlist resolver below.
+        if (
+          rejectDeactivatedBotWalletReceiver &&
+          validAddresses.length > 0 &&
+          selectedNetworkId
+        ) {
+          const botWalletResults = await Promise.all(
+            validAddresses.map(({ index, address }) =>
+              limit(async () => {
+                const trimmedAddress = address.trim();
+                const isDeactivated =
+                  await isAddressOwnedByDeactivatedBotWallet({
+                    networkId: selectedNetworkId,
+                    address: trimmedAddress,
+                  });
+                return { index, isDeactivated };
+              }),
+            ),
+          );
+          if (isValidationStale()) {
+            return true;
+          }
+          let hasDeactivatedBotReceiver = false;
+          for (const { index, isDeactivated } of botWalletResults) {
+            if (isDeactivated) {
+              hasDeactivatedBotReceiver = true;
+              lineErrors.push({
+                lineNumber: index + 1,
+                message: getBotWalletDisabledMessage('beReceiver'),
+              });
+            }
+          }
+          if (hasDeactivatedBotReceiver) {
+            // Show a single aggregated toast — pasting many lines should not
+            // spam one toast per row.
+            showBotWalletDisabledToast('beReceiver');
+          }
+        }
+
         // Phase 3: Allowlist validation for valid, non-duplicate addresses
         if (
           checkAllowlist &&
@@ -734,6 +783,7 @@ function useMultiLineAddressValidation(
       requireAmounts,
       checkDuplicates,
       checkAllowlist,
+      rejectDeactivatedBotWalletReceiver,
       resolveAccountId,
       resolveAccountIdForAddress,
       duplicateWarningMode,

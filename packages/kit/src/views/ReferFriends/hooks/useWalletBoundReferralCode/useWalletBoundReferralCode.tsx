@@ -18,6 +18,7 @@ import { EOneKeyErrorClassNames } from '@onekeyhq/shared/src/errors/types/errorT
 import errorToastUtils from '@onekeyhq/shared/src/errors/utils/errorToastUtils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
+import type { ICheckWalletBindStatusResponse } from '@onekeyhq/shared/src/referralCode/type';
 import { autoFixPersonalSignMessage } from '@onekeyhq/shared/src/utils/messageUtils';
 import networkUtils from '@onekeyhq/shared/src/utils/networkUtils';
 import { EMnemonicType } from '@onekeyhq/shared/src/utils/secret';
@@ -27,7 +28,10 @@ import {
 } from '@onekeyhq/shared/types/message';
 
 import { InviteCodeDialog } from './InviteCodeDialog';
-import { resolveWalletBindStatusAfterCheck } from './referralBindStatusUtils';
+import {
+  type IReferralBindDisplayStatus,
+  getReferralBindDisplayStatus,
+} from './referralBindStatusUtils';
 import { useGetReferralCodeWalletInfo } from './useGetReferralCodeWalletInfo';
 
 import type { IReferralCodeWalletInfo } from './types';
@@ -45,29 +49,25 @@ export function useWalletBoundReferralCode({
   >(undefined);
   const getReferralCodeWalletInfo = useGetReferralCodeWalletInfo();
 
-  const getReferralCodeBondStatus = useCallback(
+  const getReferralCodeBindDisplayStatus = useCallback(
     async ({
       walletId,
       skipIfTimeout = false,
     }: {
       walletId: string | undefined;
       skipIfTimeout?: boolean;
-    }) => {
+    }): Promise<IReferralBindDisplayStatus> => {
       if (mnemonicType === EMnemonicType.TON) {
-        return false;
+        return 'unknown';
       }
 
       const walletInfo = await getReferralCodeWalletInfo(walletId);
       if (!walletInfo) {
-        return false;
+        return 'unknown';
       }
       const { address, networkId } = walletInfo;
-      const cachedReferralCodeInfo =
-        await backgroundApiProxy.serviceReferralCode.getWalletReferralCode({
-          walletId: walletInfo.walletId,
-        });
 
-      let serverStatus;
+      let serverStatus: ICheckWalletBindStatusResponse | undefined;
       let isTimeout = false;
 
       try {
@@ -102,46 +102,40 @@ export function useWalletBoundReferralCode({
             });
         }
       } catch {
-        // Fall back to local status when the server check is unavailable.
+        // Keep the UI status unknown when the server check is unavailable.
       }
 
-      const resolvedBindStatus = resolveWalletBindStatusAfterCheck({
-        serverStatus,
-        cachedReferralCodeInfo,
-        isTimeout,
-        skipIfTimeout,
-      });
-
-      if (resolvedBindStatus.shouldSkip) {
-        return false;
+      if ((isTimeout && skipIfTimeout) || !serverStatus) {
+        return 'unknown';
       }
 
-      if (resolvedBindStatus.shouldPersist) {
-        try {
-          await backgroundApiProxy.serviceReferralCode.setWalletReferralCode({
-            walletId: walletInfo.walletId,
-            referralCodeInfo: {
-              walletId: walletInfo.walletId,
-              address: walletInfo.address,
-              networkId: walletInfo.networkId,
-              pubkey: walletInfo.pubkey ?? '',
-              isBound: resolvedBindStatus.status.isBound,
-              bindable: resolvedBindStatus.status.bindable,
-              bindWindowReason: resolvedBindStatus.status.bindWindowReason,
-            },
-          });
-        } catch {
-          // Ignore local cache write failures; the server status remains authoritative.
-        }
-      }
+      const isBound =
+        serverStatus.data || serverStatus.reason === 'already_bound';
+      const isExpired = serverStatus.reason === 'exceeded_bind_window';
+      const bindStatus = {
+        isBound,
+        bindable: !isBound && !isExpired,
+        bindWindowReason: isBound ? undefined : serverStatus.reason,
+      };
 
-      if (!resolvedBindStatus.shouldShowBindDialog) {
+      return getReferralBindDisplayStatus(bindStatus);
+    },
+    [mnemonicType, getReferralCodeWalletInfo],
+  );
+
+  const getReferralCodeBondStatus = useCallback(
+    async (params: {
+      walletId: string | undefined;
+      skipIfTimeout?: boolean;
+    }) => {
+      const displayStatus = await getReferralCodeBindDisplayStatus(params);
+      if (displayStatus !== 'bind') {
         return false;
       }
       setShouldBondReferralCode(true);
       return true;
     },
-    [mnemonicType, getReferralCodeWalletInfo],
+    [getReferralCodeBindDisplayStatus],
   );
 
   const confirmBindReferralCode = useCallback(
@@ -151,6 +145,9 @@ export function useWalletBoundReferralCode({
       walletInfo,
       navigationToMessageConfirmAsync,
       onSuccess,
+      suppressSuccessToast,
+      suppressErrorToast,
+      source,
     }: {
       referralCode: string;
       walletInfo: IReferralCodeWalletInfo | null | undefined;
@@ -159,13 +156,30 @@ export function useWalletBoundReferralCode({
       ) => Promise<string>;
       preventClose?: () => void;
       onSuccess?: () => void;
+      /**
+       * Where the bind was triggered from. Threaded into the
+       * referralBindingCompleted analytics event so the caller doesn't have
+       * to re-log it (which would cause a double-fire).
+       */
+      source?: 'onboarding_dialog' | 'home_block' | 'settings';
+      /**
+       * If true, do not show the default success Toast on bind success.
+       * Use this when the caller renders its own success feedback (e.g. an
+       * animated confirm button) and a Toast would be redundant.
+       */
+      suppressSuccessToast?: boolean;
+      /**
+       * If true, never show the default error Toast on bind failure. Use
+       * this when the caller surfaces errors inline (e.g. via form.setError)
+       * for all error types — not just server API errors.
+       */
+      suppressErrorToast?: boolean;
     }) => {
       try {
         if (!walletInfo) {
           throw new OneKeyLocalError('Invalid Wallet');
         }
         let unsignedMessage: string | undefined;
-
         unsignedMessage =
           await backgroundApiProxy.serviceReferralCode.getBoundReferralCodeUnsignedMessage(
             {
@@ -203,7 +217,6 @@ export function useWalletBoundReferralCode({
             };
 
         let signedMessage: string | null;
-
         signedMessage =
           await backgroundApiProxy.serviceReferralCode.autoSignBoundReferralCodeMessageByHDWallet(
             {
@@ -227,7 +240,6 @@ export function useWalletBoundReferralCode({
         if (!signedMessage) {
           throw new OneKeyLocalError('Failed to sign message');
         }
-
         const bindResult =
           await backgroundApiProxy.serviceReferralCode.boundReferralCodeWithSignedMessage(
             {
@@ -249,20 +261,24 @@ export function useWalletBoundReferralCode({
               networkId: walletInfo.networkId,
               pubkey: walletInfo.pubkey ?? '',
               isBound: true,
+              bindable: false,
+              bindWindowReason: undefined,
             },
           });
-          // Clear cached invite code after successful binding
           await backgroundApiProxy.serviceReferralCode.setCachedInviteCode('');
           defaultLogger.referral.page.referralBindingCompleted({
             referralCode,
             address: walletInfo.address,
             networkId: walletInfo.networkId,
+            source,
           });
-          Toast.success({
-            title: intl.formatMessage({
-              id: ETranslations.global_success,
-            }),
-          });
+          if (!suppressSuccessToast) {
+            Toast.success({
+              title: intl.formatMessage({
+                id: ETranslations.global_success,
+              }),
+            });
+          }
           onSuccess?.();
         }
       } catch (e) {
@@ -283,11 +299,16 @@ export function useWalletBoundReferralCode({
           err?.data?.message === 'exceeded_bind_window' ||
           err?.message === 'exceeded_bind_window';
 
-        // Only suppress toast for server API errors when preventClose is
-        // provided — the caller (InviteCodeDialog) handles them inline via
-        // form.setError(). Other call sites have no inline display, so they
-        // still need the toast.
-        if (!(isServerApiError && preventClose) && err?.message) {
+        // Suppress toast when:
+        //   - caller opts out unconditionally (suppressErrorToast), or
+        //   - caller provides preventClose for inline server-error handling
+        //     (Settings InviteCodeDialog pattern).
+        // Otherwise the call site has no inline display and still needs it.
+        if (
+          !suppressErrorToast &&
+          !(isServerApiError && preventClose) &&
+          err?.message
+        ) {
           Toast.error({
             title: isBindWindowExpired
               ? intl.formatMessage({
@@ -341,6 +362,7 @@ export function useWalletBoundReferralCode({
 
   return {
     getReferralCodeBondStatus,
+    getReferralCodeBindDisplayStatus,
     shouldBondReferralCode,
     bindWalletInviteCode,
     confirmBindReferralCode,

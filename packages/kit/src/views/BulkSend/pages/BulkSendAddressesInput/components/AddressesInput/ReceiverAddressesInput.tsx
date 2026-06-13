@@ -17,6 +17,11 @@ import { HyperlinkText } from '@onekeyhq/kit/src/components/HyperlinkText';
 import { useAccountData } from '@onekeyhq/kit/src/hooks/useAccountData';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
 import type { IAccountSelectorActiveAccountInfo } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import { isAddressOwnedByDeactivatedBotWallet } from '@onekeyhq/kit/src/utils/botWalletAccountUtils';
+import {
+  getBotWalletDisabledMessage,
+  showBotWalletDisabledToast,
+} from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
 import { useDebouncedValidation } from '@onekeyhq/kit/src/views/BulkSend/hooks/useDebouncedValidation';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
@@ -201,7 +206,19 @@ function useReceiverSelectorAccountItems() {
   >({});
 
   const handleActiveAccountChange = useCallback(
-    (activeAccount: IAccountSelectorActiveAccountInfo) => {
+    async (activeAccount: IAccountSelectorActiveAccountInfo) => {
+      const walletId = activeAccount.wallet?.id;
+      if (
+        accountUtils.isBotWallet({ walletId }) &&
+        walletId &&
+        (await backgroundApiProxy.serviceAccount.isBotWalletDeactivated({
+          walletId,
+        }))
+      ) {
+        showBotWalletDisabledToast('beReceiver');
+        return false;
+      }
+
       const selectorAccountItem =
         buildReceiverSelectorAccountItem(activeAccount);
       if (selectorAccountItem) {
@@ -210,6 +227,7 @@ function useReceiverSelectorAccountItems() {
         ] = selectorAccountItem;
         void backgroundApiProxy.serviceAccount.clearAccountNameFromAddressCache();
       }
+      return true;
     },
     [],
   );
@@ -276,6 +294,24 @@ function SingleLineReceiverInput() {
           },
           { network: networkName },
         );
+      }
+
+      // Reject when the receiver address resolves to a deactivated Bot Wallet
+      // account. The helper falls back to BTC fresh-address resolution to
+      // match the allowlist resolver below. Surface a toast in addition to
+      // the inline error so users see the rejection prominently — the form
+      // continues to block submission via the inline error.
+      if (selectedNetworkId) {
+        const isDeactivatedBotReceiver =
+          await isAddressOwnedByDeactivatedBotWallet({
+            networkId: selectedNetworkId,
+            address: trimmedAddress,
+          });
+        if (isDeactivatedBotReceiver) {
+          setReceiverValidationErrors([]);
+          showBotWalletDisabledToast('beReceiver');
+          return getBotWalletDisabledMessage('beReceiver');
+        }
       }
 
       // Allowlist check
@@ -435,6 +471,7 @@ function ManyToManyReceiverInput({ maxLines }: { maxLines?: number }) {
     selectedAccountId,
     selectorAccountItemsRef,
     onErrorsChange: setReceiverValidationErrors,
+    rejectDeactivatedBotWalletReceiver: true,
   });
 
   const validate = useCallback(
@@ -571,6 +608,7 @@ function OneToManyReceiverInput({ maxLines }: { maxLines?: number }) {
     onDuplicateAddressCountChange: setDuplicateAddressCount,
     selectorAccountItemsRef,
     onErrorsChange: setReceiverValidationErrors,
+    rejectDeactivatedBotWalletReceiver: true,
   });
 
   const validate = useCallback(

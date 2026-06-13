@@ -30,6 +30,7 @@ import {
 import { ANIMATE_ONLY_OPACITY } from '@onekeyhq/components/src/utils/animationConstants';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { ResourceBannerCard } from '@onekeyhq/kit/src/components/Resource';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useWalletBanner } from '@onekeyhq/kit/src/hooks/useWalletBanner';
 import {
@@ -37,6 +38,7 @@ import {
   useWalletTopBannersAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/accountOverview';
 import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import { shouldBlockBotWalletReceive } from '@onekeyhq/kit/src/utils/botWalletStatusUtils';
 import {
   HYPERLIQUID_REFERRAL_CODE,
   PERPS_NETWORK_ID,
@@ -129,11 +131,13 @@ function BannerItem({
 
       {item.closeable ? (
         <IconButton
+          testID="home-icon-btn"
           position="absolute"
           top="$2"
           right="$2"
           size="small"
           variant="tertiary"
+          hitSlop={{ top: 12, left: 12, right: 12, bottom: 12 }}
           onPress={(event: GestureResponderEvent) => {
             event.stopPropagation();
             onDismiss(item);
@@ -208,6 +212,7 @@ function NativeBannerScroller({
       Gesture.Pan()
         .activeOffsetX([-10, 10])
         .failOffsetY([-10, 10])
+        .cancelsTouchesInView(false)
         .onStart(() => {
           'worklet';
 
@@ -404,6 +409,7 @@ function WebBannerScroller({
           }}
         >
           <IconButton
+            testID="home-icon-btn"
             size="small"
             icon="ChevronLeftOutline"
             bg="$gray3"
@@ -439,6 +445,7 @@ function WebBannerScroller({
           }}
         >
           <IconButton
+            testID="home-icon-btn"
             size="small"
             icon="ChevronRightOutline"
             onPress={handleScrollRight}
@@ -483,6 +490,7 @@ function PerpsReferralDialogContent({
       </SizableText>
 
       <Checkbox
+        testID="home-handle-snooze-change-checkbox"
         label={intl.formatMessage({
           id: ETranslations.perps__snooze_remind_later__action,
         })}
@@ -501,7 +509,7 @@ function PerpsReferralDialogContent({
   );
 }
 
-function WalletBanner() {
+function WalletBanner({ hidden = false }: { hidden?: boolean } = {}) {
   const {
     activeAccount: { account, network, wallet, vaultSettings, indexedAccount },
   } = useActiveAccount({ num: 0 });
@@ -775,16 +783,42 @@ function WalletBanner() {
     [vaultSettings?.hasResource, account?.id, network?.id],
   );
 
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId: wallet?.id,
+    },
+  );
+  const isBotWalletReceiveBlocked = shouldBlockBotWalletReceive({
+    isBotWallet,
+    isBotWalletDeactivated,
+  });
+
   const wrappedHandleBannerOnPress = useCallback(
     (item: IWalletBanner) => {
       if (item.id === PERPS_REFERRAL_BANNER_ID) {
         handleReferralBannerPress();
         return;
       }
+      const href = (item.href ?? '').toLowerCase();
+      const looksLikeDepositTarget =
+        href.includes('receive') ||
+        href.includes('deposit') ||
+        href.includes('/buy') ||
+        href.includes('fund');
+      if (isBotWalletReceiveBlocked && looksLikeDepositTarget) {
+        Toast.error({
+          title: '该钱包已停用，无法接收资产',
+        });
+        return;
+      }
       void handleBannerOnPress(item);
     },
-    [handleBannerOnPress, handleReferralBannerPress],
+    [handleBannerOnPress, handleReferralBannerPress, isBotWalletReceiveBlocked],
   );
+
+  if (hidden) {
+    return null;
+  }
 
   if (banners.length === 0 && !tronCard) {
     return null;

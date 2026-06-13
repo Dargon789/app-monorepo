@@ -8,7 +8,7 @@ import type {
   IAllNetworkAccountsInfoResult,
 } from '@onekeyhq/kit-bg/src/services/ServiceAllNetwork/ServiceAllNetwork';
 import { useAppIsLockedAtom } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
-import type { IAccountDeriveTypes } from '@onekeyhq/kit-bg/src/vaults/types';
+import type { INetworkDeriveInfo } from '@onekeyhq/kit-bg/src/vaults/types';
 import { POLLING_DEBOUNCE_INTERVAL } from '@onekeyhq/shared/src/consts/walletConsts';
 import {
   EAppEventBusNames,
@@ -195,10 +195,7 @@ function filterAllNetworkAccountsInfoResult({
 }
 
 type IEnabledNetworksCompatResult = {
-  networkInfoMap: Record<
-    string,
-    { deriveType: IAccountDeriveTypes; mergeDeriveAssetsEnabled: boolean }
-  >;
+  networkInfoMap: Record<string, INetworkDeriveInfo>;
   compatibleNetworks: IServerNetwork[];
   compatibleNetworksWithoutAccount: IServerNetwork[];
 };
@@ -321,6 +318,7 @@ function useAllNetworkRequests<T>(params: {
     pollingNonce?: number;
     alwaysSetState?: boolean;
     skipAccountsCache?: boolean;
+    ignoreDisabled?: boolean;
   };
   const {
     accountId: currentAccountId,
@@ -361,6 +359,7 @@ function useAllNetworkRequests<T>(params: {
   // into the method body, so we relay it through this ref and consume it
   // inside the runner.
   const skipAccountsCacheRef = useRef(false);
+  const ignoreDisabledRef = useRef(false);
 
   useEffect(() => {
     const onEnabledNetworksChanged = () => {
@@ -438,8 +437,11 @@ function useAllNetworkRequests<T>(params: {
 
   const { run, result } = usePromiseResult(
     async () => {
+      const ignoreDisabledForThisRun = ignoreDisabledRef.current;
+      ignoreDisabledRef.current = false;
+      const effectiveDisabled = disabled && !ignoreDisabledForThisRun;
       const shouldDebounceWait =
-        !disabled &&
+        !effectiveDisabled &&
         !isFetching.current &&
         !!currentAccountId &&
         !!currentNetworkId &&
@@ -462,7 +464,7 @@ function useAllNetworkRequests<T>(params: {
 
       const requestsUUID = generateUUID();
 
-      if (disabled) return;
+      if (effectiveDisabled) return;
       if (isFetching.current) {
         rerunAfterCurrentRef.current = true;
         return;
@@ -854,11 +856,17 @@ function useAllNetworkRequests<T>(params: {
           skipAccountsCache:
             !!rerunConfigRef.current?.skipAccountsCache ||
             !!config?.skipAccountsCache,
+          ignoreDisabled:
+            !!rerunConfigRef.current?.ignoreDisabled ||
+            !!config?.ignoreDisabled,
         };
         return;
       }
       if (config?.skipAccountsCache) {
         skipAccountsCacheRef.current = true;
+      }
+      if (config?.ignoreDisabled) {
+        ignoreDisabledRef.current = true;
       }
       await run(config);
     },
@@ -917,10 +925,7 @@ function useEnabledNetworksCompatibleWithWalletIdInAllNetworks({
       if (!walletId) {
         return getEmptyEnabledNetworksResult();
       }
-      const networkInfoMap: Record<
-        string,
-        { deriveType: IAccountDeriveTypes; mergeDeriveAssetsEnabled: boolean }
-      > = {};
+      const networkInfoMap: Record<string, INetworkDeriveInfo> = {};
       if (networkId && !networkUtils.isAllNetwork({ networkId })) {
         return getEmptyEnabledNetworksResult();
       }
@@ -987,9 +992,18 @@ function useEnabledNetworksCompatibleWithWalletIdInAllNetworks({
               networkId: network.id,
             }),
           ]);
+          const suffixToDeriveType: Record<string, string> = {};
+          for (const [dt, info] of Object.entries(
+            vaultSettings.accountDeriveInfo ?? {},
+          )) {
+            if (info.idSuffix) {
+              suffixToDeriveType[info.idSuffix.toLowerCase()] = dt;
+            }
+          }
           networkInfoMap[network.id] = {
             deriveType: globalDeriveType,
             mergeDeriveAssetsEnabled: !!vaultSettings.mergeDeriveAssetsEnabled,
+            suffixToDeriveType,
           };
         }
       }

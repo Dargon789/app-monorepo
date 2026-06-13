@@ -16,7 +16,6 @@ import {
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { EmptyDeFi } from '@onekeyhq/kit/src/components/Empty';
-import { ListLoading } from '@onekeyhq/kit/src/components/Loading';
 import { useAllNetworkRequests } from '@onekeyhq/kit/src/hooks/useAllNetwork';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { runAfterTokensDone } from '@onekeyhq/kit/src/hooks/useRunAfterTokensDone';
@@ -60,6 +59,7 @@ import type {
 import { RichBlock } from '../RichBlock/RichBlock';
 
 import { deFiListLoadingReducer } from './deFiListLoadingReducer';
+import { DeFiListSkeleton } from './DeFiListSkeleton';
 import { getOverviewCollapsedProtocolLimit } from './DeFiOverviewPlanner';
 import { formatPortfolioTotal } from './formatPortfolioTotal';
 import { buildDeFiOverviewCells } from './hooks/useDeFiOverviewTopN';
@@ -86,8 +86,8 @@ function buildSingleNetworkDeFiCacheKey({
 
 function MobileProtocolDivider() {
   return (
-    <YStack px="$5" pt="$1" pb="$2">
-      <Divider borderColor="$borderDisabled" />
+    <YStack px="$5" py="$1.5">
+      <Divider borderColor="$borderSubdued" />
     </YStack>
   );
 }
@@ -103,6 +103,7 @@ export type IDeFiListBlockProps = {
   hideInternalTitle?: boolean;
   isDeFiEnabled?: boolean;
   registerProtocol?: (key: string, handle: IProtocolHandle | null) => void;
+  onCollapseToProtocol?: (protocol: IDeFiProtocol) => void;
 };
 
 const ProtocolListItem = memo(
@@ -143,12 +144,40 @@ const ProtocolListItem = memo(
 );
 ProtocolListItem.displayName = 'ProtocolListItem';
 
+// Convert a DeFi overview's monetary fields from one fiat currency to another
+// using the two currencies' rate values. Returns only the converted numeric
+// fields so callers can spread them over the source overview, preserving its
+// other keys (e.g. `currency`).
+function convertDeFiOverviewValues(
+  overview: {
+    totalValue: number;
+    totalDebt: number;
+    totalReward: number;
+    netWorth: number;
+  },
+  sourceCurrencyValue: string,
+  targetCurrencyValue: string,
+) {
+  const convert = (value: number) =>
+    new BigNumber(value)
+      .div(sourceCurrencyValue)
+      .times(targetCurrencyValue)
+      .toNumber();
+  return {
+    totalValue: convert(overview.totalValue),
+    totalDebt: convert(overview.totalDebt),
+    totalReward: convert(overview.totalReward),
+    netWorth: convert(overview.netWorth),
+  };
+}
+
 function DeFiListBlock({
   refreshCacheOnly = false,
   tableLayout,
   hideInternalTitle = false,
   isDeFiEnabled: isDeFiEnabledProp,
   registerProtocol,
+  onCollapseToProtocol,
 }: IDeFiListBlockProps) {
   const intl = useIntl();
   const [settings] = useSettingsPersistAtom();
@@ -597,22 +626,11 @@ function DeFiListBlock({
           const _targetCurrencyInfo = currencyMap[settings.currencyInfo.id];
           convertedOverview = {
             ...rawOverview,
-            totalValue: new BigNumber(rawOverview.totalValue)
-              .div(_sourceCurrencyInfo.value)
-              .times(_targetCurrencyInfo.value)
-              .toNumber(),
-            totalDebt: new BigNumber(rawOverview.totalDebt)
-              .div(_sourceCurrencyInfo.value)
-              .times(_targetCurrencyInfo.value)
-              .toNumber(),
-            totalReward: new BigNumber(rawOverview.totalReward)
-              .div(_sourceCurrencyInfo.value)
-              .times(_targetCurrencyInfo.value)
-              .toNumber(),
-            netWorth: new BigNumber(rawOverview.netWorth)
-              .div(_sourceCurrencyInfo.value)
-              .times(_targetCurrencyInfo.value)
-              .toNumber(),
+            ...convertDeFiOverviewValues(
+              rawOverview,
+              _sourceCurrencyInfo.value,
+              _targetCurrencyInfo.value,
+            ),
           };
         }
       }
@@ -853,22 +871,11 @@ function DeFiListBlock({
             const _targetCurrencyInfo = currencyMap[settings.currencyInfo.id];
             convertedOverview = {
               ...rawOverview,
-              totalValue: new BigNumber(rawOverview.totalValue)
-                .div(_sourceCurrencyInfo.value)
-                .times(_targetCurrencyInfo.value)
-                .toNumber(),
-              totalDebt: new BigNumber(rawOverview.totalDebt)
-                .div(_sourceCurrencyInfo.value)
-                .times(_targetCurrencyInfo.value)
-                .toNumber(),
-              totalReward: new BigNumber(rawOverview.totalReward)
-                .div(_sourceCurrencyInfo.value)
-                .times(_targetCurrencyInfo.value)
-                .toNumber(),
-              netWorth: new BigNumber(rawOverview.netWorth)
-                .div(_sourceCurrencyInfo.value)
-                .times(_targetCurrencyInfo.value)
-                .toNumber(),
+              ...convertDeFiOverviewValues(
+                rawOverview,
+                _sourceCurrencyInfo.value,
+                _targetCurrencyInfo.value,
+              ),
             };
           }
           updateAccountDeFiOverview({
@@ -920,6 +927,126 @@ function DeFiListBlock({
     settings.currencyInfo.id,
     currencyMap,
   ]);
+
+  // Imperatively hydrate the single-network DeFi overview (and its readiness)
+  // for an explicitly provided account/network. Mirrors the token list's
+  // off-tab refresh: when a network switch happens while the user is on another
+  // home tab (e.g. History), this block sits inside the frozen Portfolio tab so
+  // its `initDeFiData` effect won't re-run for the new network — leaving
+  // `overviewDeFiDataState` stuck on the previous network. The always-visible
+  // header gates the single-network worth on BOTH token and DeFi readiness, so
+  // without this the header falls back to a stale/zero placeholder until the
+  // user returns to the wallet tab. Driving it from explicit params lets the
+  // overview update to the new network's local cache while still frozen.
+  const explicitDeFiRefreshSeqRef = useRef(0);
+  const refreshSingleNetworkDeFiOverviewByTarget = useCallback(
+    async (target: { accountId: string; networkId: string }) => {
+      const { accountId, networkId } = target;
+      if (!accountId || !networkId) return;
+      // All-networks aggregation is driven by a separate closure-bound hook
+      // that cannot be refreshed imperatively here; let it refresh on return.
+      if (networkUtils.isAllNetwork({ networkId })) return;
+
+      const seq = (explicitDeFiRefreshSeqRef.current += 1);
+      const isLatest = () => explicitDeFiRefreshSeqRef.current === seq;
+
+      try {
+        // The DeFi local cache is keyed by the account's on-chain address, which
+        // differs per network. This block is frozen (inactive tab) so its own
+        // `account` closure still points at the previous network; resolve the
+        // target network's address explicitly instead of reusing the closure.
+        const targetAccount =
+          await backgroundApiProxy.serviceAccount.getAccount({
+            accountId,
+            networkId,
+          });
+        if (!isLatest()) return;
+
+        const localDeFiOverview = (
+          await backgroundApiProxy.serviceDeFi.getAccountsLocalDeFiOverview({
+            accounts: [
+              {
+                accountId,
+                networkId,
+                accountAddress: targetAccount?.address,
+              },
+            ],
+          })
+        )[0];
+        // A newer switch superseded this read; drop the stale body so it can't
+        // clobber the latest network's overview.
+        if (!isLatest()) return;
+
+        const rawOverview = localDeFiOverview?.overview?.[networkId];
+        if (rawOverview) {
+          let convertedOverview = rawOverview;
+          if (rawOverview.currency !== settings.currencyInfo.id) {
+            const _sourceCurrencyInfo = currencyMap[rawOverview.currency];
+            const _targetCurrencyInfo = currencyMap[settings.currencyInfo.id];
+            if (_sourceCurrencyInfo && _targetCurrencyInfo) {
+              convertedOverview = {
+                ...rawOverview,
+                ...convertDeFiOverviewValues(
+                  rawOverview,
+                  _sourceCurrencyInfo.value,
+                  _targetCurrencyInfo.value,
+                ),
+              };
+            }
+          }
+          updateAccountDeFiOverview({
+            currency: settings.currencyInfo.id,
+            accountId,
+            networkId,
+            overview: convertedOverview,
+            isReady: true,
+          });
+        } else {
+          updateAccountDeFiOverview({
+            accountId,
+            networkId,
+            overview: {
+              totalValue: 0,
+              totalDebt: 0,
+              totalReward: 0,
+              netWorth: 0,
+            },
+            isReady: false,
+          });
+        }
+      } catch {
+        // Best-effort cache hydration; the DeFi tab does a full network refresh
+        // on focus, so a transient failure here self-heals on tab return.
+      }
+    },
+    [settings.currencyInfo.id, currencyMap, updateAccountDeFiOverview],
+  );
+
+  useEffect(() => {
+    // Only the lightweight cache-only instance (mounted in the Portfolio tab)
+    // owns the always-visible header overview; the full DeFi-tab instance
+    // refreshes itself on focus, so it must not also react here.
+    if (!refreshCacheOnly) return;
+    const onRefreshByProvidedAccounts = (
+      params: IAppEventBusPayload[EAppEventBusNames.RefreshTokenList],
+    ) => {
+      if (!params?.refreshByProvidedAccounts) return;
+      const target = params?.accounts?.[0];
+      if (target) {
+        void refreshSingleNetworkDeFiOverviewByTarget(target);
+      }
+    };
+    appEventBus.on(
+      EAppEventBusNames.RefreshTokenList,
+      onRefreshByProvidedAccounts,
+    );
+    return () => {
+      appEventBus.off(
+        EAppEventBusNames.RefreshTokenList,
+        onRefreshByProvidedAccounts,
+      );
+    };
+  }, [refreshCacheOnly, refreshSingleNetworkDeFiOverviewByTarget]);
 
   useEffect(() => {
     const refresh = () => {
@@ -1215,20 +1342,34 @@ function DeFiListBlock({
     };
   }, []);
 
+  const getCollapsedBottomProtocol = useCallback(() => {
+    const limit = Math.min(overflowThreshold, filteredProtocols.length);
+    return filteredProtocols[limit - 1];
+  }, [filteredProtocols, overflowThreshold]);
+
   const handleToggleSliced = useCallback(() => {
     if (isProtocolListLocked()) return;
+    const targetProtocol = isSliced ? undefined : getCollapsedBottomProtocol();
     lockProtocolListInteractions();
     setIsSliced(!isSliced);
+    if (targetProtocol) {
+      onCollapseToProtocol?.(targetProtocol);
+    }
   }, [
     isSliced,
+    getCollapsedBottomProtocol,
     isProtocolListLocked,
     lockProtocolListInteractions,
+    onCollapseToProtocol,
     setIsSliced,
   ]);
 
   const renderSubTitle = useCallback(() => {
     if (!initialized && isRefreshing) {
-      return <Skeleton.HeadingXl />;
+      // w=120 widens the preset's default 103 px to better approximate
+      // a typical "$XX,XXX.XX" measurement; same width as DeFiContainer
+      // for one canonical loading shape across both surfaces.
+      return <Skeleton.HeadingXl w={120} />;
     }
 
     return (
@@ -1287,6 +1428,7 @@ function DeFiListBlock({
             px="$pagePadding"
           >
             <Button
+              testID="home-render-content-btn"
               size="small"
               variant="secondary"
               disabled={isProtocolListInteractionLocked}
@@ -1340,10 +1482,13 @@ function DeFiListBlock({
         subTitle={hideInternalTitle ? undefined : renderSubTitle()}
         subTitleProps={tableLayout ? undefined : { color: '$text' }}
         headerContainerProps={{ px: '$pagePadding' }}
+        // Match the loaded branch's content inset so the loading-state
+        // skeleton sits in the same column as the eventual cards.
+        contentContainerProps={tableLayout ? { px: '$pagePadding' } : undefined}
         plainContentContainer
         content={
           !initialized || isRefreshing ? (
-            <ListLoading isTokenSelectorView={false} />
+            <DeFiListSkeleton tableLayout={tableLayout} />
           ) : (
             <EmptyDeFi tableLayout={tableLayout} />
           )

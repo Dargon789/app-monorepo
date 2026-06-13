@@ -28,6 +28,51 @@ export type ISwapLatestBalanceCheckResult =
       tokenSymbol: string;
     };
 
+function toFiniteNonNegativeBigNumber(value?: string) {
+  const valueBN = new BigNumber(value ?? '');
+  if (valueBN.isNaN() || !valueBN.isFinite() || valueBN.lt(0)) {
+    return undefined;
+  }
+  return valueBN;
+}
+
+export function getSwapSafeInputBalanceAmount({
+  balance,
+  fallbackBalance,
+  fallbackBalanceMatchesAccount = true,
+}: {
+  balance?: string;
+  fallbackBalance?: string;
+  fallbackBalanceMatchesAccount?: boolean;
+}) {
+  const balanceBN = toFiniteNonNegativeBigNumber(balance);
+  if (balanceBN) {
+    return balanceBN;
+  }
+
+  if (!fallbackBalanceMatchesAccount) {
+    return undefined;
+  }
+
+  return toFiniteNonNegativeBigNumber(fallbackBalance);
+}
+
+async function getSwapTokenBalanceContractAddress(token: ISwapToken) {
+  if (!token.isNative || token.contractAddress) {
+    return token.contractAddress ?? '';
+  }
+
+  try {
+    return (
+      (await backgroundApiProxy.serviceToken.getNativeTokenAddress({
+        networkId: token.networkId,
+      })) ?? ''
+    );
+  } catch {
+    return token.contractAddress ?? '';
+  }
+}
+
 type ISwapGasInfoEntry = {
   gasInfo?: ISwapGasInfo;
 };
@@ -43,6 +88,8 @@ type ISwapNativeBalanceRequirementParams = {
 export type ISwapNativeBalanceRequirement = {
   token: ISwapToken;
   amount: string;
+  reserveAmount: string;
+  includesFromAmount: boolean;
 };
 
 function buildNativeTokenFromGasInfo({
@@ -116,12 +163,13 @@ export function getSwapRequiredNativeBalanceAmount({
   }
 
   const fromAmountBN = new BigNumber(fromAmount ?? 0);
-  const shouldAddFromAmount =
+  const shouldAddFromAmount = Boolean(
     fromToken?.isNative &&
     fromToken.networkId === nativeToken.networkId &&
     !fromAmountBN.isNaN() &&
     fromAmountBN.isFinite() &&
-    fromAmountBN.gt(0);
+    fromAmountBN.gt(0),
+  );
   const otherNativeFeeAmount = (otherFeeInfos ?? []).reduce((acc, item) => {
     if (
       !item.token?.isNative ||
@@ -138,9 +186,10 @@ export function getSwapRequiredNativeBalanceAmount({
     return acc.plus(amountBN);
   }, new BigNumber(0));
 
+  const reserveAmount = networkFeeAmount.plus(otherNativeFeeAmount);
   const requiredAmount = shouldAddFromAmount
-    ? networkFeeAmount.plus(fromAmountBN).plus(otherNativeFeeAmount)
-    : networkFeeAmount.plus(otherNativeFeeAmount);
+    ? reserveAmount.plus(fromAmountBN)
+    : reserveAmount;
 
   if (requiredAmount.lte(0)) {
     return undefined;
@@ -149,6 +198,8 @@ export function getSwapRequiredNativeBalanceAmount({
   return {
     token: nativeToken,
     amount: requiredAmount.toFixed(),
+    reserveAmount: reserveAmount.toFixed(),
+    includesFromAmount: shouldAddFromAmount,
   };
 }
 
@@ -170,10 +221,11 @@ export async function checkSwapLatestBalanceSufficient({
   }
 
   try {
+    const contractAddress = await getSwapTokenBalanceContractAddress(token);
     const tokenBalanceInfo =
       await backgroundApiProxy.serviceSwap.fetchSwapTokenDetails({
         networkId: token.networkId,
-        contractAddress: token.contractAddress ?? '',
+        contractAddress,
         accountAddress,
         accountId,
         currency: 'usd',

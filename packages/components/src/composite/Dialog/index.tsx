@@ -49,6 +49,7 @@ import {
   useKeyboardEventWithoutNavigation,
   useModalNavigatorContextPortalId,
   useOverlayZIndex,
+  useSafeAreaInsets,
 } from '../../hooks';
 import { usePageContext } from '../../layouts/Page/PageContext';
 import { ScrollView } from '../../layouts/ScrollView';
@@ -95,6 +96,7 @@ export * from './hooks';
 export type {
   IDialogCancelProps,
   IDialogConfirmProps,
+  IDialogContainerProps,
   IDialogInstance,
   IDialogShowProps,
 } from './type';
@@ -123,9 +125,16 @@ const EMPTY_DIALOG_STYLE = {} as const;
 
 const DEFAULT_KEYBOARD_HEIGHT = 330;
 const useSafeKeyboardAnimationStyle = () => {
+  const { bottom } = useSafeAreaInsets();
   const keyboardHeightValue = useSharedValue(0);
+  // Keep the dialog clear of both the home indicator and the keyboard.
+  // These are two independent concerns collapsed into one paddingBottom:
+  //   - bottom safe-area inset: always required (static)
+  //   - keyboard height: only while the keyboard is shown (dynamic)
+  // They must not stack — once the keyboard is up it already covers the
+  // safe area, so take the larger of the two instead of summing them.
   const animatedStyles = useAnimatedStyle(() => ({
-    paddingBottom: keyboardHeightValue.value,
+    paddingBottom: Math.max(keyboardHeightValue.value, bottom),
   }));
 
   useKeyboardEventWithoutNavigation({
@@ -171,6 +180,8 @@ function DialogFrame({
   sheetOverlayProps,
   floatingPanelProps,
   disableDrag = false,
+  disableSystemClose = false,
+  showHeader = true,
   trapFocus,
   showConfirmButton = true,
   showCancelButton = true,
@@ -212,13 +223,20 @@ function DialogFrame({
     if (!open) {
       return false;
     }
+    if (disableSystemClose) {
+      // Consume the event without dismissing — keep the dialog mounted as a
+      // blocker (e.g. pending force-update).
+      return true;
+    }
     handleOpenChange(false);
     return true;
-  }, [handleOpenChange, open]);
+  }, [disableSystemClose, handleOpenChange, open]);
 
   useBackHandler(handleBackPress);
 
   const handleEscapeKeyDown = useCallback((event: GestureResponderEvent) => {
+    // preventDefault stops Tamagui's built-in Escape-to-close. Always called
+    // here so unblocking is opt-in only via the close button / overlay.
     event.preventDefault();
   }, []);
 
@@ -246,7 +264,12 @@ function DialogFrame({
   const safeKeyboardAnimationStyle = useSafeKeyboardAnimationStyle();
   const renderDialogContent = (
     <Animated.View style={safeKeyboardAnimationStyle}>
-      <DialogHeader trackID={trackID} onClose={handleHeaderCloseButtonPress} />
+      {showHeader ? (
+        <DialogHeader
+          trackID={trackID}
+          onClose={handleHeaderCloseButtonPress}
+        />
+      ) : null}
       {/* extra children */}
       <Content
         testID={testID}
@@ -781,7 +804,7 @@ export const useInPageDialog = (dialogType?: EInPageDialogType) => {
     if (dialogType) {
       return dialogType;
     }
-    if (pageType === EPageType.modal) {
+    if (pageType === EPageType.modal || pageType === EPageType.webView) {
       return EInPageDialogType.inModalPage;
     }
     if (pageType === EPageType.fullScreenPush) {

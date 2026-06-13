@@ -15,6 +15,10 @@ import {
 } from '@onekeyhq/shared/src/appUpdate';
 import type { IAppUpdateInfo } from '@onekeyhq/shared/src/appUpdate';
 import { buildServiceEndpoint } from '@onekeyhq/shared/src/config/appConfig';
+import {
+  EAppEventBusNames,
+  appEventBus,
+} from '@onekeyhq/shared/src/eventBus/appEventBus';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { EServiceEndpointEnum } from '@onekeyhq/shared/types/endpoint';
 
@@ -192,7 +196,14 @@ jest.mock('@onekeyhq/shared/src/logger/logger', () => ({
 // Mock cacheUtils (memoizee + memoFn)
 // ---------------------------------------------------------------------------
 jest.mock('@onekeyhq/shared/src/utils/cacheUtils', () => ({
-  memoizee: (fn: any) => fn,
+  // Wrap so the returned function still has a `.clear()` like real memoizee,
+  // which ServiceAppUpdate.clearCache calls to invalidate the 5-minute
+  // changelog cache.
+  memoizee: (fn: any) => {
+    const wrapped: any = (...args: any[]) => fn(...args);
+    wrapped.clear = () => undefined;
+    return wrapped;
+  },
   memoFn: (fn: any) => fn,
 }));
 
@@ -737,6 +748,27 @@ describe('ServiceAppUpdate state transitions', () => {
       expect(atomValue.jsBundle).toBeUndefined();
     });
 
+    test('reset rewrites lastUpdateDialogShownAt to 0 so the 24h dialog throttle re-arms', async () => {
+      // Settings → Clear update cache funnels through clearCache → reset.
+      // The user-visible expectation is that after clearing, the next cold
+      // launch shows the upgrade reminder dialog again (subject to other
+      // gates: server has new version, manual strategy, native/desktop).
+      //
+      // Sentinel value 0 (not undefined): jotai persist's JSON.stringify
+      // drops undefined keys, so a missing field would leave the previous
+      // timestamp on disk and silently re-suppress the dialog. 0 survives
+      // serialization and showUpdateDialogUI's truthy gate still treats it
+      // as "never shown".
+      resetAtom({
+        status: EAppUpdateStatus.ready,
+        lastUpdateDialogShownAt: Date.now() - 60_000, // shown 1 min ago
+      });
+
+      await service.reset();
+
+      expect(atomValue.lastUpdateDialogShownAt).toBe(0);
+    });
+
     test('resetToManualInstall sets manualInstall status and clears error', async () => {
       resetAtom({
         status: EAppUpdateStatus.verifyPackageFailed,
@@ -942,6 +974,104 @@ describe('ServiceAppUpdate state transitions', () => {
   });
 
   // =========================================================================
+  // shouldResumeStalledDownload — pure eligibility query for AppState 'active'
+  // =========================================================================
+  describe('shouldResumeStalledDownload', () => {
+    test("returns 'downloadPackage' when status is 'downloadPackageFailed'", async () => {
+      resetAtom({ status: EAppUpdateStatus.downloadPackageFailed });
+      const step = await service.shouldResumeStalledDownload();
+      expect(step).toBe('downloadPackage');
+      // Pure query — atom must NOT be mutated.
+      expect(atomValue.status).toBe(EAppUpdateStatus.downloadPackageFailed);
+    });
+
+    test("returns 'downloadASC' when status is 'downloadASCFailed'", async () => {
+      // Critical: ASC-only failures must NOT route through downloadPackage,
+      // which would clear downloadedEvent and force a full package
+      // re-download even though the bytes are already on disk.
+      resetAtom({ status: EAppUpdateStatus.downloadASCFailed });
+      const step = await service.shouldResumeStalledDownload();
+      expect(step).toBe('downloadASC');
+      expect(atomValue.status).toBe(EAppUpdateStatus.downloadASCFailed);
+    });
+
+    test("returns null when status is 'downloadPackage' (in-flight)", async () => {
+      // Critical regression guard: foreground transitions during an
+      // in-flight download must NOT re-fire downloadPackage(); the native
+      // module's isDownloading guard would throw "Already downloading"
+      // (unrecoverable in the JS retry layer) and corrupt the active flow.
+      resetAtom({ status: EAppUpdateStatus.downloadPackage });
+      const step = await service.shouldResumeStalledDownload();
+      expect(step).toBeNull();
+    });
+
+    test('returns null for verify-failed / install-failed / terminal states', async () => {
+      for (const status of [
+        EAppUpdateStatus.verifyASCFailed,
+        EAppUpdateStatus.verifyPackageFailed,
+        EAppUpdateStatus.failed,
+        EAppUpdateStatus.updateIncomplete,
+        EAppUpdateStatus.done,
+        EAppUpdateStatus.notify,
+        EAppUpdateStatus.ready,
+        EAppUpdateStatus.verifyASC,
+        EAppUpdateStatus.verifyPackage,
+      ]) {
+        resetAtom({ status });
+        // eslint-disable-next-line no-await-in-loop
+        const step = await service.shouldResumeStalledDownload();
+        expect(step).toBeNull();
+      }
+    });
+
+    test('30s cooldown serializes burst foreground events', async () => {
+      resetAtom({ status: EAppUpdateStatus.downloadPackageFailed });
+
+      // First call passes — cooldown consumed.
+      expect(await service.shouldResumeStalledDownload()).toBe(
+        'downloadPackage',
+      );
+
+      // Second call <30s later is rejected even though status is still
+      // eligible. Mirrors the AppState 'change' burst that fires multiple
+      // 'active' events on iOS scene transitions.
+      expect(await service.shouldResumeStalledDownload()).toBeNull();
+
+      // Past the cooldown — passes again.
+      await jest.advanceTimersByTimeAsync(30_000);
+      expect(await service.shouldResumeStalledDownload()).toBe(
+        'downloadPackage',
+      );
+    });
+
+    test('cooldown is consumed only when the call returns a step', async () => {
+      // Sequence: ineligible → eligible → ineligible.
+      // The first ineligible call must NOT consume cooldown, so the
+      // immediately-following eligible call still passes.
+      resetAtom({ status: EAppUpdateStatus.downloadPackage });
+      expect(await service.shouldResumeStalledDownload()).toBeNull();
+
+      resetAtom({ status: EAppUpdateStatus.downloadPackageFailed });
+      expect(await service.shouldResumeStalledDownload()).toBe(
+        'downloadPackage',
+      );
+    });
+
+    test('concurrent callers race-safely: only one passes the gate', async () => {
+      // Two AppState listeners (UpdateReminder + MoreActionButton) race
+      // into shouldResumeStalledDownload on the same 'active' event. With
+      // a non-atomic gate both passed; with the claim-before-await guard
+      // only the first should return a non-null step.
+      resetAtom({ status: EAppUpdateStatus.downloadPackageFailed });
+      const [a, b] = await Promise.all([
+        service.shouldResumeStalledDownload(),
+        service.shouldResumeStalledDownload(),
+      ]);
+      expect([a, b].filter((v) => v !== null).length).toBe(1);
+    });
+  });
+
+  // =========================================================================
   // updateLastDialogShownAt / clearLastDialogShownAt
   // =========================================================================
   describe('dialog shown tracking', () => {
@@ -954,12 +1084,58 @@ describe('ServiceAppUpdate state transitions', () => {
       expect(atomValue.lastUpdateDialogShownAt).toBeGreaterThanOrEqual(before);
     });
 
-    test('clearLastDialogShownAt removes timestamp', async () => {
+    test('clearLastDialogShownAt resets timestamp to 0 (persist-safe sentinel)', async () => {
+      // We write 0 instead of undefined because jotai persist drops
+      // undefined keys during JSON serialization, which would leave the
+      // previous timestamp on disk. 0 round-trips through persist and
+      // showUpdateDialogUI's `if (lastUpdateDialogShownAt && ...)` truthy
+      // gate still treats it as "never shown".
       resetAtom({ lastUpdateDialogShownAt: Date.now() });
 
       await service.clearLastDialogShownAt();
 
-      expect(atomValue.lastUpdateDialogShownAt).toBeUndefined();
+      expect(atomValue.lastUpdateDialogShownAt).toBe(0);
+    });
+  });
+
+  // =========================================================================
+  // setCurrentUpdateAttemptId — persist attemptId across install / relaunch so
+  // the post-restart success event can re-emit the same id as
+  // softwareUpdateStarted.
+  // =========================================================================
+  describe('setCurrentUpdateAttemptId', () => {
+    test('persists the attemptId into the atom', async () => {
+      resetAtom({ currentUpdateAttemptId: undefined });
+
+      await service.setCurrentUpdateAttemptId('attempt-uuid-1');
+
+      expect(atomValue.currentUpdateAttemptId).toBe('attempt-uuid-1');
+    });
+
+    test('overwrites a previously persisted attemptId on next rotation', async () => {
+      resetAtom({ currentUpdateAttemptId: 'attempt-uuid-1' });
+
+      await service.setCurrentUpdateAttemptId('attempt-uuid-2');
+
+      expect(atomValue.currentUpdateAttemptId).toBe('attempt-uuid-2');
+    });
+
+    test('passing undefined clears the persisted id', async () => {
+      resetAtom({ currentUpdateAttemptId: 'attempt-uuid-1' });
+
+      await service.setCurrentUpdateAttemptId(undefined);
+
+      expect(atomValue.currentUpdateAttemptId).toBeUndefined();
+    });
+
+    test('reset() clears the persisted attemptId so the next cycle starts clean', async () => {
+      resetAtom({ currentUpdateAttemptId: 'attempt-uuid-1' });
+
+      await service.reset();
+
+      // reset() is a full-replace set; any field absent from the literal
+      // becomes undefined, which is exactly what we want here.
+      expect(atomValue.currentUpdateAttemptId).toBeUndefined();
     });
   });
 
@@ -1003,6 +1179,46 @@ describe('ServiceAppUpdate state transitions', () => {
       expect(AppUpdate.clearPackage).toHaveBeenCalled();
       expect(BundleUpdate.clearDownload).toHaveBeenCalled();
       expect(atomValue.status).toBe(EAppUpdateStatus.done);
+    });
+
+    test('also rewrites lastUpdateDialogShownAt to 0 (re-arms the 24h dialog)', async () => {
+      // End-to-end guarantee for "Settings → Clear update cache":
+      // pressing it must reset the dialog throttle so the user sees
+      // the upgrade reminder again on the next cold launch. clearCache
+      // delegates to reset() for this; this test pins the contract at
+      // the public-API level so a refactor that breaks the chain is
+      // caught here, not by an end-user not seeing the dialog.
+      // 0 (not undefined) — see the matching reset() test for the
+      // jotai-persist serialization rationale.
+      resetAtom({
+        status: EAppUpdateStatus.ready,
+        lastUpdateDialogShownAt: Date.now() - 5 * 60_000,
+        downloadedEvent: { downloadedFile: '/tmp/old.zip' },
+      });
+
+      await service.clearCache();
+
+      expect(atomValue.lastUpdateDialogShownAt).toBe(0);
+    });
+
+    test('wipes in-memory fetch caches so the post-reset check cannot replay a stale featuredChangelog (OK-54862)', async () => {
+      service.cachedUpdateInfo = {
+        version: '9906.15.1',
+        updateStrategy: EUpdateStrategy.manual,
+        featuredChangelog: {
+          version: '9906.15.1',
+          features: [{ mediaUrl: 'https://x/a.png', mediaType: 'image' }],
+        },
+      };
+      service.updateAt = Date.now();
+
+      // Isolate the invalidation step from the post-reset fetch flow.
+      jest.spyOn(service, 'fetchAppUpdateInfo').mockResolvedValue(atomValue);
+
+      await service.clearCache();
+
+      expect(service.cachedUpdateInfo).toBeUndefined();
+      expect(service.updateAt).toBe(0);
     });
   });
 
@@ -1638,6 +1854,151 @@ describe('ServiceAppUpdate state transitions', () => {
         'https://cdn.onekey.so/bundle-v5.zip',
       );
       expect(atomValue.updateStrategy).toBe(EUpdateStrategy.silent);
+    });
+
+    // -----------------------------------------------------------------------
+    // Mid-session auto-download for silent/seamless strategies (OK-55397).
+    // Without this, an update discovered while the app is already running
+    // only flips status to `notify`; the silent download never starts until
+    // the next cold start re-runs the once-per-launch first-launch dispatch.
+    // The download is scheduled via setTimeout(0), so tests flush fake timers
+    // before asserting.
+    // -----------------------------------------------------------------------
+    test('auto-starts download for a silent jsBundle upgrade discovered mid-session', async () => {
+      resetAtom({ status: EAppUpdateStatus.done, updateAt: 0 });
+      mockLatestInfo({
+        version: '1.0.0', // same app version
+        jsBundleVersion: '5', // higher than installed bundleVersion '1'
+        jsBundle: {
+          downloadUrl: 'https://cdn.onekey.so/bundle-v5.zip',
+          sha256: 'abc',
+          fileSize: 2048,
+        },
+        updateStrategy: EUpdateStrategy.silent,
+      });
+      jest.spyOn(service, 'isNeedSyncAppUpdateInfo').mockResolvedValue(true);
+      jest.spyOn(service, 'refreshUpdateStatus').mockResolvedValue(undefined);
+      // The background cannot pull bytes; mid-session auto-download is driven
+      // by emitting StartAutoDownloadUpdate so the mounted foreground hook
+      // (useDownloadPackage) advances the status. Status stays at `notify`
+      // until the foreground picks it up.
+      const emitSpy = jest.spyOn(appEventBus, 'emit');
+
+      await service.fetchAppUpdateInfo(true);
+      expect(atomValue.status).toBe(EAppUpdateStatus.notify);
+
+      // Flush the deferred auto-download.
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(emitSpy).toHaveBeenCalledWith(
+        EAppEventBusNames.StartAutoDownloadUpdate,
+        { decision: 'jsBundleUpgrade' },
+      );
+      expect(atomValue.status).toBe(EAppUpdateStatus.notify);
+    });
+
+    test('auto-starts download for a seamless appShell upgrade discovered mid-session', async () => {
+      resetAtom({ status: EAppUpdateStatus.done, updateAt: 0 });
+      mockLatestInfo({
+        version: '2.0.0', // newer app version than installed '1.0.0'
+        downloadUrl: 'https://cdn.onekey.so/app-v2.zip',
+        updateStrategy: EUpdateStrategy.seamless,
+      });
+      jest.spyOn(service, 'isNeedSyncAppUpdateInfo').mockResolvedValue(true);
+      jest.spyOn(service, 'refreshUpdateStatus').mockResolvedValue(undefined);
+      const emitSpy = jest.spyOn(appEventBus, 'emit');
+
+      await service.fetchAppUpdateInfo(true);
+      expect(atomValue.status).toBe(EAppUpdateStatus.notify);
+
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(emitSpy).toHaveBeenCalledWith(
+        EAppEventBusNames.StartAutoDownloadUpdate,
+        { decision: 'appShellUpdate' },
+      );
+      expect(atomValue.status).toBe(EAppUpdateStatus.notify);
+    });
+
+    test('does NOT auto-start download for a manual upgrade (waits for user)', async () => {
+      resetAtom({ status: EAppUpdateStatus.done, updateAt: 0 });
+      mockLatestInfo({
+        version: '1.0.0',
+        jsBundleVersion: '5',
+        jsBundle: {
+          downloadUrl: 'https://cdn.onekey.so/bundle-v5.zip',
+          sha256: 'abc',
+          fileSize: 2048,
+        },
+        updateStrategy: EUpdateStrategy.manual,
+      });
+      jest.spyOn(service, 'isNeedSyncAppUpdateInfo').mockResolvedValue(true);
+      jest.spyOn(service, 'refreshUpdateStatus').mockResolvedValue(undefined);
+      const emitSpy = jest.spyOn(appEventBus, 'emit');
+
+      await service.fetchAppUpdateInfo(true);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(emitSpy).not.toHaveBeenCalledWith(
+        EAppEventBusNames.StartAutoDownloadUpdate,
+        expect.anything(),
+      );
+      expect(atomValue.status).toBe(EAppUpdateStatus.notify);
+    });
+
+    test('does NOT auto-start download when the target is frozen/ignored', async () => {
+      resetAtom({ status: EAppUpdateStatus.done, updateAt: 0 });
+      mockLatestInfo({
+        version: '1.0.0',
+        jsBundleVersion: '5',
+        jsBundle: {
+          downloadUrl: 'https://cdn.onekey.so/bundle-v5.zip',
+          sha256: 'abc',
+          fileSize: 2048,
+        },
+        updateStrategy: EUpdateStrategy.silent,
+      });
+      jest.spyOn(service, 'isNeedSyncAppUpdateInfo').mockResolvedValue(true);
+      jest.spyOn(service, 'refreshUpdateStatus').mockResolvedValue(undefined);
+      // Both the pre-notify freeze gate and the auto-download gate consult
+      // this; returning true keeps the upgrade out of `notify` entirely.
+      jest.spyOn(service, 'shouldSkipTargetByControl').mockResolvedValue(true);
+      const emitSpy = jest.spyOn(appEventBus, 'emit');
+
+      await service.fetchAppUpdateInfo(true);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(emitSpy).not.toHaveBeenCalledWith(
+        EAppEventBusNames.StartAutoDownloadUpdate,
+        expect.anything(),
+      );
+      expect(atomValue.status).not.toBe(EAppUpdateStatus.downloadPackage);
+    });
+
+    test('auto-starts download for a jsBundle rollback regardless of strategy', async () => {
+      resetAtom({ status: EAppUpdateStatus.done, updateAt: 0 });
+      mockLatestInfo({
+        version: '1.0.0', // same app version
+        jsBundleVersion: '0', // lower than installed bundleVersion '1' → rollback
+        jsBundle: {
+          downloadUrl: 'https://cdn.onekey.so/bundle-v0.zip',
+          sha256: 'abc',
+          fileSize: 2048,
+        },
+        updateStrategy: EUpdateStrategy.manual, // rollback ignores strategy
+      });
+      jest.spyOn(service, 'isNeedSyncAppUpdateInfo').mockResolvedValue(true);
+      jest.spyOn(service, 'refreshUpdateStatus').mockResolvedValue(undefined);
+      const emitSpy = jest.spyOn(appEventBus, 'emit');
+
+      await service.fetchAppUpdateInfo(true);
+      await jest.advanceTimersByTimeAsync(0);
+
+      expect(emitSpy).toHaveBeenCalledWith(
+        EAppEventBusNames.StartAutoDownloadUpdate,
+        { decision: 'jsBundleRollback' },
+      );
+      expect(atomValue.status).toBe(EAppUpdateStatus.notify);
     });
 
     test('jsBundle update clears stale storeUrl and downloadUrl from previous config', async () => {
@@ -2580,13 +2941,44 @@ describe('ServiceAppUpdate state transitions', () => {
       expect(atomValue.status).toBe(EAppUpdateStatus.notify);
     });
 
-    test('downloadASC is rejected from failed states', async () => {
+    test('downloadASC is rejected from downloadPackageFailed (package itself failed)', async () => {
+      // A failed package download must NOT short-cut to ASC — the package
+      // bytes aren't on disk. Only downloadPackage() can recover from this.
       resetAtom({
         status: EAppUpdateStatus.downloadPackageFailed,
         latestVersion: '2.0.0',
       });
       await service.downloadASC();
       expect(atomValue.status).toBe(EAppUpdateStatus.downloadPackageFailed);
+    });
+
+    test('downloadASC allows retry from downloadASCFailed (foreground resume)', async () => {
+      // Foreground-resume routes ASC-only failures back into downloadASC()
+      // so the already-downloaded package bytes are reused. The previous
+      // implementation rejected this transition and forced callers to
+      // funnel through downloadPackage(), which wiped downloadedEvent and
+      // re-downloaded the full package — wasted bandwidth, especially
+      // under repeated foreground churn or a permanent ASC 403/404.
+      resetAtom({
+        status: EAppUpdateStatus.downloadASCFailed,
+        latestVersion: '2.0.0',
+      });
+      await service.downloadASC();
+      expect(atomValue.status).toBe(EAppUpdateStatus.downloadASC);
+    });
+
+    test('downloadASC is rejected from other failed states', async () => {
+      for (const status of [
+        EAppUpdateStatus.verifyASCFailed,
+        EAppUpdateStatus.verifyPackageFailed,
+        EAppUpdateStatus.failed,
+        EAppUpdateStatus.updateIncomplete,
+      ]) {
+        resetAtom({ status, latestVersion: '2.0.0' });
+        // eslint-disable-next-line no-await-in-loop
+        await service.downloadASC();
+        expect(atomValue.status).toBe(status);
+      }
     });
 
     test('downloadASC is allowed from downloadPackage', async () => {

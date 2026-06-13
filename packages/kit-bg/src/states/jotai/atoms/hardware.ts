@@ -37,7 +37,11 @@ export type IHardwareUiPayload = {
   };
   // firmware update progress
   firmwareProgress?: number;
-  firmwareProgressType?: 'transferData' | 'installingFirmware';
+  firmwareProgressType?: string;
+  firmwareProgressTransferredBytes?: number;
+  firmwareProgressTotalBytes?: number;
+  firmwareProgressRateBytesPerSecond?: number;
+  firmwareProgressElapsedMs?: number;
   rawPayload: any;
   // request pin type
   requestPinType?: 'PinEntry' | 'AttachPin';
@@ -202,6 +206,33 @@ export const {
 } = globalAtom<IThirdPartyHardwareUiState | undefined>({
   initialValue: undefined,
   name: EAtomNames.thirdPartyHardwareUiStateAtom,
+});
+
+export type IThirdPartyAppInstallState = {
+  vendor: EHardwareVendor;
+  appName: string;
+  progress?: number;
+};
+
+export const {
+  target: thirdPartyAppInstallAtom,
+  use: useThirdPartyAppInstallAtom,
+} = globalAtom<IThirdPartyAppInstallState | undefined>({
+  initialValue: undefined,
+  name: EAtomNames.thirdPartyAppInstallAtom,
+});
+
+export type IThirdPartyBatchInstallState = {
+  queue: string[];
+  currentIndex: number;
+};
+
+export const {
+  target: thirdPartyBatchInstallAtom,
+  use: useThirdPartyBatchInstallAtom,
+} = globalAtom<IThirdPartyBatchInstallState | undefined>({
+  initialValue: undefined,
+  name: EAtomNames.thirdPartyBatchInstallAtom,
 });
 
 // firmware update ----------------------------------------------

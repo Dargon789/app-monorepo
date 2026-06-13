@@ -44,14 +44,12 @@ export default {
     // semantics. The React Native harness runs on-device Hermes, so keep them
     // on the normal Jest path instead of hanging the native runner.
     'packages/components/src/hooks/useNetInfo\\.test\\.tsx',
-    'packages/kit/src/components/UpdateReminder/hooks\\.test\\.ts',
+    'packages/kit/src/components/AppUpdate/useAppUpdate\\.test\\.ts',
+    'packages/kit/src/components/AppUpdate/AppUpdateForeground\\.test\\.tsx',
     'packages/kit/src/hooks/usePromiseResult\\.test\\.tsx',
     'packages/kit/src/provider/SplashProvider\\.test\\.ts',
     'packages/kit/src/states/jotai/contexts/earn/actions\\.test\\.tsx',
     'packages/kit/src/views/Discovery/hooks/useSearchModalData\\.test\\.tsx',
-    'packages/kit/src/views/Earn/hooks/useRecommendedRefreshTrigger/useRecommendedRefreshAppEvents\\.test\\.tsx',
-    'packages/kit/src/views/Earn/hooks/useRecommendedRefreshTrigger/useRecommendedRefreshScope\\.test\\.tsx',
-    'packages/kit/src/views/Earn/hooks/useRecommendedRefreshTrigger/useRecommendedRefreshSwapEvents\\.test\\.tsx',
     'packages/kit/src/views/Market/MarketDetailV2/components/InformationTabs/components/TransactionsHistory/hooks/useTransactionsWebSocket\\.test\\.ts',
     'packages/kit/src/views/Market/MarketDetailV2/components/SwapPanel/MarketSwapReviewDialog\\.test\\.tsx',
     'packages/kit/src/views/Market/MarketDetailV2/components/SwapPanel/MarketSwapReviewInitializer\\.test\\.tsx',

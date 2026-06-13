@@ -14,15 +14,16 @@ import {
 } from '@onekeyhq/shared/src/utils/perpsUtils';
 
 export function PerpCandles({
+  collapseChartExpandSignal,
   onTouchScroll,
 }: {
+  collapseChartExpandSignal?: number;
   onTouchScroll?: (deltaY: number) => void;
 }) {
   const [activeTradeInstrument] = useActiveTradeInstrumentAtom();
   const [currentAccount] = usePerpsActiveAccountAtom();
   const [{ reloadHook }] = usePerpsCandlesWebviewReloadHookAtom();
-  const enablePerpsTradingUi =
-    !platformEnv.isNative && !platformEnv.isWebMobile;
+  const enablePerpsTradingUi = false;
 
   const { displayPair, displayCoin } = useMemo(() => {
     if (
@@ -45,9 +46,11 @@ export function PerpCandles({
           webviewKey={reloadHook.toString()}
           userAddress={currentAccount?.accountAddress}
           enablePerpsTradingUi={enablePerpsTradingUi}
+          reloadOnSymbolChange={platformEnv.isNativeAndroid}
           symbol={activeTradeInstrument.coin}
           displayPair={displayPair}
           displayCoin={displayCoin}
+          collapseChartExpandSignal={collapseChartExpandSignal}
           w="100%"
           onTouchScroll={onTouchScroll}
         />

@@ -3,7 +3,7 @@ import { useCallback } from 'react';
 import { useIntl } from 'react-intl';
 
 import type { IPageNavigationProp, IXStackProps } from '@onekeyhq/components';
-import { Button, Dialog, YStack } from '@onekeyhq/components';
+import { Button, Dialog, SizableText, YStack } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import {
   OptionCard,
@@ -11,6 +11,8 @@ import {
 } from '@onekeyhq/kit/src/components/OptionCard';
 import { ReviewControl } from '@onekeyhq/kit/src/components/ReviewControl';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
+import { useBotWalletDeactivatedStatus } from '@onekeyhq/kit/src/hooks/useBotWalletDeactivatedStatus';
+import { useHomeBalanceState } from '@onekeyhq/kit/src/hooks/useHomeBalanceState';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
 import { useUserWalletProfile } from '@onekeyhq/kit/src/hooks/useUserWalletProfile';
 import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
@@ -19,6 +21,8 @@ import {
   useAllTokenListMapAtom,
   useTokenListStateAtom,
 } from '@onekeyhq/kit/src/states/jotai/contexts/tokenList';
+import { showBotWalletDisabledToast } from '@onekeyhq/kit/src/utils/botWalletDisabledToast';
+import { shouldBlockBotWalletReceive } from '@onekeyhq/kit/src/utils/botWalletStatusUtils';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import { defaultLogger } from '@onekeyhq/shared/src/logger/logger';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
@@ -34,6 +38,7 @@ import { openFiatCryptoUrl } from '@onekeyhq/shared/src/utils/openUrlUtils';
 import type { IToken } from '@onekeyhq/shared/types/token';
 
 import { useSupportNetworkId } from '../../../FiatCrypto/hooks';
+import { HomeTestIDs } from '../../testIDs';
 
 import { RawActions } from './RawActions';
 import { useWalletActionConfig } from './useWalletActionConfig';
@@ -44,7 +49,7 @@ import { WalletActionReceive } from './WalletActionReceive';
 import { WalletActionStaking } from './WalletActionStaking';
 import { WalletActionSwap } from './WalletActionSwap';
 
-import type { IActionCustomization } from './types';
+import type { IActionCustomization, IWalletActionType } from './types';
 
 function WalletActionSend({
   customization,
@@ -80,6 +85,16 @@ function WalletActionSend({
     return settings;
   }, [network?.id]).result;
   const { isSoftwareWalletOnlyUser } = useUserWalletProfile();
+
+  const { isBotWallet, isBotWalletDeactivated } = useBotWalletDeactivatedStatus(
+    {
+      walletId: wallet?.id,
+    },
+  );
+  const isBotWalletReceiveBlocked = shouldBlockBotWalletReceive({
+    isBotWallet,
+    isBotWalletDeactivated,
+  });
 
   const handleOnSend = useCallback(async () => {
     if (!network) return;
@@ -146,7 +161,12 @@ function WalletActionSend({
                   subtitle={intl.formatMessage({
                     id: ETranslations.receive_from_another_wallet_desc,
                   })}
+                  opacity={isBotWalletReceiveBlocked ? 0.5 : 1}
                   onPress={() => {
+                    if (isBotWalletReceiveBlocked) {
+                      showBotWalletDisabledToast('receive');
+                      return;
+                    }
                     logZeroGas('receive');
                     safeResolve(false);
                     void dialogRef.close();
@@ -162,7 +182,12 @@ function WalletActionSend({
                       id: ETranslations.global_buy,
                     })}
                     subtitle={<PaymentMethodBadges />}
+                    opacity={isBotWalletReceiveBlocked ? 0.5 : 1}
                     onPress={async () => {
+                      if (isBotWalletReceiveBlocked) {
+                        showBotWalletDisabledToast('addMoney');
+                        return;
+                      }
                       logZeroGas('buy');
                       safeResolve(false);
                       void dialogRef.close();
@@ -194,6 +219,7 @@ function WalletActionSend({
                   />
                 ) : null}
                 <Button
+                  testID={HomeTestIDs.walletActionsZeroGasContinueBtn}
                   variant="tertiary"
                   size="large"
                   mx="$0"
@@ -289,6 +315,7 @@ function WalletActionSend({
       params: {
         hideZeroBalanceTokens: true,
         keepDefaultZeroBalanceTokens: false,
+        showDeFiTokenSwitch: true,
         aggregateTokenSelectorScreen:
           EModalSignatureConfirmRoutes.TxSelectAggregateToken,
         title: intl.formatMessage({ id: ETranslations.global_select_crypto }),
@@ -368,6 +395,7 @@ function WalletActionSend({
     indexedAccount?.id,
     isSoftwareWalletOnlyUser,
     isBuySupported,
+    isBotWalletReceiveBlocked,
   ]);
 
   return (
@@ -382,15 +410,23 @@ function WalletActionSend({
       icon={customization?.icon}
       showButtonStyle={showButtonStyle}
       trackID="wallet-send"
+      testID={HomeTestIDs.sendButton}
     />
   );
 }
 
 function WalletActions({ ...rest }: IXStackProps) {
+  const intl = useIntl();
   const { config, getActionCustomization } = useWalletActionConfig();
+  const balanceState = useHomeBalanceState();
 
-  const renderActionComponent = (actionType: string) => {
-    const customization = getActionCustomization(actionType as any);
+  // True cold-start with no cached balance: render nothing rather than guess
+  // a state. Sticky fallback in `useHomeBalanceState` keeps subsequent account
+  // switches from re-entering this branch.
+  if (balanceState === 'unknown') return null;
+
+  const renderActionComponent = (actionType: IWalletActionType) => {
+    const customization = getActionCustomization(actionType);
 
     switch (actionType) {
       case 'send':
@@ -401,6 +437,7 @@ function WalletActions({ ...rest }: IXStackProps) {
             key="receive"
             customization={customization}
             useSelector
+            variant="home_full_row"
           />
         );
       case 'buy':
@@ -427,20 +464,53 @@ function WalletActions({ ...rest }: IXStackProps) {
     }
   };
 
+  const rawActionsLayout = {
+    justifyContent: 'flex-start',
+    gap: '$2.5',
+    $gtSm: {
+      flexDirection: 'row',
+      justifyContent: 'flex-start',
+      gap: '$2.5',
+    },
+  } as const;
+
+  if (balanceState === 'positive') {
+    return (
+      <RawActions {...rest} {...rawActionsLayout}>
+        {config.mainActions.map(renderActionComponent).filter(Boolean)}
+        <WalletActionMore />
+      </RawActions>
+    );
+  }
+
   return (
-    <RawActions
-      {...rest}
-      justifyContent="flex-start"
-      gap="$2.5"
-      $gtSm={{
-        flexDirection: 'row',
-        justifyContent: 'flex-start',
-        gap: '$2.5',
-      }}
-    >
-      {config.mainActions.map(renderActionComponent).filter(Boolean)}
-      <WalletActionMore />
-    </RawActions>
+    <YStack {...rest} gap="$3">
+      <SizableText size="$bodyMd" color="$textSubdued">
+        {intl.formatMessage({ id: ETranslations.add_money_to_get_started })}
+      </SizableText>
+      <RawActions {...rawActionsLayout}>
+        <WalletActionReceive
+          key="receive"
+          useSelector
+          variant="home_add_money"
+          renderTrigger={({ onPress, disabled }) => (
+            <Button
+              flex={1}
+              size="large"
+              variant="primary"
+              icon="PlusLargeOutline"
+              onPress={onPress}
+              disabled={disabled}
+              testID={HomeTestIDs.addMoneyButton}
+              $gtSm={{ flex: 0, alignSelf: 'flex-start', minWidth: 200 }}
+            >
+              {intl.formatMessage({ id: ETranslations.global_add_money })}
+            </Button>
+          )}
+        />
+        <WalletActionMore iconOnly />
+      </RawActions>
+    </YStack>
   );
 }
 

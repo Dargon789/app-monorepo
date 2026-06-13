@@ -1,6 +1,7 @@
 import type { IDApp } from '@onekeyhq/shared/types/discovery';
 
 import {
+  isWebUrlLikeSearchKeyword,
   mergeSearchResultsWithLocalData,
   rankSearchResultsChromeLike,
   searchTrendingDappsByKeyword,
@@ -775,7 +776,7 @@ describe('searchResultRanking', () => {
     ]);
   });
 
-  it('keeps a same-url dapp behind local history when it is not promoted', () => {
+  it('hides same-url history when the dapp is not promoted', () => {
     const result = mergeSearchResultsWithLocalData({
       keyword: 'aav',
       searchResult: [
@@ -809,10 +810,6 @@ describe('searchResultRanking', () => {
         title: item.title,
       })),
     ).toEqual([
-      {
-        type: 'history',
-        title: 'Aave - Open Source Liquidity Protocol',
-      },
       {
         type: 'dapp',
         title: 'AAVE',
@@ -952,6 +949,36 @@ describe('searchResultRanking', () => {
         url: 'https://remote.example',
       },
     ]);
+  });
+
+  it('does not crash when an exact url dapp payload is missing dappId', () => {
+    const exactUrlDappWithoutId = {
+      ...createDApp({
+        dappId: 'exact-url:https://api-v2.pendle.finance/dashboard/dashboard',
+        name: 'https://api-v2.pendle.finance/dashboard/dashboard',
+        url: 'https://api-v2.pendle.finance/dashboard/dashboard',
+        isExactUrl: true,
+      }),
+      dappId: undefined,
+    } as unknown as IDApp;
+
+    const result = mergeSearchResultsWithLocalData({
+      keyword: 'api-v2.pendle.finance',
+      searchResult: [exactUrlDappWithoutId],
+      rankingHistoryData: [],
+      bookmarkSearchData: [
+        createBookmark({
+          title: 'Pendle API',
+          url: 'https://api-v2.pendle.finance/core/docs',
+        }),
+      ],
+      historySearchData: [],
+    });
+
+    expect(result.map((item) => item.type)).toEqual(['dapp', 'bookmark']);
+    expect(result[0]?.url).toBe(
+      'https://api-v2.pendle.finance/dashboard/dashboard',
+    );
   });
 
   it('applies source priority as bookmark then history then trending then remote', () => {
@@ -1210,6 +1237,57 @@ describe('searchResultRanking', () => {
       {
         type: 'bookmark',
         url: 'https://app.uniswap.org/swap',
+      },
+    ]);
+  });
+
+  it('hides exact history duplicates while keeping history weight on dapps', () => {
+    const result = mergeSearchResultsWithLocalData({
+      keyword: 'swap',
+      searchResult: [
+        createDApp({
+          dappId: 'alpha',
+          name: 'Swap Alpha',
+          url: 'https://alpha.example',
+        }),
+        createDApp({
+          dappId: 'bravo',
+          name: 'Swap Bravo',
+          url: 'https://bravo.example',
+        }),
+      ],
+      rankingHistoryData: [
+        createHistory({
+          id: 'history-bravo',
+          title: 'Swap Bravo',
+          url: 'https://bravo.example',
+          createdAt: Date.now() - 1 * 60 * 60 * 1000,
+        }),
+      ],
+      bookmarkSearchData: [],
+      historySearchData: [
+        createHistory({
+          id: 'history-bravo',
+          title: 'Swap Bravo',
+          url: 'https://bravo.example',
+          createdAt: Date.now() - 1 * 60 * 60 * 1000,
+        }),
+      ],
+    });
+
+    expect(
+      result.map((item) => ({
+        type: item.type,
+        url: item.url,
+      })),
+    ).toEqual([
+      {
+        type: 'dapp',
+        url: 'https://bravo.example',
+      },
+      {
+        type: 'dapp',
+        url: 'https://alpha.example',
       },
     ]);
   });
@@ -1553,5 +1631,20 @@ describe('searchResultRanking', () => {
         'app.uniswap.org/swap?inputCurrency=ETH&outputCurrency=USDC&chain=ethereum',
       ),
     ).toBe(false);
+    expect(shouldSkipRemoteSearchByKeyword('6.6.6.6/'.repeat(20))).toBe(false);
+  });
+
+  it('detects URL-like search keywords without parsing invalid input', () => {
+    expect(isWebUrlLikeSearchKeyword('https://app.uniswap.org/swap')).toBe(
+      true,
+    );
+    expect(isWebUrlLikeSearchKeyword('app.uniswap.org/swap')).toBe(true);
+    expect(isWebUrlLikeSearchKeyword('http://localhost:3000')).toBe(true);
+    expect(isWebUrlLikeSearchKeyword('localhost:3000')).toBe(true);
+    expect(isWebUrlLikeSearchKeyword('6.6.6.6')).toBe(true);
+    expect(isWebUrlLikeSearchKeyword('6.6.6.6:8080/path')).toBe(true);
+    expect(isWebUrlLikeSearchKeyword('http://')).toBe(false);
+    expect(isWebUrlLikeSearchKeyword('https:// app.uniswap.org')).toBe(false);
+    expect(isWebUrlLikeSearchKeyword('search query')).toBe(false);
   });
 });

@@ -373,6 +373,7 @@ export function useDeviceConnect({
                   renderContent: (
                     <XStack gap="$2.5">
                       <Button
+                        testID="onboardingv2-package-alert-dialog-btn"
                         flex={1}
                         size="large"
                         $gtMd={{ size: 'medium' } as any}
@@ -383,6 +384,7 @@ export function useDeviceConnect({
                         })}
                       </Button>
                       <Button
+                        testID="onboardingv2-package-alert-dialog-btn"
                         flex={1}
                         variant="primary"
                         size="large"
@@ -436,6 +438,7 @@ export function useDeviceConnect({
           communication: getHardwareCommunicationTypeString(
             hardwareTransportType,
           ),
+          vendor: EHardwareVendor.onekey,
         },
         isSoftwareWalletOnlyUser,
       });

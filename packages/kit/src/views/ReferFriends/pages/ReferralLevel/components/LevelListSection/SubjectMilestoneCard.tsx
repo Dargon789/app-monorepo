@@ -2,7 +2,7 @@ import { BigNumber } from 'bignumber.js';
 import { useIntl } from 'react-intl';
 import { StyleSheet } from 'react-native';
 
-import { SizableText, Stack, XStack, YStack } from '@onekeyhq/components';
+import { SizableText, Stack, YStack } from '@onekeyhq/components';
 import { useCurrency } from '@onekeyhq/kit/src/components/Currency';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type { IInviteLevelUpgradeCondition } from '@onekeyhq/shared/src/referralCode/type';
@@ -32,33 +32,59 @@ function clampPct(pct: number) {
   return Math.min(100, Math.max(0, pct));
 }
 
+const BAR_HEIGHT = 6;
+const MILESTONE_DOT_SIZE = 8;
+const CURRENT_DOT_SIZE = 12;
+const MILESTONE_LABEL_SIDE_SWITCH_PCT = 50;
+
 function MilestoneLabel({
   pct,
   title,
   value,
   align,
+  boundaryPct,
 }: {
   pct: number;
   title: string;
   value: string;
   align: 'flex-start' | 'flex-end';
+  boundaryPct?: number;
 }) {
   const isStart = align === 'flex-start';
   const clamped = clampPct(pct);
+  const clampedBoundary =
+    boundaryPct === undefined ? undefined : clampPct(boundaryPct);
+  let positionProps: { left?: string; right?: string };
+  if (clampedBoundary === undefined) {
+    if (isStart) {
+      positionProps = { left: `${clamped}%` };
+    } else {
+      positionProps = { right: `${100 - clamped}%` };
+    }
+  } else if (isStart) {
+    positionProps = { left: `${clamped}%`, right: `${100 - clampedBoundary}%` };
+  } else {
+    positionProps = { left: `${clampedBoundary}%`, right: `${100 - clamped}%` };
+  }
+  const constrainedTextProps =
+    clampedBoundary === undefined
+      ? {}
+      : ({
+          numberOfLines: 1,
+          textAlign: isStart ? 'left' : 'right',
+          w: '100%',
+        } as const);
+
   return (
-    <YStack
-      position="absolute"
-      {...(isStart ? { left: `${clamped}%` } : { right: `${100 - clamped}%` })}
-      gap="$0.5"
-      ai={align}
-    >
-      <XStack ai="center" gap="$1">
-        <Stack w={6} h={6} borderRadius="$full" bg="$borderStrong" />
-        <SizableText size="$bodySm" color="$textSubdued">
-          {title}
-        </SizableText>
-      </XStack>
-      <SizableText size="$bodyMdMedium" color="$text">
+    <YStack position="absolute" {...positionProps} gap="$0.5" ai={align}>
+      <SizableText
+        size="$bodySm"
+        color="$textSubdued"
+        {...constrainedTextProps}
+      >
+        {title}
+      </SizableText>
+      <SizableText size="$bodyMdMedium" color="$text" {...constrainedTextProps}>
         {value}
       </SizableText>
     </YStack>
@@ -76,7 +102,12 @@ function ProgressBarWithMilestones({
 }) {
   const clampedCurrent = clampPct(currentPct);
   return (
-    <Stack h={6} bg="$neutral5" borderRadius="$full" position="relative">
+    <Stack
+      h={BAR_HEIGHT}
+      bg="$neutral5"
+      borderRadius="$full"
+      position="relative"
+    >
       <Stack
         position="absolute"
         left={0}
@@ -90,9 +121,10 @@ function ProgressBarWithMilestones({
         <Stack
           position="absolute"
           left={`${clampPct(maintainPct)}%`}
-          ml={-4}
-          w={8}
-          h={8}
+          ml={-MILESTONE_DOT_SIZE / 2}
+          top={-(MILESTONE_DOT_SIZE - BAR_HEIGHT) / 2}
+          w={MILESTONE_DOT_SIZE}
+          h={MILESTONE_DOT_SIZE}
           borderRadius="$full"
           bg="$bg"
           borderWidth={1}
@@ -103,9 +135,10 @@ function ProgressBarWithMilestones({
         <Stack
           position="absolute"
           left={`${clampPct(upgradePct)}%`}
-          ml={-4}
-          w={8}
-          h={8}
+          ml={-MILESTONE_DOT_SIZE / 2}
+          top={-(MILESTONE_DOT_SIZE - BAR_HEIGHT) / 2}
+          w={MILESTONE_DOT_SIZE}
+          h={MILESTONE_DOT_SIZE}
           borderRadius="$full"
           bg="$bg"
           borderWidth={1}
@@ -115,9 +148,10 @@ function ProgressBarWithMilestones({
       <Stack
         position="absolute"
         left={`${clampedCurrent}%`}
-        ml={-6}
-        w={12}
-        h={12}
+        ml={-CURRENT_DOT_SIZE / 2}
+        top={-(CURRENT_DOT_SIZE - BAR_HEIGHT) / 2}
+        w={CURRENT_DOT_SIZE}
+        h={CURRENT_DOT_SIZE}
         borderRadius="$full"
         bg="$iconSuccess"
         borderWidth={2}
@@ -149,9 +183,7 @@ export function SubjectMilestoneCard({
     : null;
 
   const upperBound = upgrade ?? maintain ?? current;
-  const safeUpper = upperBound.isZero()
-    ? new BigNumber(1)
-    : BigNumber.maximum(upperBound, current);
+  const safeUpper = upperBound.isZero() ? new BigNumber(1) : upperBound;
 
   const currentPct = current.dividedBy(safeUpper).multipliedBy(100).toNumber();
   const maintainPct = maintain
@@ -160,6 +192,22 @@ export function SubjectMilestoneCard({
   const upgradePct = upgrade
     ? upgrade.dividedBy(safeUpper).multipliedBy(100).toNumber()
     : null;
+  const clampedMaintainPct =
+    maintainPct === null ? null : clampPct(maintainPct);
+  const upgradeLabelBoundaryPct =
+    clampedMaintainPct !== null &&
+    upgradePct !== null &&
+    clampedMaintainPct >= MILESTONE_LABEL_SIDE_SWITCH_PCT
+      ? clampedMaintainPct
+      : undefined;
+  const maintainLabelAlign: 'flex-start' | 'flex-end' =
+    upgradePct !== null &&
+    clampedMaintainPct !== null &&
+    upgradeLabelBoundaryPct === undefined
+      ? 'flex-start'
+      : 'flex-end';
+  const maintainLabelBoundaryPct =
+    upgradeLabelBoundaryPct === undefined ? undefined : 0;
 
   const maintainTitle = intl.formatMessage({
     id: ETranslations.referral_level_milestone_retention,
@@ -213,7 +261,8 @@ export function SubjectMilestoneCard({
               pct={maintainPct}
               title={maintainTitle}
               value={formatFiatCompact(maintain)}
-              align={upgrade ? 'flex-start' : 'flex-end'}
+              align={maintainLabelAlign}
+              boundaryPct={maintainLabelBoundaryPct}
             />
           ) : null}
           {upgrade && upgradePct !== null ? (
@@ -222,6 +271,7 @@ export function SubjectMilestoneCard({
               title={upgradeTitle}
               value={formatFiatCompact(upgrade)}
               align="flex-end"
+              boundaryPct={upgradeLabelBoundaryPct}
             />
           ) : null}
         </Stack>

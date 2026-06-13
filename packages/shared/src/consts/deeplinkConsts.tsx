@@ -10,7 +10,9 @@ export enum EOneKeyDeepLinkPath {
   market_detail = 'market_detail',
   invite_share = 'invite_share',
   invited_by_friend = 'invited_by_friend',
+  redeem_bitcoin_voucher = 'redeem_bitcoin_voucher',
   cross_device_transfer = 'cross_device_transfer',
+  webview = 'webview',
 }
 export type IEOneKeyDeepLinkParams = {
   [EOneKeyDeepLinkPath.url_account]: {
@@ -28,12 +30,22 @@ export type IEOneKeyDeepLinkParams = {
     code: string;
     page?: string;
   };
+  [EOneKeyDeepLinkPath.redeem_bitcoin_voucher]: {
+    code?: string;
+  };
   [EOneKeyDeepLinkPath.cross_device_transfer]: {
     code?: string;
     server?: string;
     transferType?: EPrimeTransferDataType;
     botWalletId?: string;
     defaultTab?: 'qr-code' | 'enter-link';
+  };
+  [EOneKeyDeepLinkPath.webview]: {
+    url: string;
+    title?: string;
+    hideHeader?: '0' | '1';
+    /** Address bar is hidden by default; pass '1' to show it. */
+    showAddressBar?: '0' | '1';
   };
 };
 
