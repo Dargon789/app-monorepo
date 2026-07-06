@@ -57,6 +57,7 @@ import {
   getPerpsOrderBookTickOptionsWithCache,
   setPerpsOrderBookTickOptionsCache,
 } from '@onekeyhq/shared/src/utils/perpsOrderBookTickOptionsCache';
+import { classifyTpSlOrder } from '@onekeyhq/shared/src/utils/perpsTpSlUtils';
 import {
   findTokensByAlias,
   formatPriceToSignificantDigits,
@@ -99,7 +100,6 @@ import {
   perpsAllMidsAtom,
   perpsL2BookColdCacheAtom,
   perpsLedgerUpdatesAtom,
-  perpsOpenOrdersByCoinAtomCache,
   perpsTokenSearchAliasesAtom,
   perpsTwapHistoryAtom,
   perpsTwapSliceFillsAtom,
@@ -354,7 +354,9 @@ async function clearMatchedDepositOrders(
   }
 
   const perpDepositOrder = await perpsDepositOrderAtom.get();
-  const pendingOrders = perpDepositOrder.orders.filter((order) => order.toTxId);
+  const pendingOrders = perpDepositOrder.orders.filter(
+    (order) => order.toTxId && !order.keepForHistoryConfirmation,
+  );
   if (pendingOrders.length === 0) {
     return;
   }
@@ -622,7 +624,6 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
 
   private clearActiveAccountTransientData() {
     this.resetOpenOrdersByDexCache();
-    perpsOpenOrdersByCoinAtomCache.clear();
     this.canceledOrderIds.clear();
     this.canceledTwapIds.clear();
   }
@@ -1655,10 +1656,12 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
       {
         coin,
         spotUniverse,
+        force,
         requestId: existingRequestId,
       }: {
         coin: string;
         spotUniverse: ISpotUniverse | undefined;
+        force?: boolean;
         requestId?: number;
       },
     ) => {
@@ -1685,7 +1688,7 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
       }
       await backgroundApiProxy.serviceHyperliquid.cancelPendingActiveAssetChange();
       const currentSpotAsset = await spotActiveAssetAtom.get();
-      if (currentSpotAsset?.coin === coin) {
+      if (!force && currentSpotAsset?.coin === coin) {
         const currentMode = await tradingModeAtom.get();
         if (currentMode === 'spot') {
           const next = await this._buildActiveTradeInstrument('spot');
@@ -1825,6 +1828,7 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
         const result = await this.changeActiveSpotAsset.call(set, {
           coin: params.coin,
           spotUniverse,
+          force: params.force,
           requestId,
         });
         markPerpsColdStartPerf('action_switch_trade_instrument_end', {
@@ -1909,7 +1913,6 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
         }
         if (cleanupPlan.shouldClearOpenOrdersData) {
           this.resetOpenOrdersByDexCache();
-          perpsOpenOrdersByCoinAtomCache.clear();
           set(perpsActiveOpenOrdersAtom(), {
             accountAddress: undefined,
             openOrders: [],
@@ -2273,7 +2276,7 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
     });
     this.canceledOrderIds.clear();
     this.canceledTwapIds.clear();
-    await this.changeActiveAsset.call(set, { coin: 'ETH', force: true });
+    await this.changeActiveAsset.call(set, { coin: 'xyz:NVDA', force: true });
   });
 
   updateTradingForm = contextAtomMethod(
@@ -2435,6 +2438,7 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
                 slTriggerPx: formData.hasTpsl
                   ? formData.slTriggerPx
                   : undefined,
+                reduceOnly: formData.reduceOnly,
                 slippage,
               });
             return result;
@@ -3066,6 +3070,37 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
     },
   );
 
+  // Account params come from the React layer: perpsActiveAccountAtom reads null
+  // here under PerpsProviderMirror.
+  updateAccountAbstractionMode = contextAtomMethod(
+    async (
+      _,
+      _set,
+      params: {
+        userAccountId: string;
+        userAddress: string;
+        abstraction: 'unifiedAccount' | 'portfolioMargin';
+      },
+    ): Promise<void> => {
+      return withToast({
+        asyncFn: async () => {
+          await backgroundApiProxy.serviceHyperliquidExchange.setAbstractionWithUserWallet(
+            {
+              userAccountId: params.userAccountId,
+              userAddress: params.userAddress,
+              abstraction: params.abstraction,
+            },
+          );
+          await backgroundApiProxy.serviceHyperliquid.refreshUserAbstractionMode(
+            params.userAddress as HL.IHex,
+            params.abstraction,
+          );
+        },
+        actionType: EActionType.SET_ACCOUNT_MODE,
+      });
+    },
+  );
+
   ordersClose = contextAtomMethod(
     async (
       get,
@@ -3111,6 +3146,19 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
           if (!existing) {
             throw new OneKeyLocalError(`Order ${params.oid} not found`);
           }
+          // Dragging a TP/SL line moves its trigger price; modify in place as a
+          // trigger order so HL keeps its reduce-only / position-tpsl nature.
+          // Classify with the shared helper (same one the line builder uses to
+          // mark a line editable) so every draggable TP/SL — incl. 'Trigger'-
+          // prefixed position TP/SL — amends as a trigger with the correct
+          // market/limit nature instead of degrading to a limit order.
+          const tpSlClassification = classifyTpSlOrder(existing);
+          const trigger = tpSlClassification
+            ? {
+                isMarket: tpSlClassification.isMarket,
+                tpsl: tpSlClassification.kind,
+              }
+            : undefined;
           return backgroundApiProxy.serviceHyperliquidExchange.amendOrderPriceByOid(
             {
               coin: params.coin,
@@ -3119,6 +3167,7 @@ class ContextJotaiActionsHyperliquid extends ContextJotaiActionsBase {
               isBuy: existing.side === 'B',
               size: existing.sz,
               reduceOnly: existing.reduceOnly,
+              trigger,
             },
           );
         },
@@ -3594,6 +3643,8 @@ export function useHyperliquidActions() {
   const submitOrder = actions.submitOrder.use();
   const updateLeverage = actions.updateLeverage.use();
   const updateIsolatedMargin = actions.updateIsolatedMargin.use();
+  const updateAccountAbstractionMode =
+    actions.updateAccountAbstractionMode.use();
   const ordersClose = actions.ordersClose.use();
   const amendChartOrder = actions.amendChartOrder.use();
   const cancelChartOrder = actions.cancelChartOrder.use();
@@ -3667,6 +3718,7 @@ export function useHyperliquidActions() {
     submitOrder,
     updateLeverage,
     updateIsolatedMargin,
+    updateAccountAbstractionMode,
     ordersClose,
     amendChartOrder,
     cancelChartOrder,

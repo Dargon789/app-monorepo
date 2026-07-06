@@ -39,6 +39,7 @@ import { EEarnLabels } from '@onekeyhq/shared/types/staking';
 import { getBorrowTxTitle } from '../../../Borrow/borrowUtils';
 import { DAppSiteMark } from '../../../DAppConnection/components/DAppRequestLayout';
 import { useRiskDetection } from '../../../DAppConnection/hooks/useRiskDetection';
+import DeFiActionInfo from '../../components/DeFiActionInfo';
 import { TxConfirmActions } from '../../components/SignatureConfirmActions';
 import { TxAdvancedSettings } from '../../components/SignatureConfirmAdvanced';
 import { TxConfirmAlert } from '../../components/SignatureConfirmAlert';
@@ -214,7 +215,13 @@ function TxConfirm() {
       withFrozenBalance: true,
       withCheckInscription,
     });
-    const balance = tokenResp?.[0]?.balanceParsed;
+    // Coin-control txs can only spend the user-selected UTXOs, so treat the
+    // selected subtotal as the spendable balance. The account-level balance
+    // fetched above excludes find-address claimed UTXOs (never aggregated),
+    // which would otherwise read as 0 and falsely trip the insufficient
+    // native balance checks.
+    const balance =
+      transferPayload?.selectedUtxoTotalAmount ?? tokenResp?.[0]?.balanceParsed;
     updateNativeTokenInfo({
       isLoading: false,
       balance,
@@ -226,6 +233,7 @@ function TxConfirm() {
     accountId,
     networkId,
     settings.inscriptionProtection,
+    transferPayload?.selectedUtxoTotalAmount,
   ]);
 
   usePromiseResult(
@@ -421,6 +429,7 @@ function TxConfirm() {
           networkId={networkId}
           unsignedTxs={unsignedTxs}
         />
+        <DeFiActionInfo unsignedTxs={unsignedTxs} />
         {swapInfo ? <SwapInfo data={swapInfo} /> : null}
         {stakingInfo ? <StakingInfo data={stakingInfo} /> : null}
         <TxAdvancedSettings accountId={accountId} networkId={networkId} />

@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
 import { useIntl } from 'react-intl';
 
@@ -6,9 +6,10 @@ import {
   Image,
   SizableText,
   Stack,
-  Tooltip,
   XStack,
+  useMedia,
 } from '@onekeyhq/components';
+import { LazyTooltip } from '@onekeyhq/components/src/actions/LazyTooltip';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import platformEnv from '@onekeyhq/shared/src/platformEnv';
 import type { IMarketStockInfo } from '@onekeyhq/shared/types/marketV2';
@@ -72,7 +73,7 @@ const SubtitleBadge = memo(
     }
 
     return (
-      <Tooltip
+      <LazyTooltip
         renderTrigger={
           <Stack minWidth={0} flexShrink={1}>
             {badgeElement}
@@ -85,6 +86,69 @@ const SubtitleBadge = memo(
   },
 );
 SubtitleBadge.displayName = 'SubtitleBadge';
+
+// Localized name rendered as plain subdued text (no badge background).
+// Used in Market/Perps list rows: placed under the symbol on desktop and
+// before the volume on mobile.
+const SubtitleText = memo(
+  ({ subtitle, maxWidth }: { subtitle: string; maxWidth?: number }) => {
+    const { gtMd } = useMedia();
+    // Unified subtitle size across every Market/Perps list and selector row:
+    // 11px on desktop, 12px on mobile. Keep this the single source of truth so
+    // the localized name never diverges between lists.
+    const size = gtMd ? '$bodyXs' : '$bodySm';
+    const textRef = useRef<HTMLElement | null>(null);
+    const [isTruncated, setIsTruncated] = useState(false);
+
+    // On web the name is clipped via CSS ellipsis, so detect truncation by
+    // comparing the full content width against the clamped layout width.
+    const measureTruncation = useCallback(() => {
+      if (platformEnv.isNative) {
+        return;
+      }
+      const el = textRef.current;
+      if (el && typeof el.scrollWidth === 'number') {
+        setIsTruncated(el.scrollWidth > el.clientWidth + 1);
+      }
+    }, []);
+
+    // The View wrapper carries onLayout (not exposed on SizableText) so we can
+    // re-measure truncation whenever the row is laid out or resized.
+    const textElement = (
+      <Stack minWidth={0} flexShrink={1} onLayout={measureTruncation}>
+        <SizableText
+          // SizableText forwards its ref to the underlying DOM node on web, but
+          // the public prop types don't expose `ref`; attach it via spread so
+          // we can read scrollWidth/clientWidth for truncation detection.
+          {...({ ref: textRef } as object)}
+          size={size}
+          color="$textSubdued"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          minWidth={0}
+          maxWidth={maxWidth}
+          userSelect="none"
+        >
+          {subtitle}
+        </SizableText>
+      </Stack>
+    );
+
+    // Only show a hover tooltip on desktop when the name is actually cut off.
+    if (platformEnv.isNative || !isTruncated) {
+      return textElement;
+    }
+
+    return (
+      <LazyTooltip
+        placement="top"
+        renderContent={subtitle}
+        renderTrigger={textElement}
+      />
+    );
+  },
+);
+SubtitleText.displayName = 'SubtitleText';
 
 const StockIsOpenBadge = memo(({ stock }: { stock: IMarketStockInfo }) => {
   const intl = useIntl();
@@ -123,7 +187,7 @@ const StockIsOpenBadge = memo(({ stock }: { stock: IMarketStockInfo }) => {
   }
 
   return (
-    <Tooltip
+    <LazyTooltip
       hovering
       placement="bottom"
       renderContent={description}
@@ -150,7 +214,7 @@ const StockSourceLogo = memo(
 
     if (stock.title && !platformEnv.isNative) {
       return (
-        <Tooltip
+        <LazyTooltip
           hovering
           placement="top"
           renderContent={stock.title}
@@ -164,4 +228,10 @@ const StockSourceLogo = memo(
 );
 StockSourceLogo.displayName = 'StockSourceLogo';
 
-export { LeverageBadge, StockIsOpenBadge, StockSourceLogo, SubtitleBadge };
+export {
+  LeverageBadge,
+  StockIsOpenBadge,
+  StockSourceLogo,
+  SubtitleBadge,
+  SubtitleText,
+};

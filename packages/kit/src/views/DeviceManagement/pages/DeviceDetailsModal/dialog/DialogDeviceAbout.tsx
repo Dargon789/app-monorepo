@@ -13,9 +13,12 @@ import {
   useClipboard,
 } from '@onekeyhq/components';
 import { usePromiseResult } from '@onekeyhq/kit/src/hooks/usePromiseResult';
+import { getVendorProfile } from '@onekeyhq/shared/src/hardware/vendorProfile';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import deviceUtils from '@onekeyhq/shared/src/utils/deviceUtils';
+import thirdPartyDeviceUtils from '@onekeyhq/shared/src/utils/thirdPartyDeviceUtils';
 import type { IHwQrWalletWithDevice } from '@onekeyhq/shared/types/account';
+import { EHardwareVendor } from '@onekeyhq/shared/types/device';
 
 const VERSION_PLACEHOLDER = '--';
 
@@ -97,7 +100,7 @@ function DialogDeviceSpecsContent({ data }: { data: IHwQrWalletWithDevice }) {
       bleName: VERSION_PLACEHOLDER,
       bleVersion: VERSION_PLACEHOLDER,
       bootloaderVersion: VERSION_PLACEHOLDER,
-      firmwareVersion: undefined,
+      firmwareVersion: VERSION_PLACEHOLDER,
       serialNumber: VERSION_PLACEHOLDER,
       certifications: null,
     }),
@@ -109,27 +112,46 @@ function DialogDeviceSpecsContent({ data }: { data: IHwQrWalletWithDevice }) {
         return defaultDeviceInfo;
       }
 
-      const versions = await deviceUtils.getDeviceVersion({
-        device,
-        features: device.featuresInfo,
-      });
+      const profile = getVendorProfile(device.vendor ?? EHardwareVendor.onekey);
+      const versions = profile.isThirdParty
+        ? thirdPartyDeviceUtils.getDeviceVersion({
+            device,
+            features: device.featuresInfo,
+          })
+        : await deviceUtils.getDeviceVersion({
+            device,
+            features: device.featuresInfo,
+          });
 
-      const model = await deviceUtils.buildDeviceLabel({
-        features: device.featuresInfo,
-        buildModelName: true,
-      });
+      const features = device.featuresInfo as typeof device.featuresInfo & {
+        internal_model?: string;
+        model?: string;
+      };
+      const model = profile.isThirdParty
+        ? thirdPartyDeviceUtils.getDeviceModelName({
+            device,
+            features,
+            defaultDeviceName: profile.defaultDeviceName,
+          })
+        : await deviceUtils.buildDeviceLabel({
+            features: device.featuresInfo,
+            buildModelName: true,
+          });
 
-      const firmwareTypeLabel = await deviceUtils.getFirmwareTypeLabel({
-        features: device?.featuresInfo,
-        displayFormat: 'withSpace',
-      });
-      const displayFirmwareVersion = getDisplayVersion(
+      const firmwareTypeLabel = profile.isThirdParty
+        ? deviceUtils.getFirmwareTypeLabelByFirmwareType({
+            firmwareType: thirdPartyDeviceUtils.getFirmwareType({
+              features: device?.featuresInfo,
+            }),
+            displayFormat: 'withSpace',
+          })
+        : await deviceUtils.getFirmwareTypeLabel({
+            features: device?.featuresInfo,
+            displayFormat: 'withSpace',
+          });
+      const firmwareVersion = `${firmwareTypeLabel}${getDisplayVersion(
         versions?.firmwareVersion,
-      );
-      const firmwareVersion =
-        displayFirmwareVersion === VERSION_PLACEHOLDER
-          ? undefined
-          : `${firmwareTypeLabel}${displayFirmwareVersion}`;
+      )}`;
 
       return {
         model: model ?? VERSION_PLACEHOLDER,
@@ -138,7 +160,9 @@ function DialogDeviceSpecsContent({ data }: { data: IHwQrWalletWithDevice }) {
         bootloaderVersion: getDisplayVersion(versions?.bootloaderVersion),
         firmwareVersion,
         serialNumber:
-          deviceUtils.getDeviceSerialNoFromFeatures(device.featuresInfo) ??
+          (profile.isThirdParty
+            ? thirdPartyDeviceUtils.getSerialNo(device.featuresInfo)
+            : deviceUtils.getDeviceSerialNoFromFeatures(device.featuresInfo)) ??
           VERSION_PLACEHOLDER,
         certifications: [
           EDeviceType.Pro,
@@ -170,14 +194,12 @@ function DialogDeviceSpecsContent({ data }: { data: IHwQrWalletWithDevice }) {
         value={deviceInfo.serialNumber}
         hasCopy
       />
-      {deviceInfo.firmwareVersion ? (
-        <SpecItem
-          title={intl.formatMessage({
-            id: ETranslations.global_firmware,
-          })}
-          value={deviceInfo.firmwareVersion}
-        />
-      ) : null}
+      <SpecItem
+        title={intl.formatMessage({
+          id: ETranslations.global_firmware,
+        })}
+        value={deviceInfo.firmwareVersion}
+      />
       <SpecItem
         title={intl.formatMessage({
           id: ETranslations.global_bluetooth,

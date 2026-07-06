@@ -12,6 +12,7 @@ import {
   LazyLoadPage,
   LazyLoadRootTabPage,
 } from '../../../components/LazyLoadPage';
+import { RootTabLoadingFallback } from '../../../routes/Tab/RootTabLoadingFallback';
 import {
   getLoadedPerpsMobileTokenSelectorPage,
   loadPerpsMobileTokenSelectorPage,
@@ -22,7 +23,8 @@ const PerpTradersHistoryList = LazyLoadPage(
 );
 
 const PagePerp = LazyLoadRootTabPage(
-  () => import(/* webpackPrefetch: true */ '../pages/Perp'),
+  () => import('../pages/Perp'),
+  createElement(RootTabLoadingFallback, { tabRoute: ETabRoutes.Perp }),
 );
 const MobilePerpMarketPage = LazyLoadPage(
   () => import('../pages/MobilePerpMarket'),
@@ -46,6 +48,10 @@ const MobileSetTpslModal = LazyLoadPage(
 
 const MobileDepositWithdrawModal = LazyLoadPage(
   () => import('../components/TradingPanel/modals/DepositWithdrawModal'),
+);
+
+const MobileDepositSelectTokenModal = LazyLoadPage(
+  () => import('../components/TradingPanel/modals/DepositSelectTokenModal'),
 );
 
 const PerpsInviteeRewardModal = LazyLoadPage(
@@ -81,6 +87,10 @@ export const perpRouters: ITabSubNavigatorConfig<any, any>[] = [
   {
     name: EModalPerpRoutes.MobileDepositWithdrawModal,
     component: MobileDepositWithdrawModal,
+  },
+  {
+    name: EModalPerpRoutes.MobileDepositSelectToken,
+    component: MobileDepositSelectTokenModal,
   },
   {
     name: EModalPerpRoutes.PerpsInviteeRewardModal,
@@ -120,6 +130,10 @@ export const ModalPerpStack: IModalFlowNavigatorConfig<
   {
     name: EModalPerpRoutes.MobileDepositWithdrawModal,
     component: MobileDepositWithdrawModal,
+  },
+  {
+    name: EModalPerpRoutes.MobileDepositSelectToken,
+    component: MobileDepositSelectTokenModal,
   },
   {
     name: EModalPerpRoutes.PerpsInviteeRewardModal,

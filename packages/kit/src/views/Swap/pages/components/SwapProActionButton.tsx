@@ -13,6 +13,7 @@ import {
   useSwapProDirectionAtom,
   useSwapProInputAmountAtom,
   useSwapProSelectTokenAtom,
+  useSwapProTokenMarketDetailInfoAtom,
   useSwapProTradeTypeAtom,
   useSwapQuoteCurrentSelectAtom,
   useSwapSelectFromTokenAtom,
@@ -38,6 +39,7 @@ import {
   useSwapQuoteProgressState,
   useSwapZeroProviderQuoteCompleted,
 } from '../../hooks/useSwapState';
+import { isSelectedProStockMarketClosed } from '../../utils/swapProStockMarketClosed';
 
 const MAX_BUTTON_CHARS = 25;
 
@@ -143,7 +145,6 @@ interface ISwapProActionButtonProps {
   hasEnoughBalance: boolean;
   balanceLoading: boolean;
   supportSpeedSwap: boolean;
-  onlySupportCrossChain: boolean;
   isActionDisabled?: boolean;
 }
 
@@ -152,13 +153,19 @@ const SwapProActionButton = ({
   hasEnoughBalance,
   balanceLoading,
   supportSpeedSwap,
-  onlySupportCrossChain,
   isActionDisabled,
 }: ISwapProActionButtonProps) => {
   const intl = useIntl();
   const [swapProTradeType] = useSwapProTradeTypeAtom();
   const [swapProDirection] = useSwapProDirectionAtom();
   const [swapProSelectToken] = useSwapProSelectTokenAtom();
+  const [proTokenDetail] = useSwapProTokenMarketDetailInfoAtom();
+  // Stock market closed → trading is impossible even if a quote returns a price.
+  // Guard on the selected token so a stale Pro detail can't drive this state.
+  const stockMarketClosed = isSelectedProStockMarketClosed(
+    proTokenDetail,
+    swapProSelectToken,
+  );
   const [swapQuoteResult] = useSwapQuoteCurrentSelectAtom();
   const [swapProQuoteResult] = useSwapSpeedQuoteResultAtom();
   const swapProAccount = useSwapProAccount();
@@ -274,11 +281,7 @@ const SwapProActionButton = ({
   const [, setSwapFromInputAmount] = useSwapFromTokenAmountAtom();
 
   const handleJumpToSwapAction = useCallback(() => {
-    if (onlySupportCrossChain) {
-      void setSwapTypeSwitch(ESwapTabSwitchType.BRIDGE);
-    } else {
-      void setSwapTypeSwitch(ESwapTabSwitchType.SWAP);
-    }
+    void setSwapTypeSwitch(ESwapTabSwitchType.SWAP);
     if (swapProDirection === ESwapDirection.BUY) {
       if (
         equalTokenNoCaseSensitive({
@@ -319,7 +322,6 @@ const SwapProActionButton = ({
       });
     }
   }, [
-    onlySupportCrossChain,
     swapProDirection,
     swapProInputAmount,
     setSwapTypeSwitch,
@@ -379,7 +381,7 @@ const SwapProActionButton = ({
     if (!supportSpeedSwap) {
       originalDisabled = !!isActionDisabled || !hasEnoughBalance;
     }
-    return originalDisabled;
+    return originalDisabled || stockMarketClosed;
   }, [
     isActionDisabled,
     hasEnoughBalance,
@@ -388,6 +390,7 @@ const SwapProActionButton = ({
     balanceLoading,
     currentQuoteLoading,
     supportSpeedSwap,
+    stockMarketClosed,
   ]);
 
   const actionButtonText = useMemo(() => {
@@ -480,34 +483,30 @@ const SwapProActionButton = ({
     inputAmount,
   ]);
 
+  const isBuy = swapProDirection === ESwapDirection.BUY;
+  // Match the design-system accent (buy) / destructive (sell) buttons. The
+  // accent variant labels use $textInverse, destructive uses $textOnColor;
+  // childrenAsText is false, so the label color must be set explicitly.
+  const labelColor = isBuy ? '$textInverse' : '$textOnColor';
+
   return (
     <Button
       testID="swap-sub-value-btn"
       disabled={actionButtonDisabled}
       onPress={debouncedOnSwapProActionClick}
-      variant="primary"
+      variant={isBuy ? 'accent' : 'destructive'}
       size="small"
       childrenAsText={false}
-      color="$textOnColor"
       py={5}
-      backgroundColor={
-        swapProDirection === ESwapDirection.BUY
-          ? '$bgSuccessStrong'
-          : '$bgCriticalStrong'
-      }
     >
       <YStack alignItems="center">
-        <SizableText
-          size="$bodyMdMedium"
-          color="$textOnColor"
-          textAlign="center"
-        >
+        <SizableText size="$bodyMdMedium" color={labelColor} textAlign="center">
           {actionButtonText.resValue}
         </SizableText>
         {actionButtonText.subValue ? (
           <SizableText
             size="$bodyMdMedium"
-            color="$textOnColor"
+            color={labelColor}
             textAlign="center"
           >
             {actionButtonText.subValue}

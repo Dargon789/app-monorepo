@@ -11,10 +11,8 @@ import {
 import { AccountAvatar } from '@onekeyhq/kit/src/components/AccountAvatar';
 import { AccountSelectorCreateAddressButton } from '@onekeyhq/kit/src/components/AccountSelector/AccountSelectorCreateAddressButton';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
-import {
-  useAccountSelectorActions,
-  useActiveAccount,
-} from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import { useActiveAccount } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector';
+import { useAccountSelectorActions } from '@onekeyhq/kit/src/states/jotai/contexts/accountSelector/actions';
 import type {
   IDBAccount,
   IDBDevice,
@@ -376,6 +374,15 @@ export function AccountSelectorAccountListItem({
           <ListItem.Text
             {...textProps}
             flex={1}
+            // Without minWidth={0} the flex column keeps Yoga's default
+            // `min-width: auto`, so it can't shrink below the intrinsic width of
+            // its widest line (the value + address subtitle). On Android that
+            // forces the column to overflow and the name's numberOfLines={1}
+            // gets truncated against that inflated width — even short "Account #XX"
+            // names get cut off (OK-56318). iOS lays this out without the issue.
+            // Mirrors the working WebAccountPanelListItem pattern.
+            minWidth={0}
+            overflow="hidden"
             pr="$8"
             primary={
               <SizableText size="$bodyLg" numberOfLines={1}>

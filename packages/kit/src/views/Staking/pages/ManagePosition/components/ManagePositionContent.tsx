@@ -57,6 +57,7 @@ export interface IManagePositionContentProps {
   onTabChange?: (tab: 'deposit' | 'withdraw') => void;
   showApyDetail?: boolean;
   fallbackTokenImageUri?: string;
+  providerDisplayName?: string;
   providerLogoUri?: string;
   stakeProtocolSwitchConfig?: IManagePositionProtocolSwitchConfig;
   suppressPlatformBonus?: boolean;
@@ -121,6 +122,7 @@ export function ManagePositionContent({
   onTabChange,
   showApyDetail = false,
   fallbackTokenImageUri,
+  providerDisplayName,
   providerLogoUri,
   stakeProtocolSwitchConfig,
   suppressPlatformBonus,
@@ -161,20 +163,28 @@ export function ManagePositionContent({
     if (!protocolInfo) {
       return undefined;
     }
-    if (!providerLogoUri) {
+    if (!providerDisplayName && !providerLogoUri) {
       return protocolInfo;
     }
-    if (protocolInfo.providerDetail?.logoURI) {
+    const providerDetailName =
+      providerDisplayName || protocolInfo.providerDetail?.name;
+    const providerDetailLogoURI =
+      protocolInfo.providerDetail?.logoURI || providerLogoUri || '';
+    if (
+      providerDetailName === protocolInfo.providerDetail?.name &&
+      providerDetailLogoURI === protocolInfo.providerDetail?.logoURI
+    ) {
       return protocolInfo;
     }
     return {
       ...protocolInfo,
       providerDetail: {
         ...protocolInfo.providerDetail,
-        logoURI: providerLogoUri,
+        name: providerDetailName,
+        logoURI: providerDetailLogoURI,
       },
     };
-  }, [protocolInfo, providerLogoUri]);
+  }, [protocolInfo, providerDisplayName, providerLogoUri]);
 
   // Handle create address
   const handleCreateAddress = useCallback(async () => {
@@ -463,8 +473,9 @@ export function ManagePositionContent({
     );
   }
 
-  // USDe special rendering
-  if (symbol.toLowerCase() === 'usde') {
+  // USDe special rendering is for Earn/Staking manage pages. Borrow manage
+  // pages use the regular borrow action contract and do not return holdings.
+  if (!isBorrowType && symbol.toLowerCase() === 'usde') {
     // Show warning if needed (no address or BTC-only firmware)
     if (warningElement) {
       return <YStack px="$5">{warningElement}</YStack>;
@@ -496,7 +507,7 @@ export function ManagePositionContent({
   }
 
   // ADA special rendering (Stakefish provider)
-  if (symbol.toLowerCase() === 'ada') {
+  if (!isBorrowType && symbol.toLowerCase() === 'ada') {
     return (
       <AdaManageContent
         managePageData={managePageData}

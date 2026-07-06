@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { noop } from 'lodash';
 import { useIntl } from 'react-intl';
@@ -19,6 +26,7 @@ import {
   useSafeAreaInsets,
 } from '@onekeyhq/components';
 import { AccountSelectorProviderMirror } from '@onekeyhq/kit/src/components/AccountSelector';
+import { TRADING_VIEW_NATIVE_INDICATOR_QUICK_BAR_HEIGHT } from '@onekeyhq/kit/src/components/TradingView/TradingViewV2/components/TradingViewNativeChartControls';
 import { useMobileTabTouchScrollBridge } from '@onekeyhq/kit/src/hooks/useMobileTabTouchScrollBridge';
 import { EJotaiContextStoreNames } from '@onekeyhq/kit-bg/src/states/jotai/atoms';
 import {
@@ -46,7 +54,10 @@ import { useNetworkAccount } from '../components/InformationTabs/hooks/useNetwor
 import { MobileInformationTabs } from '../components/InformationTabs/layout/MobileInformationTabs';
 import { SwapPanelWrap } from '../components/SwapPanel/SwapPanelWrap';
 import { StockTokenOverview } from '../components/TokenOverview/StockTokenOverview';
-import { useTokenDetail } from '../hooks/useTokenDetail';
+import {
+  useMarketTradingViewParams,
+  useTokenDetail,
+} from '../hooks/useTokenDetail';
 
 function MobileTradingViewTouchBridge({
   tokenAddress,
@@ -54,20 +65,28 @@ function MobileTradingViewTouchBridge({
   tokenSymbol,
   dataSource,
   pageWidth,
+  onNativeIndicatorQuickBarChange,
   onIndicatorsDialogOpenChange,
+  onInteractionOverlayOpenChange,
 }: {
   tokenAddress: string;
   networkId: string;
   tokenSymbol: string;
   dataSource: 'websocket' | 'polling';
   pageWidth?: number;
+  onNativeIndicatorQuickBarChange: (quickBar: ReactNode | null) => void;
   onIndicatorsDialogOpenChange: (isOpen: boolean) => void;
+  onInteractionOverlayOpenChange: (isOpen: boolean) => void;
 }) {
   const indicatorsDialogOpenRef = useRef(false);
+  const interactionOverlayOpenRef = useRef(false);
   const handleTouchScroll = useMobileTabTouchScrollBridge();
   const handleTouchScrollWhenEnabled = useCallback(
     (deltaY: number) => {
-      if (indicatorsDialogOpenRef.current) {
+      if (
+        indicatorsDialogOpenRef.current ||
+        interactionOverlayOpenRef.current
+      ) {
         return;
       }
       handleTouchScroll(deltaY);
@@ -81,13 +100,22 @@ function MobileTradingViewTouchBridge({
     },
     [onIndicatorsDialogOpenChange],
   );
+  const handleInteractionOverlayOpenChange = useCallback(
+    (isOpen: boolean) => {
+      interactionOverlayOpenRef.current = isOpen;
+      onInteractionOverlayOpenChange(isOpen);
+    },
+    [onInteractionOverlayOpenChange],
+  );
 
   useEffect(() => {
     return () => {
       indicatorsDialogOpenRef.current = false;
+      interactionOverlayOpenRef.current = false;
       onIndicatorsDialogOpenChange(false);
+      onInteractionOverlayOpenChange(false);
     };
-  }, [onIndicatorsDialogOpenChange]);
+  }, [onIndicatorsDialogOpenChange, onInteractionOverlayOpenChange]);
 
   return (
     <MarketTradingView
@@ -97,7 +125,9 @@ function MobileTradingViewTouchBridge({
       dataSource={dataSource}
       pageWidth={pageWidth}
       onTouchScroll={handleTouchScrollWhenEnabled}
+      onNativeIndicatorQuickBarChange={onNativeIndicatorQuickBarChange}
       onIndicatorsDialogOpenChange={handleIndicatorsDialogOpenChange}
+      onInteractionOverlayOpenChange={handleInteractionOverlayOpenChange}
     />
   );
 }
@@ -107,10 +137,18 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
     tokenAddress,
     networkId,
     tokenDetail,
+    isNative,
     websocketConfig,
     isStockToken,
   } = useTokenDetail();
   const tokenSymbol = tokenDetail?.symbol;
+  const marketTradingViewParams = useMarketTradingViewParams({
+    tokenAddress,
+    networkId,
+    tokenDetail,
+    isNative,
+    websocketConfig,
+  });
   const intl = useIntl();
   const isBTCMainnet = networkUtils.isBTCMainnet(networkId);
 
@@ -166,6 +204,14 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
     isTradingViewIndicatorsDialogOpen,
     setIsTradingViewIndicatorsDialogOpen,
   ] = useState(false);
+  const [
+    isTradingViewInteractionOverlayOpen,
+    setIsTradingViewInteractionOverlayOpen,
+  ] = useState(false);
+  const [nativeIndicatorQuickBar, setNativeIndicatorQuickBar] =
+    useState<ReactNode | null>(null);
+  const isTradingViewScrollLocked =
+    isTradingViewIndicatorsDialogOpen || isTradingViewInteractionOverlayOpen;
   const secondTabTouchStartRef = useRef<{
     pageX: number;
     pageY: number;
@@ -213,11 +259,21 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
 
   useEffect(() => {
     setIsTradingViewIndicatorsDialogOpen(false);
+    setIsTradingViewInteractionOverlayOpen(false);
   }, [networkId, tokenAddress, tokenSymbol]);
 
   const handleIndicatorsDialogOpenChange = useCallback((isOpen: boolean) => {
     setIsTradingViewIndicatorsDialogOpen(isOpen);
   }, []);
+  const handleInteractionOverlayOpenChange = useCallback((isOpen: boolean) => {
+    setIsTradingViewInteractionOverlayOpen(isOpen);
+  }, []);
+  const handleNativeIndicatorQuickBarChange = useCallback(
+    (quickBar: ReactNode | null) => {
+      setNativeIndicatorQuickBar(() => quickBar);
+    },
+    [],
+  );
 
   const handleHeaderHorizontalSwipe = useCallback(
     (direction: 'left' | 'right') => {
@@ -244,6 +300,21 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
     }
     return 'calc(100vh - 96px - 74px - 250px)';
   }, [height]);
+
+  const tradingViewChartHeight = useMemo(() => {
+    if (
+      typeof tradingViewHeight === 'number' &&
+      nativeIndicatorQuickBar &&
+      platformEnv.isNative
+    ) {
+      return Math.max(
+        0,
+        tradingViewHeight - TRADING_VIEW_NATIVE_INDICATOR_QUICK_BAR_HEIGHT,
+      );
+    }
+
+    return tradingViewHeight;
+  }, [nativeIndicatorQuickBar, tradingViewHeight]);
 
   const handleSecondTabTouchStart = useCallback(
     (event: GestureResponderEvent) => {
@@ -299,10 +370,13 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
         </HeaderScrollGestureWrapper>
         <Stack position="relative">
           <HeaderScrollGestureWrapper
-            disabled={isTradingViewIndicatorsDialogOpen}
+            disabled={isTradingViewScrollLocked}
             panActiveOffsetY={[-4, 4]}
             panFailOffsetX={chartAreaPanFailOffsetX}
             excludeRightEdgeRatio={chartAreaExcludeRightEdgeRatio}
+            excludeBottomEdgeHeight={
+              TRADING_VIEW_NATIVE_INDICATOR_QUICK_BAR_HEIGHT
+            }
             scrollScale={1}
             onHorizontalSwipe={chartAreaHorizontalSwipeHandler}
             horizontalSwipeThreshold={24}
@@ -310,42 +384,52 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
             simultaneousWithNativeGesture
             cancelChildTouches={false}
           >
-            <Stack h={tradingViewHeight} overflow="hidden">
+            <Stack h={tradingViewChartHeight} overflow="hidden">
               {(() => {
-                if (!networkId || !tokenSymbol) {
+                if (!marketTradingViewParams) {
                   return null;
                 }
+
                 if (platformEnv.isNativeAndroid || platformEnv.isNativeIOS) {
+                  const tradingViewKey = [
+                    marketTradingViewParams.networkId,
+                    marketTradingViewParams.tokenAddress,
+                    marketTradingViewParams.tokenSymbol,
+                  ].join(':');
+
                   return (
                     <MobileTradingViewTouchBridge
-                      key={`${networkId}:${tokenAddress}:${tokenSymbol}`}
-                      tokenAddress={tokenAddress}
-                      networkId={networkId}
-                      tokenSymbol={tokenSymbol}
-                      dataSource={
-                        websocketConfig?.kline ? 'websocket' : 'polling'
-                      }
+                      key={tradingViewKey}
+                      tokenAddress={marketTradingViewParams.tokenAddress}
+                      networkId={marketTradingViewParams.networkId}
+                      tokenSymbol={marketTradingViewParams.tokenSymbol}
+                      dataSource={marketTradingViewParams.dataSource}
                       pageWidth={effectivePageWidth}
+                      onNativeIndicatorQuickBarChange={
+                        handleNativeIndicatorQuickBarChange
+                      }
                       onIndicatorsDialogOpenChange={
                         handleIndicatorsDialogOpenChange
+                      }
+                      onInteractionOverlayOpenChange={
+                        handleInteractionOverlayOpenChange
                       }
                     />
                   );
                 }
                 return (
                   <MarketTradingView
-                    tokenAddress={tokenAddress}
-                    networkId={networkId}
-                    tokenSymbol={tokenSymbol}
-                    dataSource={
-                      websocketConfig?.kline ? 'websocket' : 'polling'
-                    }
+                    tokenAddress={marketTradingViewParams.tokenAddress}
+                    networkId={marketTradingViewParams.networkId}
+                    tokenSymbol={marketTradingViewParams.tokenSymbol}
+                    dataSource={marketTradingViewParams.dataSource}
                     pageWidth={effectivePageWidth}
                   />
                 );
               })()}
             </Stack>
           </HeaderScrollGestureWrapper>
+          {nativeIndicatorQuickBar}
           {platformEnv.isNativeIOS ? (
             <View
               style={{
@@ -365,12 +449,12 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
     effectivePageWidth,
     handleHeaderHorizontalSwipe,
     handleIndicatorsDialogOpenChange,
-    isTradingViewIndicatorsDialogOpen,
-    networkId,
-    tokenAddress,
-    tokenSymbol,
-    tradingViewHeight,
-    websocketConfig?.kline,
+    handleInteractionOverlayOpenChange,
+    handleNativeIndicatorQuickBarChange,
+    isTradingViewScrollLocked,
+    marketTradingViewParams,
+    nativeIndicatorQuickBar,
+    tradingViewChartHeight,
   ]);
 
   const renderInformationHeader = useCallback(
@@ -386,6 +470,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
             <MobileInformationTabs
               onScrollEnd={noop}
               renderHeader={renderInformationHeader}
+              scrollEnabled={!isTradingViewScrollLocked}
               portfolioData={portfolioData}
               isRefreshing={isRefreshing}
               tokenLogoUrl={tokenDetail?.logoUrl}
@@ -415,6 +500,7 @@ export function MobileLayout({ disableTrade }: { disableTrade?: boolean }) {
     [
       height,
       renderInformationHeader,
+      isTradingViewScrollLocked,
       portfolioData,
       isRefreshing,
       tokenDetail?.logoUrl,

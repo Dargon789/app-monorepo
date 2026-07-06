@@ -25,7 +25,6 @@ import {
 } from '@onekeyhq/components';
 import backgroundApiProxy from '@onekeyhq/kit/src/background/instance/backgroundApiProxy';
 import { useDebounce } from '@onekeyhq/kit/src/hooks/useDebounce';
-import { useThemeVariant } from '@onekeyhq/kit/src/hooks/useThemeVariant';
 import {
   type ITradingFormData,
   type ITradingFormEmptySizeParams,
@@ -110,7 +109,7 @@ import {
   shouldSkipPerpsOrderPanelComputedSizeValidation,
 } from '../../utils/perpsOrderPanelEnableTrading';
 import { getScaleOrderValidationErrorMessage } from '../../utils/scaleOrderValidation';
-import { PERP_TRADE_BUTTON_COLORS } from '../../utils/styleUtils';
+import { getTradingButtonStyleValues } from '../../utils/styleUtils';
 
 import { showEnableTradingStepsDialog } from './modals/EnableTradingStepsDialog';
 import { showOrderConfirmDialog } from './modals/OrderConfirmModal';
@@ -125,6 +124,33 @@ interface ITradingButtonGroupProps {
   isMobile: boolean;
   isLiveStatusPending?: boolean;
   enableTradingModeOverride?: IPerpsOrderPanelEnableTradingMode;
+}
+
+function IpRestrictedSingleButton({ isMobile }: { isMobile: boolean }) {
+  const intl = useIntl();
+
+  return (
+    <YStack {...(!isMobile && { mt: '$4' })}>
+      <Button
+        testID="perp-ip-restricted-button"
+        size="medium"
+        disabled
+        childrenAsText={false}
+        borderRadius="$full"
+        variant="secondary"
+        disabledStyle={{ opacity: 1 }}
+        h={isMobile ? 46 : 44}
+        iconAfter="LockOutline"
+        iconColor="$iconSubdued"
+      >
+        <SizableText size="$bodyMdMedium" color="$textSubdued">
+          {intl.formatMessage({
+            id: ETranslations.trading_unavailable__action,
+          })}
+        </SizableText>
+      </Button>
+    </YStack>
+  );
 }
 
 interface ISideButtonProps {
@@ -222,6 +248,11 @@ const EstLiqPriceLeaf = memo(({ side }: { side: 'long' | 'short' }) => {
 });
 EstLiqPriceLeaf.displayName = 'EstLiqPriceLeaf';
 
+function getPerpSideButtonStyles(isLong: boolean) {
+  const styles = getTradingButtonStyleValues(isLong ? 'long' : 'short');
+  return styles;
+}
+
 function SideButtonInternal({
   side,
   isMobile,
@@ -233,7 +264,6 @@ function SideButtonInternal({
 }: ISideButtonProps) {
   const intl = useIntl();
   const layoutRef = useRef<IPerpsMobileLayoutTraceRect | undefined>(undefined);
-  const themeVariant = useThemeVariant();
   const [{ perpConfigCommon }] = usePerpsCommonConfigPersistAtom();
   const [perpsAccount] = usePerpsActiveAccountAtom();
   const [perpsAccountStatus] = usePerpsActiveAccountStatusAtom();
@@ -425,8 +455,6 @@ function SideButtonInternal({
       perpsAccountLoading.selectAccountLoading,
     ],
   );
-  const shouldShowButtonLoading = shouldDisableForAccountLoading;
-
   const hasNonColdStartDisabledReason = useMemo(
     () =>
       Boolean(
@@ -445,11 +473,11 @@ function SideButtonInternal({
   );
 
   const shouldPreserveDisabledButtonStyle =
+    isSubmitting ||
     shouldPreserveColdStartButtonVisualState({
       isLiveStatusPending,
       hasNonColdStartDisabledReason,
     });
-
   const buttonDisabled = useMemo(() => {
     return shouldDisablePerpsOrderPanelTradingButton({
       isTradingStatusDisabled,
@@ -536,10 +564,6 @@ function SideButtonInternal({
       return intl.formatMessage({
         id: ETranslations.Perps_BBO_unavailable,
       });
-    if (perpConfigCommon?.ipDisablePerp)
-      return intl.formatMessage({
-        id: ETranslations.perp_button_ip_restricted,
-      });
     if (perpConfigCommon?.disablePerpActionPerp)
       return intl.formatMessage({
         id: ETranslations.perp_button_disable_perp,
@@ -578,7 +602,6 @@ function SideButtonInternal({
     side,
     spotTradeSymbol,
     intl,
-    perpConfigCommon?.ipDisablePerp,
     perpConfigCommon?.disablePerpActionPerp,
     shouldEnableTradingBeforeOrder,
   ]);
@@ -1138,35 +1161,8 @@ function SideButtonInternal({
     ],
   );
 
-  const buttonStyles = useMemo(() => {
-    const colors = PERP_TRADE_BUTTON_COLORS;
-    const getBgColor = () => {
-      if (shouldShowButtonLoading) return undefined;
-      return themeVariant === 'light'
-        ? colors.light[isLong ? 'long' : 'short']
-        : colors.dark[isLong ? 'long' : 'short'];
-    };
-
-    const getHoverBgColor = () => {
-      if (shouldShowButtonLoading) return undefined;
-      return themeVariant === 'light'
-        ? colors.light[isLong ? 'longHover' : 'shortHover']
-        : colors.dark[isLong ? 'longHover' : 'shortHover'];
-    };
-
-    const getPressBgColor = () => {
-      if (shouldShowButtonLoading) return undefined;
-      return themeVariant === 'light'
-        ? colors.light[isLong ? 'longPress' : 'shortPress']
-        : colors.dark[isLong ? 'longPress' : 'shortPress'];
-    };
-
-    return {
-      bg: getBgColor(),
-      hoverBg: getHoverBgColor(),
-      pressBg: getPressBgColor(),
-    };
-  }, [isLong, shouldShowButtonLoading, themeVariant]);
+  const buttonStyles = getPerpSideButtonStyles(isLong);
+  const labelColor = buttonStyles.textColor;
 
   const handlePress = useDebouncedCallback(
     async (): Promise<void> => {
@@ -1421,6 +1417,52 @@ function SideButtonInternal({
     ),
     [intl],
   );
+  const actionButton = (() => {
+    return (
+      <Button
+        testID={isLong ? PerpTestIDs.LongButton : PerpTestIDs.ShortButton}
+        size="medium"
+        childrenAsText={false}
+        borderRadius="$4"
+        bg={buttonStyles.bg}
+        hoverStyle={!buttonDisabled ? { bg: buttonStyles.hoverBg } : undefined}
+        pressStyle={!buttonDisabled ? { bg: buttonStyles.pressBg } : undefined}
+        disabled={buttonDisabled}
+        disabledStyle={
+          shouldPreserveDisabledButtonStyle
+            ? { opacity: 1, bg: buttonStyles.bg }
+            : undefined
+        }
+        opacity={shouldPreserveDisabledButtonStyle ? 1 : undefined}
+        onPress={handlePress}
+        h={36}
+        py={!orderValue.isZero() && orderValue.isFinite() ? '$0.5' : undefined}
+      >
+        <YStack alignItems="center" gap={2}>
+          <SizableText
+            size="$bodyMdMedium"
+            lineHeight={18}
+            color={labelColor}
+            numberOfLines={1}
+          >
+            {buttonText}
+          </SizableText>
+
+          {buttonSecondaryText ? (
+            <SizableText
+              fontSize={11}
+              color={labelColor}
+              opacity={0.8}
+              lineHeight={11}
+              numberOfLines={1}
+            >
+              {buttonSecondaryText}
+            </SizableText>
+          ) : null}
+        </YStack>
+      </Button>
+    );
+  })();
 
   if (isMobile) {
     return (
@@ -1492,94 +1534,13 @@ function SideButtonInternal({
           </YStack>
         ) : null}
 
-        <Button
-          testID={isLong ? PerpTestIDs.LongButton : PerpTestIDs.ShortButton}
-          size="medium"
-          childrenAsText={false}
-          borderRadius="$4"
-          bg={buttonStyles.bg}
-          hoverStyle={
-            !buttonDisabled ? { bg: buttonStyles.hoverBg } : undefined
-          }
-          pressStyle={
-            !buttonDisabled ? { bg: buttonStyles.pressBg } : undefined
-          }
-          disabled={buttonDisabled}
-          disabledStyle={
-            shouldPreserveDisabledButtonStyle ? { opacity: 1 } : undefined
-          }
-          onPress={handlePress}
-          h={36}
-          py={
-            !orderValue.isZero() && orderValue.isFinite() ? '$0.5' : undefined
-          }
-        >
-          <YStack alignItems="center" gap={2}>
-            <SizableText
-              size="$bodyMdMedium"
-              lineHeight={18}
-              color="$textOnColor"
-              numberOfLines={1}
-            >
-              {buttonText}
-            </SizableText>
-
-            {buttonSecondaryText ? (
-              <SizableText
-                fontSize={11}
-                color="$textOnColor"
-                opacity={0.8}
-                lineHeight={11}
-                numberOfLines={1}
-              >
-                {buttonSecondaryText}
-              </SizableText>
-            ) : null}
-          </YStack>
-        </Button>
+        {actionButton}
       </YStack>
     );
   }
   return (
     <YStack gap="$2" flex={1} onLayout={handleLayout}>
-      <Button
-        testID={isLong ? PerpTestIDs.LongButton : PerpTestIDs.ShortButton}
-        size="medium"
-        childrenAsText={false}
-        borderRadius="$4"
-        bg={buttonStyles.bg}
-        hoverStyle={!buttonDisabled ? { bg: buttonStyles.hoverBg } : undefined}
-        pressStyle={!buttonDisabled ? { bg: buttonStyles.pressBg } : undefined}
-        disabled={buttonDisabled}
-        disabledStyle={
-          shouldPreserveDisabledButtonStyle ? { opacity: 1 } : undefined
-        }
-        onPress={handlePress}
-        h={36}
-        py={!orderValue.isZero() && orderValue.isFinite() ? '$0.5' : undefined}
-      >
-        <YStack alignItems="center" gap={2}>
-          <SizableText
-            size="$bodyMdMedium"
-            lineHeight={18}
-            color="$textOnColor"
-            numberOfLines={1}
-          >
-            {buttonText}
-          </SizableText>
-          {buttonSecondaryText ? (
-            <SizableText
-              fontSize={11}
-              color="$textOnColor"
-              opacity={0.8}
-              lineHeight={11}
-              numberOfLines={1}
-            >
-              {buttonSecondaryText}
-            </SizableText>
-          ) : null}
-        </YStack>
-      </Button>
+      {actionButton}
       {shouldShowCostAndLiqPrice ? (
         <YStack gap="$1.5">
           {/* <XStack justifyContent="space-between">
@@ -1641,7 +1602,6 @@ function EmptySizeSideButton({
 }: Omit<ISideButtonProps, 'handleConfirm' | 'marketDataFreshness'>) {
   const intl = useIntl();
   const layoutRef = useRef<IPerpsMobileLayoutTraceRect | undefined>(undefined);
-  const themeVariant = useThemeVariant();
   const [{ perpConfigCommon }] = usePerpsCommonConfigPersistAtom();
   const [perpsAccount] = usePerpsActiveAccountAtom();
   const [perpsAccountStatus] = usePerpsActiveAccountStatusAtom();
@@ -1696,9 +1656,6 @@ function EmptySizeSideButton({
     shouldDisableForAccountLoading &&
     !perpsAccountLoading.enableTradingTriggered &&
     !hasNonColdStartDisabledReason;
-  const shouldShowButtonLoading =
-    shouldDisableForAccountLoading &&
-    !shouldPreserveAccountLoadingButtonVisualState;
   const buttonDisabled =
     isLiveStatusPending ||
     shouldDisableForAccountLoading ||
@@ -1706,6 +1663,7 @@ function EmptySizeSideButton({
     isServerActionDisabled ||
     (!shouldEnableTradingBeforeOrder && !perpsAccountStatus.canTrade);
   const shouldPreserveDisabledButtonStyle =
+    isSubmitting ||
     shouldPreserveAccountLoadingButtonVisualState ||
     shouldPreserveColdStartButtonVisualState({
       isLiveStatusPending,
@@ -1722,10 +1680,6 @@ function EmptySizeSideButton({
   }, [activeTradeInstrument, isSpot]);
 
   const buttonText = useMemo(() => {
-    if (perpConfigCommon?.ipDisablePerp)
-      return intl.formatMessage({
-        id: ETranslations.perp_button_ip_restricted,
-      });
     if (perpConfigCommon?.disablePerpActionPerp)
       return intl.formatMessage({
         id: ETranslations.perp_button_disable_perp,
@@ -1761,40 +1715,12 @@ function EmptySizeSideButton({
     intl,
     isSpot,
     perpConfigCommon?.disablePerpActionPerp,
-    perpConfigCommon?.ipDisablePerp,
     side,
     spotTradeSymbol,
   ]);
 
-  const buttonStyles = useMemo(() => {
-    const colors = PERP_TRADE_BUTTON_COLORS;
-    const getBgColor = () => {
-      if (shouldShowButtonLoading) return undefined;
-      return themeVariant === 'light'
-        ? colors.light[isLong ? 'long' : 'short']
-        : colors.dark[isLong ? 'long' : 'short'];
-    };
-
-    const getHoverBgColor = () => {
-      if (shouldShowButtonLoading) return undefined;
-      return themeVariant === 'light'
-        ? colors.light[isLong ? 'longHover' : 'shortHover']
-        : colors.dark[isLong ? 'longHover' : 'shortHover'];
-    };
-
-    const getPressBgColor = () => {
-      if (shouldShowButtonLoading) return undefined;
-      return themeVariant === 'light'
-        ? colors.light[isLong ? 'longPress' : 'shortPress']
-        : colors.dark[isLong ? 'longPress' : 'shortPress'];
-    };
-
-    return {
-      bg: getBgColor(),
-      hoverBg: getHoverBgColor(),
-      pressBg: getPressBgColor(),
-    };
-  }, [isLong, shouldShowButtonLoading, themeVariant]);
+  const buttonStyles = getPerpSideButtonStyles(isLong);
+  const labelColor = buttonStyles.textColor;
 
   const requestEmptySizeEnableTrading = useCallback(
     async ({
@@ -1954,7 +1880,6 @@ function EmptySizeSideButton({
       trailing: false,
     },
   );
-
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
       if (!isMobile) {
@@ -1983,34 +1908,39 @@ function EmptySizeSideButton({
     ],
   );
 
-  const button = (
-    <Button
-      testID={isLong ? PerpTestIDs.LongButton : PerpTestIDs.ShortButton}
-      size="medium"
-      childrenAsText={false}
-      borderRadius="$4"
-      bg={buttonStyles.bg}
-      hoverStyle={!buttonDisabled ? { bg: buttonStyles.hoverBg } : undefined}
-      pressStyle={!buttonDisabled ? { bg: buttonStyles.pressBg } : undefined}
-      disabled={buttonDisabled}
-      disabledStyle={
-        shouldPreserveDisabledButtonStyle ? { opacity: 1 } : undefined
-      }
-      onPress={handlePress}
-      h={36}
-    >
-      <YStack alignItems="center" gap={2}>
-        <SizableText
-          size="$bodyMdMedium"
-          lineHeight={18}
-          color="$textOnColor"
-          numberOfLines={1}
-        >
-          {buttonText}
-        </SizableText>
-      </YStack>
-    </Button>
-  );
+  const button = (() => {
+    return (
+      <Button
+        testID={isLong ? PerpTestIDs.LongButton : PerpTestIDs.ShortButton}
+        size="medium"
+        childrenAsText={false}
+        borderRadius="$4"
+        bg={buttonStyles.bg}
+        hoverStyle={!buttonDisabled ? { bg: buttonStyles.hoverBg } : undefined}
+        pressStyle={!buttonDisabled ? { bg: buttonStyles.pressBg } : undefined}
+        disabled={buttonDisabled}
+        disabledStyle={
+          shouldPreserveDisabledButtonStyle
+            ? { opacity: 1, bg: buttonStyles.bg }
+            : undefined
+        }
+        opacity={shouldPreserveDisabledButtonStyle ? 1 : undefined}
+        onPress={handlePress}
+        h={36}
+      >
+        <YStack alignItems="center" gap={2}>
+          <SizableText
+            size="$bodyMdMedium"
+            lineHeight={18}
+            color={labelColor}
+            numberOfLines={1}
+          >
+            {buttonText}
+          </SizableText>
+        </YStack>
+      </Button>
+    );
+  })();
 
   if (isMobile) {
     return (
@@ -2184,6 +2114,7 @@ function TradingButtonGroupLive({
   enableTradingModeOverride,
 }: ITradingButtonGroupProps) {
   const [tradingMode] = useTradingModeAtom();
+  const [{ perpConfigCommon }] = usePerpsCommonConfigPersistAtom();
   const tradingSide = useTradingFormSide();
   const marketDataFreshness = usePerpsMarketDataFreshness();
   const liveHandleConfirmRef = useRef(noopHandleConfirm);
@@ -2193,6 +2124,10 @@ function TradingButtonGroupLive({
     [],
   );
   const isSpot = tradingMode === 'spot';
+
+  if (perpConfigCommon?.ipDisablePerp) {
+    return <IpRestrictedSingleButton isMobile={isMobile} />;
+  }
 
   const renderSideButtons = () => {
     if (isSpot) {
@@ -2276,8 +2211,13 @@ function TradingButtonGroupEmptySize({
   enableTradingModeOverride,
 }: ITradingButtonGroupProps) {
   const [tradingMode] = useTradingModeAtom();
+  const [{ perpConfigCommon }] = usePerpsCommonConfigPersistAtom();
   const tradingSide = useTradingFormSide();
   const isSpot = tradingMode === 'spot';
+
+  if (perpConfigCommon?.ipDisablePerp) {
+    return <IpRestrictedSingleButton isMobile={isMobile} />;
+  }
 
   const renderSideButtons = () => {
     if (isSpot) {

@@ -4,7 +4,9 @@ import type { EMarketBannerType } from '@onekeyhq/shared/types/marketV2';
 
 import { LazyLoadPage } from '../../../components/LazyLoadPage';
 
-const MarketDetailV2Modal = LazyLoadPage(() => import('../MarketDetailV2'));
+const MarketDetailV2Modal = LazyLoadPage(
+  () => import(/* webpackPrefetch: true */ '../MarketDetailV2'),
+);
 const MarketBannerDetailModal = LazyLoadPage(
   () => import('../MarketBannerDetail'),
 );
@@ -24,13 +26,18 @@ export type IModalMarketParamList = {
     tokenAddress: string;
     network: string;
     isNative?: boolean;
+    showFavoriteButton?: boolean;
   };
   [EModalMarketRoutes.MarketBannerDetail]: {
     tokenListId: string;
     title: string;
     type?: EMarketBannerType;
   };
-  [EModalMarketRoutes.MobileTokenSelector]: undefined;
+  [EModalMarketRoutes.MobileTokenSelector]:
+    | {
+        showFavoriteButton?: boolean;
+      }
+    | undefined;
 };
 
 export const ModalMarketStack: IModalFlowNavigatorConfig<

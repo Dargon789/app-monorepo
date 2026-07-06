@@ -18,19 +18,18 @@ import {
 } from '@onekeyhq/components';
 import { ListItem } from '@onekeyhq/kit/src/components/ListItem';
 import useAppNavigation from '@onekeyhq/kit/src/hooks/useAppNavigation';
-import {
-  useHyperliquidActions,
-  usePerpsOpenOrdersByCoin,
-} from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
+import { useHyperliquidActions } from '@onekeyhq/kit/src/states/jotai/contexts/hyperliquid';
 import { ETranslations } from '@onekeyhq/shared/src/locale';
 import type { INumberFormatProps } from '@onekeyhq/shared/src/utils/numberUtils';
 import { numberFormat } from '@onekeyhq/shared/src/utils/numberUtils';
+import { getTpSlKind } from '@onekeyhq/shared/src/utils/perpsTpSlUtils';
 import {
   getValidPriceDecimals,
   parseDexCoin,
 } from '@onekeyhq/shared/src/utils/perpsUtils';
 import type { IPerpsAssetPosition } from '@onekeyhq/shared/types/hyperliquid/sdk';
 
+import { usePerpsAccountScopedOpenOrdersByCoin } from '../../../hooks/usePerpsAccountScopedOpenOrdersByCoin';
 import { usePerpsMidPrice } from '../../../hooks/usePerpsMidPrice';
 import { useShowPositionShare } from '../../../hooks/useShowPositionShare';
 import { showAdjustPositionMarginDialog } from '../AdjustPositionMarginModal';
@@ -61,6 +60,9 @@ interface IAssetInfo {
   rawCoin: string;
   leverage: number | string;
   assetColor: string;
+  assetMarkerColor: string;
+  assetBadgeBgColor: string;
+  assetBadgeTextColor: string;
   leverageType: string;
 }
 
@@ -137,7 +139,7 @@ const PositionRowDesktopSymbolAndLeverage = memo(
               height={30}
               borderWidth={2}
               borderRadius={2}
-              borderColor={assetInfo.assetColor}
+              borderColor={assetInfo.assetMarkerColor}
             />
             <YStack>
               <SizableText
@@ -478,7 +480,7 @@ const PositionRowDesktopTPSL = memo(
     onViewTpslOrders: () => void;
   }) => {
     const intl = useIntl();
-    const currentAssetOpenOrders = usePerpsOpenOrdersByCoin(coin);
+    const currentAssetOpenOrders = usePerpsAccountScopedOpenOrdersByCoin(coin);
     const tpslInfo = useMemo(() => {
       const emptyPrice = '--';
       let tpPrice = emptyPrice;
@@ -488,10 +490,13 @@ const PositionRowDesktopTPSL = memo(
 
       currentAssetOpenOrders.forEach((order) => {
         if (order.isPositionTpsl) {
-          if (order.orderType.startsWith('Take')) {
+          // Reuse the shared classifier so 'Trigger'-form position TP/SL (whose
+          // orderType is not Take/Stop-prefixed) is recognized here too, instead
+          // of showing --/-- while the chart line renders fine.
+          const kind = getTpSlKind(order);
+          if (kind === 'tp') {
             tpPrice = order.triggerPx;
-          }
-          if (order.orderType.startsWith('Stop')) {
+          } else if (kind === 'sl') {
             slPrice = order.triggerPx;
           }
         } else {
@@ -530,8 +535,8 @@ const PositionRowDesktopTPSL = memo(
 
               <SizableText
                 hoverStyle={{ size: '$bodySmMedium' }}
-                color="$green11"
-                size="$bodySm"
+                color="$bgAccent"
+                size="$bodySmMedium"
                 onPress={onViewTpslOrders}
                 cursor="default"
               >
@@ -590,9 +595,8 @@ const PositionRowDesktopActions = memo(
           <XStack onPress={() => onClosePosition('market')} cursor="default">
             <SizableText
               hoverStyle={{ size: '$bodySmMedium', fontWeight: 600 }}
-              color="$green11"
-              size="$bodySm"
-              fontWeight={400}
+              color="$bgAccent"
+              size="$bodySmMedium"
             >
               {intl.formatMessage({
                 id: ETranslations.perp_position_market,
@@ -602,9 +606,8 @@ const PositionRowDesktopActions = memo(
           <XStack onPress={() => onClosePosition('limit')} cursor="default">
             <SizableText
               hoverStyle={{ size: '$bodySmMedium', fontWeight: 600 }}
-              color="$green11"
-              size="$bodySm"
-              fontWeight={400}
+              color="$bgAccent"
+              size="$bodySmMedium"
             >
               {intl.formatMessage({
                 id: ETranslations.perp_position_limit,
@@ -774,9 +777,12 @@ const PositionRowMobileHeader = memo(
             justifyContent="center"
             alignItems="center"
             borderRadius={2}
-            backgroundColor={assetInfo.assetColor}
+            backgroundColor={assetInfo.assetBadgeBgColor}
           >
-            <SizableText size="$bodySmMedium" color="$textOnColor">
+            <SizableText
+              size="$bodySmMedium"
+              color={assetInfo.assetBadgeTextColor}
+            >
               {side === 'long'
                 ? intl.formatMessage({
                     id: ETranslations.perp_position_b,
@@ -836,7 +842,9 @@ const PositionRowMobilePnLAndROE = memo(
         </YStack>
         <YStack gap="$1" alignItems="flex-end">
           <SizableText size="$bodySm" color="$textSubdued">
-            ROE
+            {intl.formatMessage({
+              id: ETranslations.perp_share_roe,
+            })}
           </SizableText>
           <SizableText size="$bodyMdMedium" color={otherInfo.pnlColor}>
             {`${otherInfo.pnlPlusOrMinus}${otherInfo.roiPercent}%`}
@@ -1071,7 +1079,7 @@ PositionRowMobileFunding.displayName = 'PositionRowMobileFunding';
 
 const PositionRowMobileTPSL = memo(({ coin }: { coin: string }) => {
   const intl = useIntl();
-  const currentAssetOpenOrders = usePerpsOpenOrdersByCoin(coin);
+  const currentAssetOpenOrders = usePerpsAccountScopedOpenOrdersByCoin(coin);
   const tpslInfo = useMemo(() => {
     const emptyPrice = '--';
     let tpPrice = emptyPrice;
@@ -1079,10 +1087,12 @@ const PositionRowMobileTPSL = memo(({ coin }: { coin: string }) => {
     // Mobile only displays price, doesn't need showOrder logic
     currentAssetOpenOrders.forEach((order) => {
       if (order.isPositionTpsl) {
-        if (order.orderType.startsWith('Take')) {
+        // Same shared classifier as desktop so 'Trigger'-form position TP/SL
+        // is recognized instead of showing --/--.
+        const kind = getTpSlKind(order);
+        if (kind === 'tp') {
           tpPrice = order.triggerPx;
-        }
-        if (order.orderType.startsWith('Stop')) {
+        } else if (kind === 'sl') {
           slPrice = order.triggerPx;
         }
       }
@@ -1352,6 +1362,9 @@ const PositionRow = memo(
         rawCoin: pos.coin,
         leverage: pos.leverage?.value ?? '',
         assetColor: side === 'long' ? '$green11' : '$red11',
+        assetMarkerColor: side === 'long' ? '$bgAccent' : '$bgCriticalStrong',
+        assetBadgeBgColor: side === 'long' ? '$bgAccent' : '$bgCriticalStrong',
+        assetBadgeTextColor: side === 'long' ? '$textInverse' : '$textOnColor',
         leverageType,
       };
     }, [intl, pos.coin, pos.leverage?.type, pos.leverage?.value, side]);

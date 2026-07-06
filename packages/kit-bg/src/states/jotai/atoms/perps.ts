@@ -351,8 +351,11 @@ export const {
       mode === EHyperLiquidAbstractionMode.PORTFOLIO_MARGIN;
 
     if (isUnified) {
-      // Unified/portfolio: all values from spotState
-      // Per HL docs: "Individual perp dex user states are not meaningful"
+      // Unified/portfolio: account value + withdrawable come from spotState. The
+      // per-dex perp clearinghouse summaries (incl. the summed summary.withdrawable)
+      // are not meaningful when collateral is shared, and HL's true PM withdrawable
+      // is health-factor-capped — a value absent from every feed we fetch. So both
+      // modes fall back to the spot-side USDC proxy; do not swap in summary.withdrawable.
       if (activeSpotData?.spotTotalUsd === undefined) {
         // Spot data not yet loaded: return undefined for skeleton screen
         return {
@@ -361,7 +364,6 @@ export const {
           isLoading: true,
         };
       }
-      // Withdrawable = USDC available (total - hold)
       const usdcBalance = activeSpotData.balances?.find((b) => b.token === 0);
       const usdcWithdrawable = usdcBalance
         ? new BigNumber(usdcBalance.total).minus(usdcBalance.hold).toFixed()
@@ -562,12 +564,15 @@ export const {
       accountUtils.isHdAccount({ accountId }) ||
       accountUtils.isImportedAccount({ accountId });
     const isHardwareAccount = accountUtils.isHwAccount({ accountId });
+    const shouldUseOrderPanelEnableTradingDialog =
+      isHardwareAccount || !isSoftwareAccount;
 
     return {
       isSoftwareAccount,
       isHardwareAccount,
       canAutoEnableInOrderPanel: isSoftwareAccount,
-      requiresEnableTradingDialogInOrderPanel: isHardwareAccount,
+      requiresEnableTradingDialogInOrderPanel:
+        shouldUseOrderPanelEnableTradingDialog,
       requiresExplicitEnableTrading: !isSoftwareAccount,
     };
   },
@@ -666,7 +671,7 @@ export const { target: perpsActiveAssetAtom, use: usePerpsActiveAssetAtom } =
     name: EAtomNames.perpsActiveAssetAtom,
     persist: true,
     initialValue: {
-      coin: 'ETH',
+      coin: 'xyz:NVDA',
       assetId: undefined,
       universe: undefined,
       margin: undefined,
@@ -779,6 +784,8 @@ export const {
     field: 'volume24h',
     direction: 'desc',
     activeTab: DEFAULT_PERP_TOKEN_ACTIVE_TAB,
+    sortSource: 'default',
+    sortSourceTab: undefined,
   },
 });
 
@@ -887,6 +894,8 @@ export interface IPerpsDepositToken {
 export interface IPerpsDepositTokensAtom {
   tokens: Record<string, IPerpsDepositToken[]>;
   currentPerpsDepositSelectedToken?: IPerpsDepositToken;
+  depositTokenListOwnerKey?: string;
+  depositTokenListRevision?: number;
 }
 export const {
   target: perpsDepositTokensAtom,
@@ -907,7 +916,10 @@ export interface IPerpsDepositOrderAtom {
   status: ESwapTxHistoryStatus;
   accountId?: string | null;
   indexedAccountId?: string | null;
+  perpsAccountAddress?: string;
+  perpsDeriveType?: IAccountDeriveTypes;
   time?: number;
+  keepForHistoryConfirmation?: boolean;
 }
 
 export const { target: perpsDepositOrderAtom, use: usePerpsDepositOrderAtom } =
@@ -1097,6 +1109,14 @@ export const { target: perpsLayoutStateAtom, use: usePerpsLayoutStateAtom } =
     persist: true,
     initialValue: DEFAULT_PERPS_LAYOUT_STATE,
   });
+
+export const {
+  target: perpsPendingInfoPanelTabAtom,
+  use: usePerpsPendingInfoPanelTabAtom,
+} = globalAtom<'Positions' | 'Balances' | undefined>({
+  name: EAtomNames.perpsPendingInfoPanelTabAtom,
+  initialValue: undefined,
+});
 
 // #region Footer Ticker
 export type IPerpsFooterTickerMode = 'popular' | 'favorites' | 'none';

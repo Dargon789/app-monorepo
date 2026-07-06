@@ -18,6 +18,13 @@ export interface IBtcMetadata {
   stale: boolean;
 }
 
+export interface IMarketTokenHistoricalPriceFields {
+  price5mAgo?: string;
+  price1hAgo?: string;
+  price4hAgo?: string;
+  price24hAgo?: string;
+}
+
 export interface IMarketTokenDetail {
   networkId?: string;
   isNative?: boolean;
@@ -120,6 +127,26 @@ export interface IMarketTokenDetail {
   [key: string]: unknown;
 }
 
+export interface IMarketTokenDetailPreview {
+  address: string;
+  networkId: string;
+  isNative?: boolean;
+  name: string;
+  symbol: string;
+  decimals: number;
+  price?: number;
+  change24h?: number;
+  marketCap?: number;
+  liquidity?: number;
+  holders?: number;
+  turnover?: number;
+  tokenImageUri?: string;
+  tokenImageUris?: string[];
+  communityRecognized?: boolean;
+  stock?: IMarketStockInfo;
+  selectedAt: number;
+}
+
 export interface IMarketChain {
   networkId: string;
   name: string;
@@ -175,7 +202,7 @@ export interface IMarketStockInfo {
   underlyingAssetName?: string;
 }
 
-export interface IMarketTokenListItem {
+export interface IMarketTokenListItem extends IMarketTokenHistoricalPriceFields {
   address: string;
   logoUrl?: string;
   logoUrls?: string[];

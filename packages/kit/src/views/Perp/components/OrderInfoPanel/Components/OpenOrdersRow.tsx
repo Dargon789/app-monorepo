@@ -243,6 +243,8 @@ const OpenOrdersRow = memo(
         <ListItem
           flex={1}
           mt="$1.5"
+          mx="$0"
+          px="$4"
           flexDirection="column"
           alignItems="flex-start"
         >
@@ -565,10 +567,9 @@ const OpenOrdersRow = memo(
             cursor="default"
           >
             <SizableText
-              color="$green11"
+              color="$bgAccent"
               hoverStyle={{ size: '$bodySmMedium', fontWeight: 600 }}
-              size="$bodySm"
-              fontWeight={400}
+              size="$bodySmMedium"
               onPress={handleCancelOrder}
             >
               {intl.formatMessage({
