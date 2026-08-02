@@ -36,7 +36,7 @@
     "eas-build-post-install": "echo $KEY_SECRET | base64 -d > ../../node_modules/@onekeyfe/react-native-lite-card/keys/keys.secret"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0",
+    "@babel/core": "^8.0.1",
     "@gorhom/bottom-sheet": "5.2.14",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native/metro-config": "0.81.5",
@@ -184,7 +184,7 @@
     "realm": "20.2.0",
     "realm-flipper-plugin-device": "^1.1.0",
     "stream-http": "^3.2.0",
-    "uuid": "^3.0.0"
+    "uuid": "^14.0.1"
   },
   "workspaces": {
     "installConfig": {
